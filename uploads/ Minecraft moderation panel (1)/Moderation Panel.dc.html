@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Manrope',system-ui,sans-serif;background:var(--bg);color:var(--text);
+--bg:#0E1116;--surface:#151A21;--raised:#1C222C;--line:rgba(255,255,255,.07);--soft:rgba(255,255,255,.045);
+--text:#E9EDF3;--muted:#8B95A5;--accent:#6470F3;--ok:#3DC98B;--warn:#E8A33D;--danger:#EF6461;--violet:#8B7CF6;
+--shadow:0 10px 30px rgba(0,0,0,.35);--shadow-lg:0 24px 64px rgba(0,0,0,.5)}
+body.light{--bg:#F1F2F6;--surface:#FFFFFF;--raised:#F5F6FA;--line:rgba(20,28,45,.09);--soft:rgba(20,28,45,.045);
+--text:#1B2330;--muted:#5D6878;--shadow:0 8px 24px rgba(25,35,60,.08);--shadow-lg:0 24px 64px rgba(25,35,60,.18)}
+a{color:var(--accent);text-decoration:none}a:hover{color:var(--text)}
+input,textarea,button,select{font-family:inherit}
+::placeholder{color:var(--muted);opacity:.7}
+@keyframes mp-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes mp-spin{to{transform:rotate(360deg)}}
+@keyframes mp-slide{from{transform:translateX(40px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes mp-pop{from{transform:scale(.96) translateY(8px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
+@keyframes mp-toast{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes mp-fade{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+
+<sc-if value="{{ isLogin }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Login" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px">
+  <div style="width:380px;max-width:100%;display:flex;flex-direction:column;gap:22px;animation:mp-pop .35s ease">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:14px">
+      <div style="width:52px;height:52px;border-radius:16px;background:var(--accent);display:grid;place-items:center">
+        <div style="width:18px;height:18px;background:#fff;border-radius:5px;transform:rotate(45deg)"></div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:800;letter-spacing:-.02em">Instellar</div>
+        <div style="font-size:13.5px;color:var(--muted);margin-top:4px">Sign in to the moderation panel</div>
+      </div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:26px;display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow)">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:12.5px;font-weight:600;color:var(--muted)">Username</label>
+        <input value="{{ loginUser }}" onChange="{{ onLoginUser }}" placeholder="Username" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:12.5px;font-weight:600;color:var(--muted)">Password</label>
+        <input type="password" value="{{ loginPw }}" onChange="{{ onLoginPw }}" onKeyDown="{{ loginKey }}" placeholder="Password" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
+      </div>
+      <sc-if value="{{ loginError }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:8px;background:color-mix(in srgb, var(--danger) 10%, transparent);border-radius:11px;padding:10px 13px">
+          <span style="width:7px;height:7px;border-radius:99px;background:var(--danger);flex:none"></span>
+          <span style="font-size:12.5px;font-weight:600;color:var(--danger)">{{ loginError }}</span>
+        </div>
+      </sc-if>
+      <button onClick="{{ login }}" style="margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:12px;padding:13px;font-size:14.5px;font-weight:700;cursor:pointer;transition:transform .1s, filter .15s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">Sign in</button>
+      <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px"><div style="flex:1;height:1px;background:var(--line)"></div>or<div style="flex:1;height:1px;background:var(--line)"></div></div>
+      <button onClick="{{ ssoClick }}" style="background:var(--raised);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s, transform .1s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Continue with SSO</button>
+    </div>
+    <div style="text-align:center;font-size:12.5px;color:var(--muted)">Staff access only · contact an admin for an account</div>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isApp }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;min-height:100vh;background:var(--bg)">
+
+  <!-- Sidebar -->
+  <div style="width:240px;flex:none;display:flex;flex-direction:column;gap:8px;padding:20px 14px;border-right:1px solid var(--line);position:sticky;top:0;height:100vh;box-sizing:border-box">
+    <div style="display:flex;align-items:center;gap:11px;padding:4px 10px 16px">
+      <div style="width:34px;height:34px;border-radius:11px;background:var(--accent);display:grid;place-items:center;flex:none">
+        <div style="width:12px;height:12px;background:#fff;border-radius:3.5px;transform:rotate(45deg)"></div>
+      </div>
+      <div>
+        <div style="font-size:15px;font-weight:800;letter-spacing:-.01em">Instellar</div>
+        <div style="font-size:10.5px;color:var(--muted);font-weight:600;letter-spacing:.06em;text-transform:uppercase">Moderation</div>
+      </div>
+    </div>
+    <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="4">
+      <button onClick="{{ n.go }}" style="{{ n.style }}" style-hover="{{ n.hover }}" style-active="transform:scale(.98)">
+        <span style="width:20px;height:20px;display:grid;place-items:center;flex:none">
+          <sc-if value="{{ n.isDash }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="2.4" fill="currentColor"/><rect x="11" y="2" width="7" height="7" rx="2.4" fill="currentColor" opacity=".45"/><rect x="2" y="11" width="7" height="7" rx="2.4" fill="currentColor" opacity=".45"/><rect x="11" y="11" width="7" height="7" rx="2.4" fill="currentColor"/></svg></sc-if>
+          <sc-if value="{{ n.isPlayers }}" hint-placeholder-val="{{ false }}"><svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><circle cx="10" cy="6.5" r="3.4"/><rect x="3.4" y="11.6" width="13.2" height="6" rx="3" opacity=".7"/></svg></sc-if>
+          <sc-if value="{{ n.isAudit }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 5h14"/><path d="M3 10h10"/><path d="M3 15h14"/></svg></sc-if>
+          <sc-if value="{{ n.isStaff }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2l6.5 2.6v4.6c0 3.9-2.7 6.6-6.5 8.6-3.8-2-6.5-4.7-6.5-8.6V4.6z"/></svg></sc-if>
+        </span>
+        <span>{{ n.label }}</span>
+        <sc-if value="{{ n.count }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-size:11px;font-weight:700;background:var(--soft);color:var(--muted);border-radius:99px;padding:2px 8px">{{ n.count }}</span></sc-if>
+      </button>
+    </sc-for>
+    <div style="flex:1"></div>
+    <div style="border-top:1px solid var(--line);padding-top:14px;display:flex;align-items:center;gap:10px;padding-left:6px;padding-right:6px">
+      <div style="width:34px;height:34px;border-radius:11px;background:#C9863B;display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px;flex:none">N</div>
+      <div style="min-width:0;flex:1">
+        <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Nora M.</div>
+        <div style="font-size:11px;color:var(--muted)">Owner</div>
+      </div>
+      <button onClick="{{ logout }}" title="Sign out" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:6px;border-radius:8px;transition:background .15s,color .15s" style-hover="background:var(--soft);color:var(--text)">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 4H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h6"/><path d="M9 10h8"/><path d="M14 7l3 3-3 3"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Main column -->
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:14px;padding:16px 28px;border-bottom:1px solid var(--line);position:sticky;top:0;background:color-mix(in srgb, var(--bg) 88%, transparent);backdrop-filter:blur(12px);z-index:20">
+      <div style="font-size:17px;font-weight:800;letter-spacing:-.01em">{{ pageTitle }}</div>
+      <div style="flex:1"></div>
+      <button onClick="{{ toggleTheme }}" style="background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:7px 14px;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;transition:background .15s,color .15s" style-hover="background:var(--raised);color:var(--text)">{{ themeLabel }}</button>
+    </div>
+
+    <!-- ============ DASHBOARD ============ -->
+    <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}">
+    <div data-screen-label="Dashboard" style="padding:26px 28px;display:flex;flex-direction:column;gap:22px;animation:mp-fade .25s ease">
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px">
+        <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow)">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Awaiting approval</div>
+          <div style="font-size:24px;font-weight:800;margin-top:10px;letter-spacing:-.02em">{{ approvalCount }}</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:4px">requests that need an Admin to sign off</div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow)">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Staff online</div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+            <div style="width:30px;height:30px;border-radius:10px;background:#C9863B;display:grid;place-items:center;color:#fff;font-weight:800;font-size:11px">N</div>
+            <div style="font-size:24px;font-weight:800;letter-spacing:-.02em">1</div>
+          </div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:6px">of 1 staff account</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start">
+        <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden">
+          <div style="display:flex;align-items:center;padding:18px 22px 14px">
+            <div style="font-size:15px;font-weight:800">Recent actions</div>
+            <button onClick="{{ goAudit }}" style="margin-left:auto;background:none;border:none;color:var(--accent);font-size:12.5px;font-weight:700;cursor:pointer;padding:4px 8px;border-radius:8px;transition:background .15s" style-hover="background:var(--soft)">View audit log →</button>
+          </div>
+          <sc-for list="{{ feed }}" as="f" hint-placeholder-count="5">
+            <div style="display:flex;align-items:center;gap:13px;padding:13px 22px;border-top:1px solid var(--line);transition:background .15s;cursor:pointer" style-hover="background:var(--soft)" onClick="{{ f.open }}">
+              <div style="width:34px;height:34px;border-radius:11px;flex:none;display:grid;place-items:center;color:#fff;font-weight:800;font-size:12.5px;background:{{ f.avBg }}">{{ f.initial }}</div>
+              <div style="min-width:0;flex:1">
+                <div style="font-size:13.5px;font-weight:600"><span style="color:{{ f.color }};font-weight:800">{{ f.type }}</span> · {{ f.target }}</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.reason }} — by {{ f.by }}</div>
+              </div>
+              <div style="font-size:11.5px;color:var(--muted);flex:none;font-variant-numeric:tabular-nums">{{ f.when }}</div>
+              <span style="{{ f.stStyle }}">{{ f.status }}</span>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noFeed }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:36px;text-align:center;color:var(--muted);font-size:13px;border-top:1px solid var(--line)">No moderation actions yet.</div>
+          </sc-if>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow)">
+            <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Today</div>
+            <div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
+              <div style="display:flex;align-items:center;gap:10px"><span style="width:9px;height:9px;border-radius:99px;background:var(--danger)"></span><span style="font-size:13.5px;color:var(--muted)">Bans</span><span style="margin-left:auto;font-size:15px;font-weight:800">0</span></div>
+              <div style="display:flex;align-items:center;gap:10px"><span style="width:9px;height:9px;border-radius:99px;background:var(--warn)"></span><span style="font-size:13.5px;color:var(--muted)">Active mutes</span><span style="margin-left:auto;font-size:15px;font-weight:800">0</span></div>
+              <div style="display:flex;align-items:center;gap:10px"><span style="width:9px;height:9px;border-radius:99px;background:var(--violet)"></span><span style="font-size:13.5px;color:var(--muted)">Kicks</span><span style="margin-left:auto;font-size:15px;font-weight:800">0</span></div>
+              <div style="display:flex;align-items:center;gap:10px"><span style="width:9px;height:9px;border-radius:99px;background:var(--ok)"></span><span style="font-size:13.5px;color:var(--muted)">Warnings</span><span style="margin-left:auto;font-size:15px;font-weight:800">0</span></div>
+            </div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow)">
+            <div style="font-size:14px;font-weight:800">Action queue</div>
+            <div style="font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.5">{{ pendingCount }} executing on the server · {{ approvalCount }} awaiting an Admin's approval.</div>
+            <button onClick="{{ goAudit }}" style="margin-top:14px;background:var(--accent);color:#fff;border:none;border-radius:11px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;transition:filter .15s,transform .1s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">Review queue</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ============ PLAYERS ============ -->
+    <sc-if value="{{ isPlayers }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Players" style="padding:26px 28px;display:flex;flex-direction:column;gap:18px;animation:mp-fade .25s ease">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div style="position:relative;flex:1;min-width:240px;max-width:380px">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--muted)" stroke-width="2.2" stroke-linecap="round" style="position:absolute;left:14px;top:50%;transform:translateY(-50%)"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
+          <input value="{{ search }}" onChange="{{ onSearch }}" placeholder="Search players…" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 14px 11px 38px;font-size:13.5px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
+        </div>
+        <div style="display:flex;gap:6px">
+          <sc-for list="{{ playerChips }}" as="c" hint-placeholder-count="4">
+            <button onClick="{{ c.set }}" style="{{ c.style }}" style-active="transform:scale(.97)">{{ c.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden">
+        <div style="display:grid;grid-template-columns:minmax(220px,1.6fr) 110px 1fr 100px 210px;gap:12px;padding:12px 22px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">
+          <div>Player</div><div>Status</div><div>Last seen</div><div>Playtime</div><div style="text-align:right">Quick actions</div>
+        </div>
+        <sc-for list="{{ playersView }}" as="p" hint-placeholder-count="8">
+          <div onClick="{{ p.open }}" style="display:grid;grid-template-columns:minmax(220px,1.6fr) 110px 1fr 100px 210px;gap:12px;align-items:center;padding:12px 22px;border-top:1px solid var(--line);cursor:pointer;transition:background .15s" style-hover="background:var(--soft)">
+            <div style="display:flex;align-items:center;gap:12px;min-width:0">
+              <div style="width:38px;height:38px;border-radius:12px;flex:none;display:grid;place-items:center;color:#fff;font-weight:800;font-size:14px;background:{{ p.avBg }}">{{ p.initial }}</div>
+              <div style="min-width:0">
+                <div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.name }}</div>
+                <div style="font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.uuid }}</div>
+              </div>
+            </div>
+            <div><span style="{{ p.stStyle }}">{{ p.status }}</span></div>
+            <div style="font-size:13px;color:var(--muted)">{{ p.lastSeen }}</div>
+            <div style="font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums">{{ p.playtime }}</div>
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+              <button onClick="{{ p.kick }}" style="background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s,transform .1s" style-hover="background:var(--soft)" style-active="transform:scale(.96)">Kick</button>
+              <button onClick="{{ p.mute }}" style="background:var(--raised);border:1px solid var(--line);color:var(--warn);border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s,transform .1s" style-hover="background:color-mix(in srgb, var(--warn) 14%, transparent)" style-active="transform:scale(.96)">Mute</button>
+              <button onClick="{{ p.ban }}" style="background:var(--raised);border:1px solid var(--line);color:var(--danger);border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s,transform .1s" style-hover="background:color-mix(in srgb, var(--danger) 14%, transparent)" style-active="transform:scale(.96)">Ban</button>
+            </div>
+          </div>
+        </sc-for>
+        <sc-if value="{{ noPlayers }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:40px;text-align:center;color:var(--muted);font-size:13.5px;border-top:1px solid var(--line)">No players to show — they'll appear here once the plugin syncs.</div>
+        </sc-if>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ============ AUDIT LOG ============ -->
+    <sc-if value="{{ isAudit }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Audit Log" style="padding:26px 28px;display:flex;flex-direction:column;gap:18px;animation:mp-fade .25s ease">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div style="position:relative;flex:1;min-width:240px;max-width:380px">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--muted)" stroke-width="2.2" stroke-linecap="round" style="position:absolute;left:14px;top:50%;transform:translateY(-50%)"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
+          <input value="{{ auditQuery }}" onChange="{{ onAuditQuery }}" placeholder="Search by player, staff, or reason…" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 14px 11px 38px;font-size:13.5px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
+        </div>
+        <div style="display:flex;gap:6px">
+          <sc-for list="{{ auditChips }}" as="c" hint-placeholder-count="4">
+            <button onClick="{{ c.set }}" style="{{ c.style }}" style-active="transform:scale(.97)">{{ c.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden">
+        <div style="display:grid;grid-template-columns:100px minmax(160px,1.2fr) 130px minmax(180px,1.6fr) 110px 110px;gap:12px;padding:12px 22px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">
+          <div>Action</div><div>Target</div><div>By</div><div>Reason</div><div>When</div><div style="text-align:right">Status</div>
+        </div>
+        <sc-for list="{{ auditView }}" as="a" hint-placeholder-count="10">
+          <div style="display:grid;grid-template-columns:100px minmax(160px,1.2fr) 130px minmax(180px,1.6fr) 110px 110px;gap:12px;align-items:center;padding:13px 22px;border-top:1px solid var(--line);transition:background .15s" style-hover="background:var(--soft)">
+            <div><span style="font-size:12px;font-weight:800;color:{{ a.color }};background:color-mix(in srgb, {{ a.color }} 13%, transparent);border-radius:99px;padding:4px 11px">{{ a.type }}</span></div>
+            <div onClick="{{ a.open }}" style="display:flex;align-items:center;gap:9px;cursor:pointer;min-width:0">
+              <div style="width:28px;height:28px;border-radius:9px;flex:none;display:grid;place-items:center;color:#fff;font-weight:800;font-size:11px;background:{{ a.avBg }}">{{ a.initial }}</div>
+              <span style="font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.target }}</span>
+            </div>
+            <div style="font-size:13px;color:var(--muted)">{{ a.by }}</div>
+            <div style="font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.reason }}{{ a.durText }}</div>
+            <div style="font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums">{{ a.when }}</div>
+            <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px">
+              <sc-if value="{{ a.isPending }}" hint-placeholder-val="{{ false }}"><span style="width:12px;height:12px;border-radius:99px;border:2px solid var(--muted);border-top-color:transparent;animation:mp-spin .8s linear infinite;flex:none"></span></sc-if>
+              <sc-if value="{{ a.isFailed }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.retry }}" style="background:none;border:none;color:var(--accent);font-size:11.5px;font-weight:700;cursor:pointer;padding:2px 4px" style-hover="text-decoration:underline">Retry</button></sc-if>
+              <sc-if value="{{ a.isApproval }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.approve }}" style="background:var(--accent);border:none;color:#fff;font-size:11.5px;font-weight:700;cursor:pointer;padding:5px 11px;border-radius:8px;transition:filter .15s" style-hover="filter:brightness(1.1)">Approve</button></sc-if>
+              <span style="{{ a.stStyle }}">{{ a.status }}</span>
+            </div>
+          </div>
+        </sc-for>
+        <sc-if value="{{ noAudit }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:40px;text-align:center;color:var(--muted);font-size:13.5px;border-top:1px solid var(--line)">No matching actions.</div>
+        </sc-if>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ============ STAFF ============ -->
+    <sc-if value="{{ isStaff }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Staff" style="padding:26px 28px;display:flex;flex-direction:column;gap:18px;animation:mp-fade .25s ease">
+      <div style="display:flex;align-items:center">
+        <div style="font-size:13.5px;color:var(--muted)">Roles control what actions each member can execute — anything above your role needs approval</div>
+        <button onClick="{{ openInvite }}" style="margin-left:auto;background:var(--accent);color:#fff;border:none;border-radius:11px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;transition:filter .15s,transform .1s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">+ Invite staff</button>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden">
+        <div style="display:grid;grid-template-columns:minmax(200px,1.4fr) 120px minmax(220px,1.6fr) 110px 90px;gap:12px;padding:12px 22px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">
+          <div>Member</div><div>Role</div><div>Permissions</div><div>Last active</div><div></div>
+        </div>
+        <sc-for list="{{ staffView }}" as="s" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:minmax(200px,1.4fr) 120px minmax(220px,1.6fr) 110px 90px;gap:12px;align-items:center;padding:13px 22px;border-top:1px solid var(--line);transition:background .15s" style-hover="background:var(--soft)">
+            <div style="display:flex;align-items:center;gap:12px;min-width:0">
+              <div style="position:relative;flex:none">
+                <div style="width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:14px;background:{{ s.avBg }}">{{ s.initial }}</div>
+                <sc-if value="{{ s.online }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:-2px;bottom:-2px;width:11px;height:11px;border-radius:99px;background:var(--ok);border:2.5px solid var(--surface)"></span></sc-if>
+              </div>
+              <div style="min-width:0">
+                <div style="font-size:14px;font-weight:700">{{ s.name }}</div>
+                <div style="font-size:11.5px;color:var(--muted)">{{ s.handle }}</div>
+              </div>
+            </div>
+            <div><span style="font-size:12px;font-weight:800;color:{{ s.roleColor }};background:color-mix(in srgb, {{ s.roleColor }} 13%, transparent);border-radius:99px;padding:4px 11px">{{ s.role }}</span></div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap">
+              <sc-for list="{{ s.perms }}" as="pm" hint-placeholder-count="3">
+                <span style="font-size:11px;font-weight:600;color:var(--muted);background:var(--soft);border-radius:99px;padding:3px 9px">{{ pm }}</span>
+              </sc-for>
+            </div>
+            <div style="font-size:12.5px;color:var(--muted)">{{ s.lastActive }}</div>
+            <div style="text-align:right">
+              <button onClick="{{ s.openManage }}" style="background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)">Manage</button>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    </sc-if>
+
+  </div>
+</div>
+
+<!-- ============ PLAYER DETAIL SLIDE-OVER ============ -->
+<sc-if value="{{ sel }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Player Detail" style="position:fixed;inset:0;z-index:60">
+  <div onClick="{{ closePanel }}" style="position:absolute;inset:0;background:rgba(5,8,14,.55);animation:mp-fade .2s ease"></div>
+  <div style="position:absolute;top:12px;right:12px;bottom:12px;width:430px;max-width:calc(100vw - 24px);background:var(--surface);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;animation:mp-slide .28s cubic-bezier(.2,.8,.25,1);overflow:hidden">
+    <div style="padding:22px 24px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px">
+      <div style="width:52px;height:52px;border-radius:16px;flex:none;display:grid;place-items:center;color:#fff;font-weight:800;font-size:19px;background:{{ sel.avBg }}">{{ sel.initial }}</div>
+      <div style="min-width:0;flex:1">
+        <div style="font-size:18px;font-weight:800;letter-spacing:-.01em">{{ sel.name }}</div>
+        <div style="font-size:11.5px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sel.uuid }}</div>
+      </div>
+      <span style="{{ sel.stStyle }}">{{ sel.status }}</span>
+      <button onClick="{{ closePanel }}" style="background:var(--raised);border:1px solid var(--line);color:var(--muted);border-radius:10px;width:32px;height:32px;cursor:pointer;font-size:15px;line-height:1;transition:color .15s" style-hover="color:var(--text)">✕</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:22px 24px;display:flex;flex-direction:column;gap:22px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="background:var(--raised);border-radius:14px;padding:13px 15px"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Last seen</div><div style="font-size:13.5px;font-weight:700;margin-top:4px">{{ sel.lastSeen }}</div></div>
+        <div style="background:var(--raised);border-radius:14px;padding:13px 15px"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Playtime</div><div style="font-size:13.5px;font-weight:700;margin-top:4px">{{ sel.playtime }}</div></div>
+        <div style="background:var(--raised);border-radius:14px;padding:13px 15px"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">First joined</div><div style="font-size:13.5px;font-weight:700;margin-top:4px">{{ sel.joined }}</div></div>
+        <div style="background:var(--raised);border-radius:14px;padding:13px 15px"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Infractions</div><div style="font-size:13.5px;font-weight:700;margin-top:4px">{{ sel.infractions }}</div></div>
+      </div>
+
+      <div>
+        <div style="font-size:13px;font-weight:800;margin-bottom:10px">Take action</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <sc-for list="{{ actionOpts }}" as="o" hint-placeholder-count="5">
+            <button onClick="{{ o.pick }}" style="{{ o.style }}" style-active="transform:scale(.97)">{{ o.label }}</button>
+          </sc-for>
+        </div>
+        <sc-if value="{{ showDuration }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+            <sc-for list="{{ durationOpts }}" as="d" hint-placeholder-count="5">
+              <button onClick="{{ d.pick }}" style="{{ d.style }}" style-active="transform:scale(.97)">{{ d.label }}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <textarea value="{{ reason }}" onChange="{{ onReason }}" placeholder="Reason (required — shown to the player and logged)" rows="2" style="width:100%;box-sizing:border-box;margin-top:10px;background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;resize:vertical;transition:border-color .15s" style-focus="border-color:var(--accent)"></textarea>
+        <button onClick="{{ requestConfirm }}" style="{{ execStyle }}" style-active="transform:scale(.98)">{{ execLabel }}</button>
+      </div>
+
+      <div>
+        <div style="font-size:13px;font-weight:800;margin-bottom:10px">Punishment history</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <sc-for list="{{ sel.history }}" as="h" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;gap:11px;background:var(--raised);border-radius:13px;padding:11px 14px">
+              <span style="font-size:11.5px;font-weight:800;color:{{ h.color }};background:color-mix(in srgb, {{ h.color }} 13%, transparent);border-radius:99px;padding:3px 10px;flex:none">{{ h.type }}</span>
+              <div style="min-width:0;flex:1">
+                <div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.reason }}</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:1px">by {{ h.by }} · {{ h.when }}</div>
+              </div>
+              <sc-if value="{{ h.active }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;font-weight:800;color:var(--danger);flex:none;text-transform:uppercase;letter-spacing:.05em">Active</span></sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ sel.noHistory }}" hint-placeholder-val="{{ false }}">
+            <div style="background:var(--raised);border-radius:13px;padding:16px;text-align:center;color:var(--muted);font-size:12.5px">Clean record — no punishments.</div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:13px;font-weight:800;margin-bottom:10px">Staff notes</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <sc-for list="{{ sel.notes }}" as="n" hint-placeholder-count="1">
+            <div style="background:var(--raised);border-radius:13px;padding:12px 14px">
+              <div style="font-size:12.5px;line-height:1.5">{{ n.text }}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:5px">{{ n.by }} · {{ n.when }}</div>
+            </div>
+          </sc-for>
+          <input placeholder="Add a note… (Enter)" onKeyDown="{{ addNote }}" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:10px 13px;font-size:12.5px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ============ CONFIRM MODAL ============ -->
+<sc-if value="{{ confirm }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Confirm Modal" style="position:fixed;inset:0;z-index:80;display:grid;place-items:center">
+  <div onClick="{{ closeConfirm }}" style="position:absolute;inset:0;background:rgba(5,8,14,.6);backdrop-filter:blur(3px);animation:mp-fade .2s ease"></div>
+  <div style="position:relative;width:400px;max-width:calc(100vw - 40px);background:var(--surface);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-lg);padding:26px;animation:mp-pop .25s cubic-bezier(.2,.8,.25,1)">
+    <div style="display:flex;align-items:center;gap:13px">
+      <div style="width:44px;height:44px;border-radius:14px;flex:none;display:grid;place-items:center;color:#fff;font-weight:800;font-size:16px;background:{{ confirm.avBg }}">{{ confirm.initial }}</div>
+      <div>
+        <div style="font-size:17px;font-weight:800;letter-spacing:-.01em"><span style="color:{{ confirm.color }}">{{ confirm.type }}</span> {{ confirm.target }}?</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:2px">{{ confirm.sub }}</div>
+      </div>
+    </div>
+    <textarea value="{{ reason }}" onChange="{{ onReason }}" placeholder="Reason (required)" rows="2" style="width:100%;box-sizing:border-box;margin-top:18px;background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;resize:vertical;transition:border-color .15s" style-focus="border-color:var(--accent)"></textarea>
+    <div style="display:flex;align-items:flex-start;gap:8px;margin-top:14px;background:var(--raised);border-radius:12px;padding:11px 13px">
+      <span style="width:7px;height:7px;border-radius:99px;background:var(--warn);flex:none;margin-top:5px"></span>
+      <div style="font-size:12px;color:var(--muted);line-height:1.5">{{ confirmNote }}</div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button onClick="{{ closeConfirm }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
+      <button onClick="{{ doConfirm }}" style="{{ confirmBtnStyle }}" style-active="transform:scale(.98)">{{ confirmBtnLabel }}</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ============ INVITE STAFF MODAL ============ -->
+<sc-if value="{{ inviteOpen }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Invite Staff" style="position:fixed;inset:0;z-index:80;display:grid;place-items:center">
+  <div onClick="{{ closeInvite }}" style="position:absolute;inset:0;background:rgba(5,8,14,.6);backdrop-filter:blur(3px);animation:mp-fade .2s ease"></div>
+  <div style="position:relative;width:400px;max-width:calc(100vw - 40px);background:var(--surface);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-lg);padding:26px;animation:mp-pop .25s cubic-bezier(.2,.8,.25,1);display:flex;flex-direction:column;gap:14px">
+    <div>
+      <div style="font-size:17px;font-weight:800;letter-spacing:-.01em">Invite staff</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:2px">Create an account for a new team member</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">Display name</label>
+        <input value="{{ inviteName }}" onChange="{{ onInviteName }}" placeholder="e.g. Kai F." style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">Username</label>
+        <input value="{{ inviteHandle }}" onChange="{{ onInviteHandle }}" placeholder="e.g. kai.mod" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font-size:12px;font-weight:600;color:var(--muted)">Password</label>
+      <input type="password" value="{{ invitePw }}" onChange="{{ onInvitePw }}" placeholder="At least 8 characters" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font-size:12px;font-weight:600;color:var(--muted)">Confirm password</label>
+      <input type="password" value="{{ invitePw2 }}" onChange="{{ onInvitePw2 }}" placeholder="Repeat the password" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <label style="font-size:12px;font-weight:600;color:var(--muted)">Role</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <sc-for list="{{ inviteRoles }}" as="r" hint-placeholder-count="4">
+          <button onClick="{{ r.pick }}" style="{{ r.style }}" style-active="transform:scale(.97)">{{ r.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:6px">
+      <button onClick="{{ closeInvite }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
+      <button onClick="{{ createInvite }}" style="flex:1;background:var(--accent);border:none;color:#fff;border-radius:12px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;transition:filter .15s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">Create account</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ============ MANAGE PERMISSIONS MODAL ============ -->
+<sc-if value="{{ manage }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Manage Permissions" style="position:fixed;inset:0;z-index:80;display:grid;place-items:center">
+  <div onClick="{{ closeManage }}" style="position:absolute;inset:0;background:rgba(5,8,14,.6);backdrop-filter:blur(3px);animation:mp-fade .2s ease"></div>
+  <div style="position:relative;width:400px;max-width:calc(100vw - 40px);background:var(--surface);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-lg);padding:26px;animation:mp-pop .25s cubic-bezier(.2,.8,.25,1);display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:center;gap:13px">
+      <div style="width:44px;height:44px;border-radius:14px;flex:none;display:grid;place-items:center;color:#fff;font-weight:800;font-size:16px;background:{{ manage.avBg }}">{{ manage.initial }}</div>
+      <div>
+        <div style="font-size:17px;font-weight:800;letter-spacing:-.01em">{{ manage.name }}</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:2px">{{ manage.handle }}</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <label style="font-size:12px;font-weight:600;color:var(--muted)">Role</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <sc-for list="{{ manageRoles }}" as="r" hint-placeholder-count="4">
+          <button onClick="{{ r.pick }}" style="{{ r.style }}" style-active="transform:scale(.97)">{{ r.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <label style="font-size:12px;font-weight:600;color:var(--muted)">Permissions</label>
+      <div style="display:flex;flex-direction:column;background:var(--raised);border-radius:14px;overflow:hidden">
+        <sc-for list="{{ managePerms }}" as="pm" hint-placeholder-count="6">
+          <button onClick="{{ pm.toggle }}" style="display:flex;align-items:center;gap:10px;background:none;border:none;border-bottom:1px solid var(--line);padding:11px 14px;cursor:pointer;text-align:left;transition:background .15s" style-hover="background:var(--soft)">
+            <span style="font-size:13px;font-weight:600;color:var(--text);flex:1">{{ pm.label }}</span>
+            <span style="{{ pm.trackStyle }}"><span style="{{ pm.knobStyle }}"></span></span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button onClick="{{ closeManage }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
+      <button onClick="{{ saveManage }}" style="flex:1;background:var(--accent);border:none;color:#fff;border-radius:12px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;transition:filter .15s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">Save changes</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ============ TOASTS ============ -->
+<div style="position:fixed;right:20px;bottom:20px;z-index:100;display:flex;flex-direction:column;gap:10px;pointer-events:none">
+  <sc-for list="{{ toastsView }}" as="t" hint-placeholder-count="0">
+    <div style="display:flex;align-items:center;gap:11px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:13px 16px;box-shadow:var(--shadow-lg);min-width:260px;max-width:360px;animation:mp-toast .25s cubic-bezier(.2,.8,.25,1);pointer-events:auto">
+      <sc-if value="{{ t.spin }}" hint-placeholder-val="{{ false }}"><span style="width:14px;height:14px;border-radius:99px;border:2.5px solid {{ t.color }};border-top-color:transparent;animation:mp-spin .8s linear infinite;flex:none"></span></sc-if>
+      <sc-if value="{{ t.dot }}" hint-placeholder-val="{{ false }}"><span style="width:9px;height:9px;border-radius:99px;background:{{ t.color }};flex:none"></span></sc-if>
+      <div style="font-size:13px;font-weight:600;line-height:1.4">{{ t.msg }}</div>
+    </div>
+  </sc-for>
+</div>
+</sc-if>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#6470F3&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#6470F3&quot;,&quot;#2FBF8F&quot;,&quot;#8B5CF6&quot;,&quot;#E8615A&quot;],&quot;section&quot;:&quot;Theme&quot;},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dark&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;tsType&quot;:&quot;'dark'|'light'&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const P = (id, name, status, lastSeen, playtime, joined, history, notes) => ({
+      id, name, status, lastSeen, playtime, joined,
+      uuid: this.fakeUuid(name), history: history || [], notes: notes || []
+    });
+    this.state = {
+      authed: false,
+      loginUser: '', loginPw: '', loginError: '',
+      screen: 'dashboard',
+      theme: null,
+      search: '', playerFilter: 'All',
+      auditQuery: '', auditFilter: 'All',
+      selectedId: null,
+      pickedAction: 'Warn',
+      reason: '', duration: '7 days',
+      confirm: null,
+      toasts: [],
+      serverOnline: true,
+      players: [],
+      audit: [],
+      staff: [
+        {name:'Nora Malik',handle:'nora.mod',role:'Owner',online:true,lastActive:'Now',perms:['All permissions']}
+      ],
+      invite: null,
+      manage: null,
+      nextId: 200
+    };
+  }
+
+  fakeUuid(name) {
+    let h = 0;
+    for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    const hex = (h.toString(16) + '9f3c2ab174de08').padEnd(24, '0');
+    return hex.slice(0,8) + '-' + hex.slice(8,12) + '-4' + hex.slice(12,15) + '-a' + hex.slice(15,18) + '-' + hex.slice(0,12);
+  }
+
+  avBg(name) {
+    const pals = ['#5661D6','#2FA97E','#C9863B','#7C6FE8','#3E86C9','#C95D5D'];
+    let h = 0;
+    for (const c of name) h = (h * 17 + c.charCodeAt(0)) % 997;
+    return pals[h % pals.length];
+  }
+
+  actionColor(t) {
+    return {Ban:'var(--danger)',Kick:'#F09B4C',Mute:'var(--warn)',Warn:'#4C9AF0',Unban:'var(--ok)'}[t] || 'var(--muted)';
+  }
+
+  statusStyle(st) {
+    const base = 'font-size:12px;font-weight:800;border-radius:99px;padding:4px 11px;white-space:nowrap;';
+    const m = {
+      Online:  base + 'color:var(--ok);background:color-mix(in srgb, var(--ok) 13%, transparent)',
+      Offline: base + 'color:var(--muted);background:var(--soft)',
+      Banned:  base + 'color:var(--danger);background:color-mix(in srgb, var(--danger) 13%, transparent)',
+      Muted:   base + 'color:var(--warn);background:color-mix(in srgb, var(--warn) 13%, transparent)',
+      Executed:base + 'color:var(--ok);background:color-mix(in srgb, var(--ok) 13%, transparent)',
+      Pending: base + 'color:var(--muted);background:var(--soft)',
+      Approval: base + 'color:var(--warn);background:color-mix(in srgb, var(--warn) 13%, transparent)',
+      Failed:  base + 'color:var(--danger);background:color-mix(in srgb, var(--danger) 13%, transparent)'
+    };
+    return m[st] || base;
+  }
+
+  rank(role) { return {Helper:1, Moderator:2, Admin:3, Owner:4}[role] || 0; }
+  requiredRole(type, duration) {
+    if (type === 'Unban') return 'Admin';
+    if (type === 'Ban' && duration === 'Permanent') return 'Admin';
+    if (type === 'Ban') return 'Moderator';
+    return 'Helper';
+  }
+  needsApproval(type, duration) { return this.rank(this.currentRole()) < this.rank(this.requiredRole(type, duration)); }
+  currentRole() { return 'Owner'; }
+
+  tryLogin() {
+    if (this.state.loginUser === 'InstellarOwnership' && this.state.loginPw === 'In1la/zl$aaa') {
+      this.setState({ authed: true, loginError: '', loginPw: '' });
+    } else {
+      this.setState({ loginError: 'Incorrect username or password.' });
+    }
+  }
+
+  componentDidMount() { this.applyTheme(); }
+  componentDidUpdate() { this.applyTheme(); }
+  applyTheme() {
+    const theme = this.state.theme ?? this.props.theme ?? 'dark';
+    document.body.classList.toggle('light', theme === 'light');
+    document.body.style.setProperty('--accent', this.props.accent ?? '#6470F3');
+  }
+
+  toast(kind, msg) {
+    const id = this.state.nextId;
+    this.setState(s => ({ nextId: s.nextId + 1, toasts: [...s.toasts, {id, kind, msg}] }));
+    if (kind !== 'pending') setTimeout(() => this.dismissToast(id), 4200);
+    return id;
+  }
+  dismissToast(id) { this.setState(s => ({ toasts: s.toasts.filter(t => t.id !== id) })); }
+
+  openConfirm(type, playerId, opts = {}) {
+    this.setState({ confirm: { type, playerId }, reason: opts.reason ?? this.state.reason ?? '', duration: opts.duration ?? this.state.duration });
+  }
+
+  runAction(entryId) {
+    setTimeout(() => {
+      const entry = this.state.audit.find(a => a.id === entryId);
+      if (!entry || entry.status !== 'Pending') return;
+      const ok = Math.random() > 0.18;
+      this.setState(s => {
+        const audit = s.audit.map(a => a.id === entryId ? {...a, status: ok ? 'Executed' : 'Failed'} : a);
+        let players = s.players;
+        if (ok) {
+          players = s.players.map(p => {
+            if (p.id !== entry.targetId) return p;
+            const hist = [{type: entry.type, by: entry.by, reason: entry.reason, when: 'Just now', active: entry.type === 'Ban' || entry.type === 'Mute'}, ...p.history];
+            let status = p.status;
+            if (entry.type === 'Ban') status = 'Banned';
+            if (entry.type === 'Mute') status = 'Muted';
+            if (entry.type === 'Kick') status = 'Offline';
+            if (entry.type === 'Unban') { status = 'Offline'; hist.forEach(h => { if (h.type === 'Ban') h.active = false; }); }
+            return {...p, status, history: entry.type === 'Warn' || entry.type === 'Unban' ? [{...hist[0], active:false}, ...p.history] : hist};
+          });
+        }
+        return { audit, players };
+      });
+      const name = entry.target;
+      if (ok) this.toast('ok', entry.type + ' executed on ' + name);
+      else this.toast('fail', entry.type + ' failed — plugin did not confirm. Retry from the audit log.');
+    }, 1500 + Math.random() * 1500);
+  }
+
+  execute() {
+    const c = this.state.confirm;
+    if (!c) return;
+    if (!this.state.reason.trim()) { this.toast('fail', 'A reason is required.'); return; }
+    const p = this.state.players.find(x => x.id === c.playerId);
+    const needsDur = c.type === 'Ban' || c.type === 'Mute';
+    const approval = this.needsApproval(c.type, needsDur ? this.state.duration : undefined);
+    const id = this.state.nextId;
+    const entry = { id, type: c.type, target: p.name, targetId: p.id, by: 'Nora M.', reason: this.state.reason.trim(), duration: needsDur ? this.state.duration : undefined, when: 'Just now', status: approval ? 'Approval' : 'Pending' };
+    this.setState(s => ({ nextId: s.nextId + 1, audit: [entry, ...s.audit], confirm: null, reason: '' }));
+    if (approval) { this.toast('info', c.type + ' on ' + p.name + ' sent to an Admin for approval.'); }
+    else { this.toast('info', c.type + ' on ' + p.name + ' queued — waiting for server…'); this.runAction(id); }
+  }
+
+  approve(entryId) {
+    this.setState(s => ({ audit: s.audit.map(a => a.id === entryId ? {...a, status: 'Pending', when: 'Just now'} : a) }));
+    this.toast('ok', 'Approved — executing on the server…');
+    this.runAction(entryId);
+  }
+
+  retry(entryId) {
+    this.setState(s => ({ audit: s.audit.map(a => a.id === entryId ? {...a, status: 'Pending', when: 'Just now'} : a) }));
+    this.toast('info', 'Retrying action…');
+    this.runAction(entryId);
+  }
+
+  playerVM(p) {
+    return {
+      ...p,
+      initial: p.name[0].toUpperCase(),
+      avBg: this.avBg(p.name),
+      stStyle: this.statusStyle(p.status),
+      infractions: String(p.history.length),
+      noHistory: p.history.length === 0,
+      history: p.history.map(h => ({...h, color: this.actionColor(h.type)})),
+      open: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.setState({ selectedId: p.id, pickedAction: 'Warn', reason: '' }); },
+      kick: (e) => { e.stopPropagation(); this.openConfirm('Kick', p.id, {reason: ''}); },
+      mute: (e) => { e.stopPropagation(); this.openConfirm('Mute', p.id, {reason: ''}); },
+      ban:  (e) => { e.stopPropagation(); this.openConfirm('Ban', p.id, {reason: ''}); }
+    };
+  }
+
+  chipStyle(active) {
+    return active
+      ? 'background:var(--accent);color:#fff;border:1px solid transparent;border-radius:99px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .15s'
+      : 'background:var(--surface);color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .15s';
+  }
+
+  renderVals() {
+    const s = this.state;
+    const sel = s.selectedId ? s.players.find(p => p.id === s.selectedId) : null;
+    const conf = s.confirm ? s.players.find(p => p.id === s.confirm.playerId) : null;
+    const needsDur = s.confirm && (s.confirm.type === 'Ban' || s.confirm.type === 'Mute');
+    const pickedNeedsDur = s.pickedAction === 'Ban' || s.pickedAction === 'Mute';
+    const canExec = s.reason.trim().length > 0;
+
+    const q = s.search.toLowerCase();
+    const filteredPlayers = s.players.filter(p =>
+      (s.playerFilter === 'All' || p.status === s.playerFilter) &&
+      (!q || p.name.toLowerCase().includes(q) || p.uuid.includes(q)));
+
+    const aq = s.auditQuery.toLowerCase();
+    const filteredAudit = s.audit.filter(a =>
+      (s.auditFilter === 'All' || a.status === s.auditFilter) &&
+      (!aq || a.target.toLowerCase().includes(aq) || a.by.toLowerCase().includes(aq) || a.reason.toLowerCase().includes(aq)));
+
+    const pendingCount = s.audit.filter(a => a.status === 'Pending').length;
+    const approvalCount = s.audit.filter(a => a.status === 'Approval').length;
+    const confApproval = s.confirm ? this.needsApproval(s.confirm.type, needsDur ? s.duration : undefined) : false;
+    const titles = { dashboard: 'Overview', players: 'Players', audit: 'Audit log', staff: 'Staff' };
+    const navDefs = [
+      ['dashboard','Dashboard'], ['players','Players'], ['audit','Audit log'], ['staff','Staff']
+    ];
+    const navBase = 'display:flex;align-items:center;gap:11px;width:100%;box-sizing:border-box;text-align:left;border:none;border-radius:12px;padding:10px 12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:all .15s;';
+
+    return {
+      isLogin: !s.authed,
+      isApp: s.authed,
+      loginUser: s.loginUser,
+      loginPw: s.loginPw,
+      loginError: s.loginError || false,
+      onLoginUser: (e) => this.setState({ loginUser: e.target.value, loginError: '' }),
+      onLoginPw: (e) => this.setState({ loginPw: e.target.value, loginError: '' }),
+      loginKey: (e) => { if (e.key === 'Enter') this.tryLogin(); },
+      login: () => this.tryLogin(),
+      ssoClick: () => this.setState({ loginError: 'SSO is not configured for this server.' }),
+      logout: () => this.setState({ authed: false, selectedId: null, confirm: null, loginUser: '', loginPw: '', loginError: '' }),
+      pageTitle: titles[s.screen],
+      isDashboard: s.screen === 'dashboard',
+      isPlayers: s.screen === 'players',
+      isAudit: s.screen === 'audit',
+      isStaff: s.screen === 'staff',
+      goAudit: () => this.setState({ screen: 'audit' }),
+
+      navItems: navDefs.map(([key, label]) => ({
+        label,
+        isDash: key === 'dashboard', isPlayers: key === 'players', isAudit: key === 'audit', isStaff: key === 'staff',
+        count: key === 'audit' && pendingCount ? String(pendingCount) : false,
+        style: navBase + (s.screen === key ? 'background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent)' : 'background:transparent;color:var(--muted)'),
+        hover: s.screen === key ? '' : 'background:var(--soft);color:var(--text)',
+        go: () => this.setState({ screen: key })
+      })),
+
+      themeLabel: (s.theme ?? this.props.theme ?? 'dark') === 'dark' ? 'Dark' : 'Light',
+      toggleTheme: () => this.setState({ theme: (s.theme ?? this.props.theme ?? 'dark') === 'dark' ? 'light' : 'dark' }),
+
+      pendingCount: String(pendingCount),
+      approvalCount: String(approvalCount),
+      feed: s.audit.slice(0, 6).map(a => ({
+        ...a, color: this.actionColor(a.type), initial: a.target[0].toUpperCase(), avBg: this.avBg(a.target),
+        stStyle: this.statusStyle(a.status),
+        open: () => this.setState({ selectedId: a.targetId, screen: s.screen, pickedAction: 'Warn', reason: '' })
+      })),
+
+      search: s.search,
+      onSearch: (e) => this.setState({ search: e.target.value }),
+      playerChips: ['All','Online','Muted','Banned'].map(f => ({
+        label: f, style: this.chipStyle(s.playerFilter === f), set: () => this.setState({ playerFilter: f })
+      })),
+      playersView: filteredPlayers.map(p => this.playerVM(p)),
+      noPlayers: filteredPlayers.length === 0,
+
+      auditQuery: s.auditQuery,
+      onAuditQuery: (e) => this.setState({ auditQuery: e.target.value }),
+      auditChips: ['All','Executed','Pending','Failed'].map(f => ({
+        label: f, style: this.chipStyle(s.auditFilter === f), set: () => this.setState({ auditFilter: f })
+      })),
+      auditView: filteredAudit.map(a => ({
+        ...a, color: this.actionColor(a.type), initial: a.target[0].toUpperCase(), avBg: this.avBg(a.target),
+        stStyle: this.statusStyle(a.status),
+        durText: a.duration ? ' · ' + a.duration : '',
+        isPending: a.status === 'Pending', isFailed: a.status === 'Failed', isApproval: a.status === 'Approval',
+        retry: () => this.retry(a.id),
+        approve: () => this.approve(a.id),
+        open: () => this.setState({ selectedId: a.targetId, pickedAction: 'Warn', reason: '' })
+      })),
+      noAudit: filteredAudit.length === 0,
+      noFeed: s.audit.length === 0,
+
+      staffView: s.staff.map(st => ({
+        ...st, initial: st.name[0], avBg: this.avBg(st.name),
+        roleColor: {Owner:'#EF64B4',Admin:'var(--danger)',Moderator:'var(--accent)',Helper:'var(--ok)'}[st.role],
+        openManage: () => this.setState({ manage: { handle: st.handle, name: st.name, role: st.role, perms: st.perms[0] === 'All permissions' ? ['Warn','Mute','Kick','Ban','Unban','Staff management','Server config'] : [...st.perms] } })
+      })),
+
+      inviteOpen: !!s.invite,
+      closeInvite: () => this.setState({ invite: null }),
+      inviteName: s.invite ? s.invite.name : '',
+      inviteHandle: s.invite ? s.invite.handle : '',
+      invitePw: s.invite ? s.invite.pw : '',
+      invitePw2: s.invite ? s.invite.pw2 : '',
+      onInviteName: (e) => this.setState({ invite: {...s.invite, name: e.target.value} }),
+      onInviteHandle: (e) => this.setState({ invite: {...s.invite, handle: e.target.value} }),
+      onInvitePw: (e) => this.setState({ invite: {...s.invite, pw: e.target.value} }),
+      onInvitePw2: (e) => this.setState({ invite: {...s.invite, pw2: e.target.value} }),
+      openInvite: () => this.setState({ invite: { name: '', handle: '', role: 'Moderator', pw: '', pw2: '' } }),
+      inviteRoles: ['Helper','Moderator','Admin','Owner'].map(r => ({
+        label: r, style: this.chipStyle(!!s.invite && s.invite.role === r),
+        pick: () => this.setState({ invite: {...s.invite, role: r} })
+      })),
+      createInvite: () => {
+        const i = s.invite;
+        if (!i) return;
+        if (!i.name.trim() || !i.handle.trim()) { this.toast('fail', 'Name and username are required.'); return; }
+        if (i.pw.length < 8) { this.toast('fail', 'Password must be at least 8 characters.'); return; }
+        if (i.pw !== i.pw2) { this.toast('fail', 'Passwords do not match.'); return; }
+        const defaults = { Helper: ['Mute','Warn'], Moderator: ['Ban','Mute','Kick','Warn'], Admin: ['Ban','Unban','Mute','Kick','Warn','Staff management'], Owner: ['All permissions'] };
+        this.setState(st => ({ staff: [...st.staff, { name: i.name.trim(), handle: i.handle.trim(), role: i.role, online: false, lastActive: 'Just invited', perms: defaults[i.role] }], invite: null }));
+        this.toast('ok', i.name.trim() + ' added as ' + i.role + '.');
+      },
+
+      manage: s.manage ? { ...s.manage, initial: s.manage.name[0], avBg: this.avBg(s.manage.name) } : undefined,
+      closeManage: () => this.setState({ manage: null }),
+      manageRoles: ['Helper','Moderator','Admin','Owner'].map(r => ({
+        label: r, style: this.chipStyle(!!s.manage && s.manage.role === r),
+        pick: () => this.setState({ manage: {...s.manage, role: r} })
+      })),
+      managePerms: ['Warn','Mute','Kick','Ban','Unban','Staff management','Server config'].map(p => {
+        const on = !!s.manage && s.manage.perms.includes(p);
+        return {
+          label: p, on,
+          toggle: () => this.setState({ manage: {...s.manage, perms: on ? s.manage.perms.filter(x => x !== p) : [...s.manage.perms, p]} }),
+          trackStyle: 'position:relative;width:36px;height:21px;border-radius:99px;flex:none;transition:background .15s;display:inline-block;' + (on ? 'background:var(--accent)' : 'background:var(--soft);box-shadow:inset 0 0 0 1px var(--line)'),
+          knobStyle: 'position:absolute;top:3px;width:15px;height:15px;border-radius:99px;background:#fff;transition:left .15s;' + (on ? 'left:18px' : 'left:3px')
+        };
+      }),
+      saveManage: () => {
+        this.setState(st => ({
+          staff: st.staff.map(m => m.handle === s.manage.handle ? {...m, role: s.manage.role, perms: s.manage.role === 'Owner' ? ['All permissions'] : [...s.manage.perms]} : m),
+          manage: null
+        }));
+        this.toast('ok', 'Permissions updated for ' + s.manage.name + '.');
+      },
+
+      sel: sel ? this.playerVM(sel) : undefined,
+      closePanel: () => this.setState({ selectedId: null }),
+      actionOpts: ['Warn','Mute','Kick','Ban','Unban'].map(a => ({
+        label: a,
+        pick: () => this.setState({ pickedAction: a }),
+        style: s.pickedAction === a
+          ? 'background:color-mix(in srgb, ' + this.actionColor(a) + ' 16%, transparent);color:' + this.actionColor(a) + ';border:1px solid ' + this.actionColor(a).replace(')',')') + ';border-radius:11px;padding:8px 15px;font-size:12.5px;font-weight:800;cursor:pointer;transition:all .15s'
+          : 'background:var(--raised);color:var(--muted);border:1px solid var(--line);border-radius:11px;padding:8px 15px;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .15s'
+      })),
+      showDuration: pickedNeedsDur,
+      durationOpts: ['1 hour','1 day','7 days','30 days','Permanent'].map(d => ({
+        label: d,
+        pick: () => this.setState({ duration: d }),
+        style: s.duration === d
+          ? 'background:var(--accent);color:#fff;border:1px solid transparent;border-radius:99px;padding:6px 13px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s'
+          : 'background:var(--raised);color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:6px 13px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s'
+      })),
+      reason: s.reason,
+      onReason: (e) => this.setState({ reason: e.target.value }),
+      requestConfirm: () => {
+        if (!canExec) { this.toast('fail', 'Enter a reason first.'); return; }
+        this.openConfirm(s.pickedAction, s.selectedId);
+      },
+      execLabel: s.pickedAction + ' ' + (sel ? sel.name : ''),
+      execStyle: 'width:100%;box-sizing:border-box;margin-top:10px;border:none;border-radius:12px;padding:12px;font-size:13.5px;font-weight:800;transition:all .15s;' + (canExec
+        ? 'background:' + this.actionColor(s.pickedAction) + ';color:#fff;cursor:pointer;'
+        : 'background:var(--raised);color:var(--muted);cursor:not-allowed;'),
+      addNote: (e) => {
+        if (e.key !== 'Enter' || !e.target.value.trim()) return;
+        const text = e.target.value.trim(); e.target.value = '';
+        this.setState(st => ({ players: st.players.map(p => p.id === s.selectedId ? {...p, notes: [...p.notes, {text, by: 'Nora M.', when: 'Just now'}]} : p) }));
+        this.toast('ok', 'Note added.');
+      },
+
+      confirm: conf ? {
+        type: s.confirm.type, target: conf.name, initial: conf.name[0].toUpperCase(), avBg: this.avBg(conf.name),
+        color: this.actionColor(s.confirm.type),
+        sub: needsDur ? ('Duration: ' + s.duration + ' · by Nora M.') : 'Immediate · by Nora M.'
+      } : undefined,
+      closeConfirm: () => this.setState({ confirm: null }),
+      doConfirm: () => this.execute(),
+      confirmNote: confApproval
+        ? "Your role can't run this command directly — it will be sent to a higher role for approval before it executes."
+        : 'This command runs on the game server. It will show as Pending in the audit log until execution is confirmed.',
+      confirmBtnLabel: s.confirm ? (confApproval ? 'Request approval' : 'Confirm ' + s.confirm.type.toLowerCase()) : '',
+      confirmBtnStyle: 'flex:1;border:none;border-radius:12px;padding:12px;font-size:13.5px;font-weight:800;transition:all .15s;' + (canExec
+        ? 'background:' + (s.confirm ? this.actionColor(s.confirm.type) : 'var(--accent)') + ';color:#fff;cursor:pointer;'
+        : 'background:var(--raised);color:var(--muted);cursor:not-allowed;'),
+
+      toastsView: s.toasts.map(t => ({
+        ...t,
+        spin: t.kind === 'info',
+        dot: t.kind !== 'info',
+        color: t.kind === 'ok' ? 'var(--ok)' : t.kind === 'fail' ? 'var(--danger)' : 'var(--accent)'
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

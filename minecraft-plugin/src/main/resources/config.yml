@@ -1,0 +1,13 @@
+# Instellar Sync — connects this server to the web moderation panel.
+#
+# supabase-url:      your project URL (Settings -> API)
+# service-role-key:  the SERVICE ROLE key (Settings -> API -> service_role).
+#                    Keep this secret — it only ever lives on this server.
+supabase-url: "https://jaednahuxpjwrqjqytrt.supabase.co"
+service-role-key: "PASTE_SERVICE_ROLE_KEY_HERE"
+
+# How often (seconds) to check for new actions from the panel.
+poll-seconds: 5
+
+# Muted players are stored here by the plugin — do not edit.
+mutes: {}
