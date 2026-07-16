@@ -6,6 +6,11 @@
 supabase-url: "https://jaednahuxpjwrqjqytrt.supabase.co"
 service-role-key: "PASTE_SERVICE_ROLE_KEY_HERE"
 
+# Which panel server this Minecraft server is.
+# Instellar 1 -> "instellar1"    Instellar 2 -> "instellar2"
+# The plugin only executes actions queued for THIS server.
+server: "instellar1"
+
 # How often (seconds) to check for new actions from the panel.
 poll-seconds: 5
 

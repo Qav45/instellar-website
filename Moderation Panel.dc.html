@@ -8,16 +8,16 @@
 <body>
 <x-dc>
 <helmet>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Poppins:wght@500;600;700&amp;display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
 body{margin:0;font-family:'Manrope',system-ui,sans-serif;background:var(--bg);color:var(--text);
---bg:#0E1116;--surface:#151A21;--raised:#1C222C;--line:rgba(255,255,255,.07);--soft:rgba(255,255,255,.045);
---text:#E9EDF3;--muted:#8B95A5;--accent:#6470F3;--ok:#3DC98B;--warn:#E8A33D;--danger:#EF6461;--violet:#8B7CF6;
+--bg:#000000;--surface:#15151c;--raised:#1d1d26;--line:#232330;--soft:rgba(255,255,255,.05);
+--text:#f4f4f7;--muted:#9c9ca8;--accent:#f4f4f7;--on-accent:#111116;--ok:#3DC98B;--warn:#E8A33D;--danger:#EF6461;--violet:#8B7CF6;
 --shadow:0 10px 30px rgba(0,0,0,.35);--shadow-lg:0 24px 64px rgba(0,0,0,.5)}
-body.light{--bg:#F1F2F6;--surface:#FFFFFF;--raised:#F5F6FA;--line:rgba(20,28,45,.09);--soft:rgba(20,28,45,.045);
---text:#1B2330;--muted:#5D6878;--shadow:0 8px 24px rgba(25,35,60,.08);--shadow-lg:0 24px 64px rgba(25,35,60,.18)}
+body.light{--bg:#eceef1;--surface:#f7f8fa;--raised:#ffffff;--line:#e3e5ea;--soft:rgba(20,25,40,.05);
+--text:#16161d;--muted:#7a7a85;--accent:#1e1e28;--on-accent:#ffffff;--shadow:0 8px 24px rgba(25,35,60,.08);--shadow-lg:0 24px 64px rgba(25,35,60,.18)}
 a{color:var(--accent);text-decoration:none}a:hover{color:var(--text)}
 input,textarea,button,select{font-family:inherit}
 ::placeholder{color:var(--muted);opacity:.7}
@@ -36,11 +36,9 @@ input,textarea,button,select{font-family:inherit}
 <div data-screen-label="Login" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px">
   <div style="width:380px;max-width:100%;display:flex;flex-direction:column;gap:22px;animation:mp-pop .35s ease">
     <div style="display:flex;flex-direction:column;align-items:center;gap:14px">
-      <div style="width:52px;height:52px;border-radius:16px;background:var(--accent);display:grid;place-items:center">
-        <div style="width:18px;height:18px;background:#fff;border-radius:5px;transform:rotate(45deg)"></div>
-      </div>
+      
       <div style="text-align:center">
-        <div style="font-size:22px;font-weight:800;letter-spacing:-.02em">Instellar</div>
+        <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:16px;letter-spacing:.22em">INSTELLAR</div>
         <div style="font-size:13.5px;color:var(--muted);margin-top:4px">Sign in to the moderation panel</div>
       </div>
     </div>
@@ -59,9 +57,9 @@ input,textarea,button,select{font-family:inherit}
           <span style="font-size:12.5px;font-weight:600;color:var(--danger)">{{ loginError }}</span>
         </div>
       </sc-if>
-      <button onClick="{{ login }}" style="margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:12px;padding:13px;font-size:14.5px;font-weight:700;cursor:pointer;transition:transform .1s, filter .15s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">Sign in</button>
+      <button onClick="{{ login }}" style="margin-top:6px;background:var(--accent);color:var(--on-accent);border:none;border-radius:999px;padding:13px;font-size:14.5px;font-weight:700;cursor:pointer;transition:transform .1s, filter .15s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">Sign in</button>
       <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px"><div style="flex:1;height:1px;background:var(--line)"></div>or<div style="flex:1;height:1px;background:var(--line)"></div></div>
-      <button onClick="{{ ssoClick }}" style="background:var(--raised);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s, transform .1s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Continue with SSO</button>
+      <button onClick="{{ ssoClick }}" style="background:var(--raised);color:var(--text);border:1px solid var(--line);border-radius:999px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s, transform .1s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Continue with SSO</button>
     </div>
     <div style="text-align:center;font-size:12.5px;color:var(--muted)">Staff access only · contact an admin for an account</div>
   </div>
@@ -74,27 +72,35 @@ input,textarea,button,select{font-family:inherit}
   <!-- Sidebar -->
   <div style="width:240px;flex:none;display:flex;flex-direction:column;gap:8px;padding:20px 14px;border-right:1px solid var(--line);position:sticky;top:0;height:100vh;box-sizing:border-box">
     <div style="display:flex;align-items:center;gap:11px;padding:4px 10px 16px">
-      <div style="width:34px;height:34px;border-radius:11px;background:var(--accent);display:grid;place-items:center;flex:none">
-        <div style="width:12px;height:12px;background:#fff;border-radius:3.5px;transform:rotate(45deg)"></div>
-      </div>
+      <img src="assets/logo.png" alt="Instellar logo" style="width:34px;height:34px;border-radius:11px;object-fit:cover;display:block;flex:none">
       <div>
-        <div style="font-size:15px;font-weight:800;letter-spacing:-.01em">Instellar</div>
+        <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:13px;letter-spacing:.2em">INSTELLAR</div>
         <div style="font-size:10.5px;color:var(--muted);font-weight:600;letter-spacing:.06em;text-transform:uppercase">Moderation</div>
       </div>
     </div>
     <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="4">
       <button onClick="{{ n.go }}" style="{{ n.style }}" style-hover="{{ n.hover }}" style-active="transform:scale(.98)">
         <span style="width:20px;height:20px;display:grid;place-items:center;flex:none">
-          <sc-if value="{{ n.isDash }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="2.4" fill="currentColor"/><rect x="11" y="2" width="7" height="7" rx="2.4" fill="currentColor" opacity=".45"/><rect x="2" y="11" width="7" height="7" rx="2.4" fill="currentColor" opacity=".45"/><rect x="11" y="11" width="7" height="7" rx="2.4" fill="currentColor"/></svg></sc-if>
-          <sc-if value="{{ n.isPlayers }}" hint-placeholder-val="{{ false }}"><svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><circle cx="10" cy="6.5" r="3.4"/><rect x="3.4" y="11.6" width="13.2" height="6" rx="3" opacity=".7"/></svg></sc-if>
-          <sc-if value="{{ n.isAudit }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 5h14"/><path d="M3 10h10"/><path d="M3 15h14"/></svg></sc-if>
-          <sc-if value="{{ n.isStaff }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2l6.5 2.6v4.6c0 3.9-2.7 6.6-6.5 8.6-3.8-2-6.5-4.7-6.5-8.6V4.6z"/></svg></sc-if>
+          <sc-if value="{{ n.isDash }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="2.4" fill="currentColor"></rect><rect x="11" y="2" width="7" height="7" rx="2.4" fill="currentColor" opacity=".45"></rect><rect x="2" y="11" width="7" height="7" rx="2.4" fill="currentColor" opacity=".45"></rect><rect x="11" y="11" width="7" height="7" rx="2.4" fill="currentColor"></rect></svg></sc-if>
+          <sc-if value="{{ n.isPlayers }}" hint-placeholder-val="{{ false }}"><svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><circle cx="10" cy="6.5" r="3.4"></circle><rect x="3.4" y="11.6" width="13.2" height="6" rx="3" opacity=".7"></rect></svg></sc-if>
+          <sc-if value="{{ n.isAudit }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 5h14"></path><path d="M3 10h10"></path><path d="M3 15h14"></path></svg></sc-if>
+          <sc-if value="{{ n.isLogging }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4-4 4"></path><path d="M10 15h7"></path></svg></sc-if>
+          <sc-if value="{{ n.isGuides }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4.5C8.5 3.3 6.5 3 4 3v12.5c2.5 0 4.5.3 6 1.5 1.5-1.2 3.5-1.5 6-1.5V3c-2.5 0-4.5.3-6 1.5z"></path><path d="M10 4.5V17"></path></svg></sc-if>
+          <sc-if value="{{ n.isStaff }}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2l6.5 2.6v4.6c0 3.9-2.7 6.6-6.5 8.6-3.8-2-6.5-4.7-6.5-8.6V4.6z"></path></svg></sc-if>
         </span>
         <span>{{ n.label }}</span>
         <sc-if value="{{ n.count }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-size:11px;font-weight:700;background:var(--soft);color:var(--muted);border-radius:99px;padding:2px 8px">{{ n.count }}</span></sc-if>
       </button>
     </sc-for>
     <div style="flex:1"></div>
+    <div style="border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:7px;padding-bottom:12px">
+      <div style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;padding:0 6px">Server</div>
+      <div style="display:flex;gap:6px">
+        <sc-for list="{{ serverOpts }}" as="sv" hint-placeholder-count="2">
+          <button onClick="{{ sv.pick }}" style="{{ sv.style }}" style-active="transform:scale(.97)">{{ sv.label }}</button>
+        </sc-for>
+      </div>
+    </div>
     <div style="border-top:1px solid var(--line);padding-top:14px;display:flex;align-items:center;gap:10px;padding-left:6px;padding-right:6px">
       <div style="width:34px;height:34px;border-radius:11px;background:{{ meAvBg }};display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px;flex:none">{{ meInitial }}</div>
       <div style="min-width:0;flex:1">
@@ -102,7 +108,7 @@ input,textarea,button,select{font-family:inherit}
         <div style="font-size:11px;color:var(--muted)">{{ meRole }}</div>
       </div>
       <button onClick="{{ logout }}" title="Sign out" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:6px;border-radius:8px;transition:background .15s,color .15s" style-hover="background:var(--soft);color:var(--text)">
-        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 4H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h6"/><path d="M9 10h8"/><path d="M14 7l3 3-3 3"/></svg>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 4H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h6"></path><path d="M9 10h8"></path><path d="M14 7l3 3-3 3"></path></svg>
       </button>
     </div>
   </div>
@@ -112,7 +118,8 @@ input,textarea,button,select{font-family:inherit}
 
     <!-- Header -->
     <div style="display:flex;align-items:center;gap:14px;padding:16px 28px;border-bottom:1px solid var(--line);position:sticky;top:0;background:color-mix(in srgb, var(--bg) 88%, transparent);backdrop-filter:blur(12px);z-index:20">
-      <div style="font-size:17px;font-weight:800;letter-spacing:-.01em">{{ pageTitle }}</div>
+      <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:17px">{{ pageTitle }}</div>
+      <span style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);background:var(--soft);border:1px solid var(--line);border-radius:99px;padding:4px 11px">{{ serverBadge }}</span>
       <div style="flex:1"></div>
       <button onClick="{{ toggleTheme }}" style="background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:7px 14px;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;transition:background .15s,color .15s" style-hover="background:var(--raised);color:var(--text)">{{ themeLabel }}</button>
     </div>
@@ -123,12 +130,12 @@ input,textarea,button,select{font-family:inherit}
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px">
         <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow)">
           <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Awaiting approval</div>
-          <div style="font-size:24px;font-weight:800;margin-top:10px;letter-spacing:-.02em">{{ approvalCount }}</div>
+          <div style="font-family:'Poppins',sans-serif;font-size:26px;font-weight:600;margin-top:10px">{{ approvalCount }}</div>
           <div style="font-size:12.5px;color:var(--muted);margin-top:4px">requests that need an Admin to sign off</div>
         </div>
         <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow)">
           <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Staff accounts</div>
-          <div style="font-size:24px;font-weight:800;margin-top:10px;letter-spacing:-.02em">{{ staffCount }}</div>
+          <div style="font-family:'Poppins',sans-serif;font-size:26px;font-weight:600;margin-top:10px">{{ staffCount }}</div>
           <div style="font-size:12.5px;color:var(--muted);margin-top:4px">with access to this panel</div>
         </div>
       </div>
@@ -167,7 +174,7 @@ input,textarea,button,select{font-family:inherit}
           <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow)">
             <div style="font-size:14px;font-weight:800">Action queue</div>
             <div style="font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.5">{{ pendingCount }} executing on the server · {{ approvalCount }} awaiting an Admin's approval.</div>
-            <button onClick="{{ goAudit }}" style="margin-top:14px;background:var(--accent);color:#fff;border:none;border-radius:11px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;transition:filter .15s,transform .1s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">Review queue</button>
+            <button onClick="{{ goAudit }}" style="margin-top:14px;background:var(--accent);color:var(--on-accent);border:none;border-radius:999px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;transition:filter .15s,transform .1s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">Review queue</button>
           </div>
         </div>
       </div>
@@ -179,7 +186,7 @@ input,textarea,button,select{font-family:inherit}
     <div data-screen-label="Players" style="padding:26px 28px;display:flex;flex-direction:column;gap:18px;animation:mp-fade .25s ease">
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
         <div style="position:relative;flex:1;min-width:240px;max-width:380px">
-          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--muted)" stroke-width="2.2" stroke-linecap="round" style="position:absolute;left:14px;top:50%;transform:translateY(-50%)"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--muted)" stroke-width="2.2" stroke-linecap="round" style="position:absolute;left:14px;top:50%;transform:translateY(-50%)"><circle cx="9" cy="9" r="6"></circle><path d="M14 14l4 4"></path></svg>
           <input value="{{ search }}" onChange="{{ onSearch }}" placeholder="Search players…" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 14px 11px 38px;font-size:13.5px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
         </div>
         <div style="display:flex;gap:6px">
@@ -215,7 +222,7 @@ input,textarea,button,select{font-family:inherit}
           <div style="padding:40px;border-top:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:14px">
             <div style="color:var(--muted);font-size:13.5px;text-align:center">No players found — players appear here once they have a moderation record.</div>
             <sc-if value="{{ canPunishSearch }}" hint-placeholder-val="{{ false }}">
-              <button onClick="{{ punishSearch }}" style="background:var(--accent);color:#fff;border:none;border-radius:11px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;transition:filter .15s" style-hover="filter:brightness(1.1)">Take action on “{{ search }}”</button>
+              <button onClick="{{ punishSearch }}" style="background:var(--accent);color:var(--on-accent);border:none;border-radius:999px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;transition:filter .15s" style-hover="filter:brightness(1.1)">Take action on “{{ search }}”</button>
             </sc-if>
           </div>
         </sc-if>
@@ -228,7 +235,7 @@ input,textarea,button,select{font-family:inherit}
     <div data-screen-label="Audit Log" style="padding:26px 28px;display:flex;flex-direction:column;gap:18px;animation:mp-fade .25s ease">
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
         <div style="position:relative;flex:1;min-width:240px;max-width:380px">
-          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--muted)" stroke-width="2.2" stroke-linecap="round" style="position:absolute;left:14px;top:50%;transform:translateY(-50%)"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--muted)" stroke-width="2.2" stroke-linecap="round" style="position:absolute;left:14px;top:50%;transform:translateY(-50%)"><circle cx="9" cy="9" r="6"></circle><path d="M14 14l4 4"></path></svg>
           <input value="{{ auditQuery }}" onChange="{{ onAuditQuery }}" placeholder="Search by player, staff, or reason…" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 14px 11px 38px;font-size:13.5px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
         </div>
         <div style="display:flex;gap:6px">
@@ -254,7 +261,7 @@ input,textarea,button,select{font-family:inherit}
             <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px">
               <sc-if value="{{ a.isPending }}" hint-placeholder-val="{{ false }}"><span style="width:12px;height:12px;border-radius:99px;border:2px solid var(--muted);border-top-color:transparent;animation:mp-spin .8s linear infinite;flex:none"></span></sc-if>
               <sc-if value="{{ a.isFailed }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.retry }}" style="background:none;border:none;color:var(--accent);font-size:11.5px;font-weight:700;cursor:pointer;padding:2px 4px" style-hover="text-decoration:underline">Retry</button></sc-if>
-              <sc-if value="{{ a.isApproval }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.approve }}" style="background:var(--accent);border:none;color:#fff;font-size:11.5px;font-weight:700;cursor:pointer;padding:5px 11px;border-radius:8px;transition:filter .15s" style-hover="filter:brightness(1.1)">Approve</button></sc-if>
+              <sc-if value="{{ a.isApproval }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:6px"><button onClick="{{ a.deny }}" style="background:none;border:1px solid var(--line);color:var(--muted);font-size:11.5px;font-weight:700;cursor:pointer;padding:4px 10px;border-radius:8px;transition:all .15s" style-hover="color:var(--danger);border-color:var(--danger)">Deny</button><button onClick="{{ a.approve }}" style="background:var(--accent);border:none;color:var(--on-accent);font-size:11.5px;font-weight:700;cursor:pointer;padding:5px 11px;border-radius:8px;transition:filter .15s" style-hover="filter:brightness(1.1)">Approve</button></span></sc-if>
               <span style="{{ a.stStyle }}">{{ a.status }}</span>
             </div>
           </div>
@@ -266,12 +273,86 @@ input,textarea,button,select{font-family:inherit}
     </div>
     </sc-if>
 
+    <!-- ============ LOGGING ============ -->
+    <sc-if value="{{ isLogging }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Logging" style="padding:26px 28px;display:flex;flex-direction:column;gap:22px;animation:mp-fade .25s ease">
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px">
+        <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow)">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Logs today</div>
+          <div style="font-family:'Poppins',sans-serif;font-size:26px;font-weight:600;margin-top:10px">{{ logsToday }}</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:4px">justified actions submitted today</div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow)">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Total logs</div>
+          <div style="font-family:'Poppins',sans-serif;font-size:26px;font-weight:600;margin-top:10px">{{ logsTotal }}</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:4px">on record for the whole team</div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center">
+        <div style="font-size:13.5px;color:var(--muted)">Logs all action not like /ban do it like /tp.<br><br></div>
+        <button onClick="{{ openJustify }}" style="margin-left:auto;flex:none;white-space:nowrap;background:var(--accent);color:var(--on-accent);border:none;border-radius:999px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;transition:filter .15s,transform .1s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">+ Justify</button>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:18px 22px 14px">
+            <span style="width:9px;height:9px;border-radius:99px;background:var(--ok);animation:mp-pulse 2s ease infinite"></span>
+            <div style="font-size:15px;font-weight:800">Staff logs</div>
+          </div>
+          <sc-for list="{{ justifyView }}" as="j" hint-placeholder-count="4">
+            <div style="display:flex;gap:13px;padding:15px 22px;border-top:1px solid var(--line);transition:background .15s" style-hover="background:var(--soft)">
+              <div style="width:34px;height:34px;border-radius:11px;flex:none;display:grid;place-items:center;color:#fff;font-weight:800;font-size:12.5px;background:{{ j.avBg }}">{{ j.initial }}</div>
+              <div style="min-width:0;flex:1;display:flex;flex-direction:column;gap:5px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font-size:13.5px;font-weight:800">{{ j.by }}</span>
+                  <span style="font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums">{{ j.when }}</span>
+                  <span style="{{ j.stStyle }}">{{ j.status }}</span>
+                  <sc-if value="{{ j.canApprove }}" hint-placeholder-val="{{ false }}"><button onClick="{{ j.approve }}" style="background:var(--accent);border:none;color:var(--on-accent);font-size:11.5px;font-weight:700;cursor:pointer;padding:5px 11px;border-radius:999px;transition:filter .15s" style-hover="filter:brightness(1.1)">Approve</button></sc-if>
+                </div>
+                <div style="font-size:13px;line-height:1.5"><span style="font-weight:800;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em">Did · </span>{{ j.what }}</div>
+                <div style="font-size:13px;line-height:1.5;color:var(--muted)"><span style="font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Why · </span>{{ j.why }}</div>
+                <div style="font-size:13px;line-height:1.5;color:var(--muted)"><span style="font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.05em">After · </span>{{ j.after }}</div>
+              </div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noJustify }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:36px;text-align:center;color:var(--muted);font-size:13px;border-top:1px solid var(--line)">No staff logs yet — submit the first one.</div>
+          </sc-if>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ============ GUIDES ============ -->
+    <sc-if value="{{ isGuides }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Guides" style="padding:26px 28px;display:flex;flex-direction:column;gap:18px;animation:mp-fade .25s ease">
+      <div style="display:flex;align-items:center">
+        <div style="font-size:13.5px;color:var(--muted)">How-tos and rules for the staff team</div>
+        <sc-if value="{{ canEditGuides }}" hint-placeholder-val="{{ false }}"><button onClick="{{ openGuide }}" style="margin-left:auto;flex:none;white-space:nowrap;background:var(--accent);color:var(--on-accent);border:none;border-radius:999px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;transition:filter .15s,transform .1s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">+ New guide</button></sc-if>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <sc-for list="{{ guidesView }}" as="g" hint-placeholder-count="3">
+          <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="font-family:'Poppins',sans-serif;font-size:16px;font-weight:600">{{ g.title }}</div>
+              <sc-if value="{{ g.canDelete }}" hint-placeholder-val="{{ false }}"><button onClick="{{ g.remove }}" style="margin-left:auto;flex:none;background:var(--raised);border:1px solid var(--line);color:var(--danger);border-radius:999px;padding:5px 12px;font-size:11.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:color-mix(in srgb, var(--danger) 14%, transparent)">Delete</button></sc-if>
+            </div>
+            <div style="font-size:13.5px;line-height:1.65;color:var(--text);white-space:pre-wrap">{{ g.body }}</div>
+            <div style="font-size:11.5px;color:var(--muted)">by {{ g.by }} · {{ g.when }}</div>
+          </div>
+        </sc-for>
+        <sc-if value="{{ noGuides }}" hint-placeholder-val="{{ false }}">
+          <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:36px;text-align:center;color:var(--muted);font-size:13px">No guides yet.</div>
+        </sc-if>
+      </div>
+    </div>
+    </sc-if>
+
     <!-- ============ STAFF ============ -->
     <sc-if value="{{ isStaff }}" hint-placeholder-val="{{ false }}">
     <div data-screen-label="Staff" style="padding:26px 28px;display:flex;flex-direction:column;gap:18px;animation:mp-fade .25s ease">
       <div style="display:flex;align-items:center">
         <div style="font-size:13.5px;color:var(--muted)">Roles control what actions each member can execute — anything above your role needs approval</div>
-        <button onClick="{{ openInvite }}" style="margin-left:auto;background:var(--accent);color:#fff;border:none;border-radius:11px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;transition:filter .15s,transform .1s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">+ Invite staff</button>
+        <sc-if value="{{ canManageStaff }}" hint-placeholder-val="{{ false }}"><button onClick="{{ openInvite }}" style="margin-left:auto;flex:none;white-space:nowrap;background:var(--accent);color:var(--on-accent);border:none;border-radius:999px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;transition:filter .15s,transform .1s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">+ Invite staff</button></sc-if>
       </div>
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden">
         <div style="display:grid;grid-template-columns:minmax(200px,1.4fr) 120px minmax(220px,1.6fr) 110px 90px;gap:12px;padding:12px 22px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">
@@ -297,7 +378,7 @@ input,textarea,button,select{font-family:inherit}
             </div>
             <div style="font-size:12.5px;color:var(--muted)">{{ s.lastActive }}</div>
             <div style="text-align:right">
-              <button onClick="{{ s.openManage }}" style="background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)">Manage</button>
+              <sc-if value="{{ canManageStaff }}" hint-placeholder-val="{{ false }}"><button onClick="{{ s.openManage }}" style="background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)">Manage</button></sc-if>
             </div>
           </div>
         </sc-for>
@@ -402,8 +483,62 @@ input,textarea,button,select{font-family:inherit}
       <div style="font-size:12px;color:var(--muted);line-height:1.5">{{ confirmNote }}</div>
     </div>
     <div style="display:flex;gap:10px;margin-top:20px">
-      <button onClick="{{ closeConfirm }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
+      <button onClick="{{ closeConfirm }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:999px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
       <button onClick="{{ doConfirm }}" style="{{ confirmBtnStyle }}" style-active="transform:scale(.98)">{{ confirmBtnLabel }}</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ============ JUSTIFY MODAL ============ -->
+<sc-if value="{{ jOpen }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Justify" style="position:fixed;inset:0;z-index:80;display:grid;place-items:center">
+  <div onClick="{{ closeJustify }}" style="position:absolute;inset:0;background:rgba(5,8,14,.6);backdrop-filter:blur(3px);animation:mp-fade .2s ease"></div>
+  <div style="position:relative;width:420px;max-width:calc(100vw - 40px);background:var(--surface);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-lg);padding:26px;animation:mp-pop .25s cubic-bezier(.2,.8,.25,1);display:flex;flex-direction:column;gap:14px">
+    <div>
+      <div style="font-size:17px;font-weight:800;letter-spacing:-.01em">Justify</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:2px">Put your action on record for the whole team</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font-size:12px;font-weight:600;color:var(--muted)">What did you do?</label>
+      <textarea value="{{ jWhat }}" onChange="{{ onJWhat }}" rows="2" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;resize:vertical;transition:border-color .15s" style-focus="border-color:var(--accent)"></textarea>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font-size:12px;font-weight:600;color:var(--muted)">Why did you do it?</label>
+      <textarea value="{{ jWhy }}" onChange="{{ onJWhy }}" rows="2" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;resize:vertical;transition:border-color .15s" style-focus="border-color:var(--accent)"></textarea>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font-size:12px;font-weight:600;color:var(--muted)">What happened after?</label>
+      <textarea value="{{ jAfter }}" onChange="{{ onJAfter }}" rows="2" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;resize:vertical;transition:border-color .15s" style-focus="border-color:var(--accent)"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:6px">
+      <button onClick="{{ closeJustify }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:999px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
+      <button onClick="{{ submitJustify }}" style="{{ justifyBtnStyle }}" style-active="transform:scale(.98)">Submit log</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ============ NEW GUIDE MODAL ============ -->
+<sc-if value="{{ gOpen }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="New Guide" style="position:fixed;inset:0;z-index:80;display:grid;place-items:center">
+  <div onClick="{{ closeGuide }}" style="position:absolute;inset:0;background:rgba(5,8,14,.6);backdrop-filter:blur(3px);animation:mp-fade .2s ease"></div>
+  <div style="position:relative;width:460px;max-width:calc(100vw - 40px);background:var(--surface);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-lg);padding:26px;animation:mp-pop .25s cubic-bezier(.2,.8,.25,1);display:flex;flex-direction:column;gap:14px">
+    <div>
+      <div style="font-size:17px;font-weight:800;letter-spacing:-.01em">New guide</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:2px">Visible to the whole staff team</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font-size:12px;font-weight:600;color:var(--muted)">Title</label>
+      <input value="{{ gTitle }}" onChange="{{ onGTitle }}" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;transition:border-color .15s" style-focus="border-color:var(--accent)">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font-size:12px;font-weight:600;color:var(--muted)">Content</label>
+      <textarea value="{{ gBody }}" onChange="{{ onGBody }}" rows="8" style="background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--text);outline:none;resize:vertical;transition:border-color .15s" style-focus="border-color:var(--accent)"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:6px">
+      <button onClick="{{ closeGuide }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:999px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
+      <button onClick="{{ submitGuide }}" style="{{ guideBtnStyle }}" style-active="transform:scale(.98)">Publish guide</button>
     </div>
   </div>
 </div>
@@ -416,7 +551,7 @@ input,textarea,button,select{font-family:inherit}
   <div style="position:relative;width:400px;max-width:calc(100vw - 40px);background:var(--surface);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-lg);padding:26px;animation:mp-pop .25s cubic-bezier(.2,.8,.25,1);display:flex;flex-direction:column;gap:14px">
     <div>
       <div style="font-size:17px;font-weight:800;letter-spacing:-.01em">Invite staff</div>
-      <div style="font-size:12.5px;color:var(--muted);margin-top:2px">Create an account for a new team member</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:2px">Create an account for a new team member on {{ serverBadge }}</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div style="display:flex;flex-direction:column;gap:6px">
@@ -445,8 +580,8 @@ input,textarea,button,select{font-family:inherit}
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:6px">
-      <button onClick="{{ closeInvite }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
-      <button onClick="{{ createInvite }}" style="flex:1;background:var(--accent);border:none;color:#fff;border-radius:12px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;transition:filter .15s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">Create account</button>
+      <button onClick="{{ closeInvite }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:999px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
+      <button onClick="{{ createInvite }}" style="flex:1;background:var(--accent);border:none;color:var(--on-accent);border-radius:999px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;transition:filter .15s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">Create account</button>
     </div>
   </div>
 </div>
@@ -484,8 +619,8 @@ input,textarea,button,select{font-family:inherit}
       </div>
     </div>
     <div style="display:flex;gap:10px">
-      <button onClick="{{ closeManage }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
-      <button onClick="{{ saveManage }}" style="flex:1;background:var(--accent);border:none;color:#fff;border-radius:12px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;transition:filter .15s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">Save changes</button>
+      <button onClick="{{ closeManage }}" style="flex:1;background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:999px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .15s" style-hover="background:var(--soft)" style-active="transform:scale(.98)">Cancel</button>
+      <button onClick="{{ saveManage }}" style="flex:1;background:var(--accent);border:none;color:var(--on-accent);border-radius:999px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;transition:filter .15s" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">Save changes</button>
     </div>
   </div>
 </div>
@@ -504,8 +639,8 @@ input,textarea,button,select{font-family:inherit}
 </sc-if>
 
 </x-dc>
-<template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800"><rect width="1200" height="800" fill="#0E1116"></rect><g transform="translate(600 340)"><circle r="70" fill="none" stroke="#1c222c" stroke-width="8"></circle><circle r="70" fill="none" stroke="#6470F3" stroke-width="8" stroke-linecap="round" stroke-dasharray="110 330" transform="rotate(-90)"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="1.1s" repeatCount="indefinite"></animateTransform></circle><text y="16" text-anchor="middle" font-family="Manrope, sans-serif" font-weight="700" font-size="52" fill="#E9EDF3">I</text></g><text x="600" y="520" text-anchor="middle" font-family="Manrope, sans-serif" font-weight="600" font-size="34" letter-spacing="6" fill="#8B95A5">MODERATION</text></svg></template>
-<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#6470F3&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#6470F3&quot;,&quot;#2FBF8F&quot;,&quot;#8B5CF6&quot;,&quot;#E8615A&quot;],&quot;section&quot;:&quot;Theme&quot;},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dark&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;tsType&quot;:&quot;'dark'|'light'&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+<template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800"><rect width="1200" height="800" fill="#000000"></rect><g transform="translate(600 340)"><circle r="70" fill="none" stroke="#232330" stroke-width="8"></circle><circle r="70" fill="none" stroke="#f4f4f7" stroke-width="8" stroke-linecap="round" stroke-dasharray="110 330" transform="rotate(-90)"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="1.1s" repeatCount="indefinite"></animateTransform></circle><text y="16" text-anchor="middle" font-family="Manrope, sans-serif" font-weight="700" font-size="52" fill="#f4f4f7">I</text></g><text x="600" y="520" text-anchor="middle" font-family="Manrope, sans-serif" font-weight="600" font-size="34" letter-spacing="6" fill="#9c9ca8">MODERATION</text></svg></template>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dark&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;tsType&quot;:&quot;'dark'|'light'&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
 class Component extends DCLogic {
   constructor(props) {
     super(props);
@@ -516,6 +651,7 @@ class Component extends DCLogic {
       loginUser: '', loginPw: '', loginError: '',
       screen: 'dashboard',
       theme: null,
+      server: localStorage.getItem('instellar_server') || 'instellar1',
       search: '', playerFilter: 'All',
       auditQuery: '', auditFilter: 'All',
       selectedId: null,
@@ -525,9 +661,14 @@ class Component extends DCLogic {
       toasts: [],
       audit: [],
       staff: [],
+      notes: [],
       notesLocal: {},
       invite: null,
       manage: null,
+      jOpen: false, jWhat: '', jWhy: '', jAfter: '',
+      justify: JSON.parse(localStorage.getItem('instellar_justify') || '[]'),
+      gOpen: false, gTitle: '', gBody: '',
+      guides: JSON.parse(localStorage.getItem('instellar_guides') || '[]'),
       nextId: 200
     };
   }
@@ -538,6 +679,41 @@ class Component extends DCLogic {
   }
 
   myName() { return this.state.me ? this.state.me.display_name : ''; }
+
+  serverName(id) { return id === 'instellar2' ? 'Instellar 2' : 'Instellar 1'; }
+
+  setServer(id) {
+    if (id === this.state.server) return;
+    localStorage.setItem('instellar_server', id);
+    this.state.server = id;
+    this.setState({
+      server: id, selectedId: null, confirm: null, audit: [], staff: [], notes: [],
+      search: '', auditQuery: '', playerFilter: 'All', auditFilter: 'All',
+      justify: JSON.parse(localStorage.getItem('instellar_justify') || '[]'),
+      guides: JSON.parse(localStorage.getItem('instellar_guides') || '[]')
+    });
+    this.loadData(); this.loadJustify(); this.loadGuides();
+    this.toast('ok', 'Switched to ' + this.serverName(id) + '.');
+  }
+
+  warnUpgrade() {
+    if (this._srvWarned) return;
+    this._srvWarned = true;
+    this.toast('fail', 'Database not split yet — run supabase/two-servers-upgrade.sql, showing combined data.');
+  }
+
+  // Insert that tolerates a database that hasn't been upgraded
+  // with the per-server column yet.
+  async sbInsert(table, row) {
+    let res = await this.sb().from(table).insert(row);
+    if (res.error && String(res.error.message).toLowerCase().includes('server')) {
+      this.warnUpgrade();
+      const copy = { ...row };
+      delete copy.server;
+      res = await this.sb().from(table).insert(copy);
+    }
+    return res;
+  }
 
   timeAgo(iso) {
     const d = new Date(iso), diff = Date.now() - d.getTime();
@@ -550,12 +726,23 @@ class Component extends DCLogic {
 
   async loadData() {
     const sb = this.sb();
-    const [a, st] = await Promise.all([
-      sb.from('mod_actions').select('*').order('created_at', { ascending: false }).limit(300),
-      sb.from('staff').select('*').order('created_at', { ascending: true })
+    const srv = this.state.server;
+    let [a, st, n] = await Promise.all([
+      sb.from('mod_actions').select('*').eq('server', srv).order('created_at', { ascending: false }).limit(300),
+      sb.from('staff').select('*').eq('server', srv).order('created_at', { ascending: true }),
+      sb.from('player_notes').select('*').eq('server', srv).order('created_at', { ascending: true }).limit(1000)
     ]);
+    if (a.error && String(a.error.message).toLowerCase().includes('server')) {
+      this.warnUpgrade();
+      [a, st, n] = await Promise.all([
+        sb.from('mod_actions').select('*').order('created_at', { ascending: false }).limit(300),
+        sb.from('staff').select('*').order('created_at', { ascending: true }),
+        sb.from('player_notes').select('*').order('created_at', { ascending: true }).limit(1000)
+      ]);
+    }
     if (a.error || st.error) { this.toast('fail', 'Could not load data: ' + (a.error || st.error).message); return; }
-    this.setState({ audit: a.data, staff: st.data });
+    if (srv !== this.state.server) return; // switched while loading
+    this.setState({ audit: a.data, staff: st.data, notes: n.error ? this.state.notes : n.data });
   }
 
   startLive() {
@@ -563,6 +750,9 @@ class Component extends DCLogic {
     this._live = this.sb().channel('panel-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mod_actions' }, () => this.loadData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff' }, () => this.loadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'player_notes' }, () => this.loadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_logs' }, () => this.loadJustify())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'guides' }, () => this.loadGuides())
       .subscribe();
     this._poll = setInterval(() => { if (this.state.authed) this.loadData(); }, 15000);
   }
@@ -581,6 +771,8 @@ class Component extends DCLogic {
     }
     this.setState({ authed: true, me, loginError: '', loginPw: '' });
     this.loadData();
+    this.loadJustify();
+    this.loadGuides();
     this.startLive();
   }
 
@@ -618,7 +810,8 @@ class Component extends DCLogic {
     return m[st] || base;
   }
 
-  rank(role) { return {Helper:1, Moderator:2, Admin:3, Owner:4}[role] || 0; }
+  rank(role) { return {Trainee:1, Helper:2, 'Jr Moderator':3, Moderator:4, 'Sr Moderator':5, 'Jr Admin':6, Admin:7, 'Sr Admin':8, Management:9, Owner:10}[role] || 0; }
+  roleList() { return ['Trainee','Helper','Jr Moderator','Moderator','Sr Moderator','Jr Admin','Admin','Sr Admin','Management','Owner']; }
   requiredRole(type, duration) {
     if (type === 'Unban') return 'Admin';
     if (type === 'Ban' && duration === 'Permanent') return 'Admin';
@@ -653,7 +846,6 @@ class Component extends DCLogic {
   applyTheme() {
     const theme = this.state.theme ?? this.props.theme ?? 'dark';
     document.body.classList.toggle('light', theme === 'light');
-    document.body.style.setProperty('--accent', this.props.accent ?? '#6470F3');
   }
 
   toast(kind, msg) {
@@ -676,23 +868,107 @@ class Component extends DCLogic {
     const needsDur = c.type === 'Ban' || c.type === 'Mute';
     const approval = this.needsApproval(c.type, needsDur ? this.state.duration : undefined);
     const row = {
+      server: this.state.server,
       type: c.type, target, reason: this.state.reason.trim(),
       duration: needsDur ? this.state.duration : null,
       by_id: this.state.me.id, by_name: this.state.me.display_name,
       status: approval ? 'Approval' : 'Pending'
     };
     this.setState({ confirm: null, reason: '' });
-    const { error } = await this.sb().from('mod_actions').insert(row);
+    const { error } = await this.sbInsert('mod_actions', row);
     if (error) { this.toast('fail', 'Could not submit: ' + error.message); return; }
     if (approval) this.toast('info', c.type + ' on ' + target + ' sent to a higher role for approval.');
     else this.toast('info', c.type + ' on ' + target + ' queued — waiting for the server plugin…');
     this.loadData();
   }
 
+  async submitJustify() {
+    const s = this.state;
+    if (!s.jWhat.trim() || !s.jWhy.trim() || !s.jAfter.trim()) { this.toast('fail', 'Fill in all three fields.'); return; }
+    const entry = { id: 'local-' + Date.now(), what: s.jWhat.trim(), why: s.jWhy.trim(), after: s.jAfter.trim(), by: this.myName(), status: 'Pending', created_at: new Date().toISOString() };
+    const { error } = await this.sbInsert('staff_logs', { server: s.server, what: entry.what, why: entry.why, after: entry.after, by_name: entry.by, by_id: s.me.id, status: 'Pending' });
+    if (error) {
+      const local = [entry, ...s.justify];
+      localStorage.setItem('instellar_justify', JSON.stringify(local));
+      this.setState({ justify: local, jOpen: false, jWhat: '', jWhy: '', jAfter: '' });
+      this.toast('fail', 'Saved locally only — shared log table missing (' + error.message + ')');
+      return;
+    }
+    this.setState({ jOpen: false, jWhat: '', jWhy: '', jAfter: '' });
+    this.toast('ok', 'Logged — awaiting instellarownership approval.');
+    this.loadJustify();
+  }
+
+  async approveJustify(j) {
+    if (String(j.id).startsWith('local-')) {
+      const local = this.state.justify.map(x => x.id === j.id ? { ...x, status: 'Approved' } : x);
+      localStorage.setItem('instellar_justify', JSON.stringify(local));
+      this.setState({ justify: local });
+      this.toast('ok', 'Log approved.');
+      return;
+    }
+    const { error } = await this.sb().from('staff_logs').update({ status: 'Approved' }).eq('id', j.id);
+    if (error) { this.toast('fail', error.message); return; }
+    this.toast('ok', 'Log approved.');
+    this.loadJustify();
+  }
+
+  async submitGuide() {
+    const s = this.state;
+    if (!s.gTitle.trim() || !s.gBody.trim()) { this.toast('fail', 'Title and content are required.'); return; }
+    const entry = { id: 'local-' + Date.now(), title: s.gTitle.trim(), body: s.gBody.trim(), by: this.myName(), created_at: new Date().toISOString() };
+    const { error } = await this.sbInsert('guides', { server: s.server, title: entry.title, body: entry.body, by_name: entry.by, by_id: s.me.id });
+    if (error) {
+      const local = [entry, ...s.guides];
+      localStorage.setItem('instellar_guides', JSON.stringify(local));
+      this.setState({ guides: local, gOpen: false, gTitle: '', gBody: '' });
+      this.toast('fail', 'Saved locally only — shared guides table missing (' + error.message + ')');
+      return;
+    }
+    this.setState({ gOpen: false, gTitle: '', gBody: '' });
+    this.toast('ok', 'Guide published.');
+    this.loadGuides();
+  }
+
+  async removeGuide(g) {
+    if (String(g.id).startsWith('local-')) {
+      const local = this.state.guides.filter(x => x.id !== g.id);
+      localStorage.setItem('instellar_guides', JSON.stringify(local));
+      this.setState({ guides: local });
+      return;
+    }
+    const { error } = await this.sb().from('guides').delete().eq('id', g.id);
+    if (error) { this.toast('fail', error.message); return; }
+    this.loadGuides();
+  }
+
+  async loadGuides() {
+    const srv = this.state.server;
+    let { data, error } = await this.sb().from('guides').select('*').eq('server', srv).order('created_at', { ascending: false }).limit(100);
+    if (error) ({ data, error } = await this.sb().from('guides').select('*').order('created_at', { ascending: false }).limit(100));
+    if (error || !data || srv !== this.state.server) return;
+    this.setState({ guides: data.map(r => ({ id: r.id, title: r.title, body: r.body, by: r.by_name, created_at: r.created_at })) });
+  }
+
+  async loadJustify() {
+    const srv = this.state.server;
+    let { data, error } = await this.sb().from('staff_logs').select('*').eq('server', srv).order('created_at', { ascending: false }).limit(200);
+    if (error) ({ data, error } = await this.sb().from('staff_logs').select('*').order('created_at', { ascending: false }).limit(200));
+    if (error || !data || srv !== this.state.server) return;
+    this.setState({ justify: data.map(r => ({ id: r.id, what: r.what, why: r.why, after: r.after, by: r.by_name, status: r.status || 'Pending', created_at: r.created_at })) });
+  }
+
   async approve(entryId) {
     const { error } = await this.sb().rpc('approve_action', { action_id: entryId });
     if (error) { this.toast('fail', error.message); return; }
     this.toast('ok', 'Approved — queued for the server.');
+    this.loadData();
+  }
+
+  async deny(entryId) {
+    const { error } = await this.sb().rpc('deny_action', { action_id: entryId });
+    if (error) { this.toast('fail', error.message); return; }
+    this.toast('ok', 'Denied — it will not run.');
     this.loadData();
   }
 
@@ -721,7 +997,7 @@ class Component extends DCLogic {
 
   chipStyle(active) {
     return active
-      ? 'background:var(--accent);color:#fff;border:1px solid transparent;border-radius:99px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .15s'
+      ? 'background:var(--accent);color:var(--on-accent);border:1px solid transparent;border-radius:99px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .15s'
       : 'background:var(--surface);color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .15s';
   }
 
@@ -736,9 +1012,11 @@ class Component extends DCLogic {
     }));
 
     // Derive the player list from the moderation history
+    const notesBy = {};
+    for (const nr of s.notes) (notesBy[nr.target] = notesBy[nr.target] || []).push({ text: nr.text, by: nr.by_name, when: this.timeAgo(nr.created_at) });
     const mkPlayer = (name) => ({
       id: name, name, status: 'Offline', history: [],
-      notes: s.notesLocal[name] || [], uuid: this.fakeUuid(name),
+      notes: [...(notesBy[name] || []), ...(s.notesLocal[name] || [])], uuid: this.fakeUuid(name),
       lastSeen: '—', playtime: '—', joined: '—'
     });
     const byTarget = {};
@@ -763,6 +1041,7 @@ class Component extends DCLogic {
     const needsDur = s.confirm && (s.confirm.type === 'Ban' || s.confirm.type === 'Mute');
     const pickedNeedsDur = s.pickedAction === 'Ban' || s.pickedAction === 'Mute';
     const canExec = s.reason.trim().length > 0;
+    const canJustify = s.jWhat.trim() && s.jWhy.trim() && s.jAfter.trim();
 
     const q = s.search.toLowerCase();
     const filteredPlayers = players.filter(p =>
@@ -777,15 +1056,26 @@ class Component extends DCLogic {
     const pendingCount = audit.filter(a => a.status === 'Pending').length;
     const approvalCount = audit.filter(a => a.status === 'Approval').length;
     const confApproval = s.confirm ? this.needsApproval(s.confirm.type, needsDur ? s.duration : undefined) : false;
-    const titles = { dashboard: 'Overview', players: 'Players', audit: 'Audit log', staff: 'Staff' };
+    const titles = { dashboard: 'Overview', players: 'Players', audit: 'Audit logs', logging: 'Logging', guides: 'Guides', staff: 'Staff' };
+    const isOwnership = !!s.me && s.me.username === 'instellarownership';
+    const myPerms = (s.me && s.me.perms) || [];
+    const canEditGuides = isOwnership || myPerms.includes('Guides') || myPerms.includes('All permissions');
     const navDefs = [
-      ['dashboard','Dashboard'], ['players','Players'], ['audit','Audit log'], ['staff','Staff']
+      ['dashboard','Dashboard'], ['players','Players'], ['audit','Audit logs'], ['logging','Logging'], ['guides','Guides'], ['staff','Staff']
     ];
     const navBase = 'display:flex;align-items:center;gap:11px;width:100%;box-sizing:border-box;text-align:left;border:none;border-radius:12px;padding:10px 12px;font-size:13.5px;font-weight:700;cursor:pointer;transition:all .15s;';
 
     return {
       isLogin: !s.authed,
       isApp: s.authed,
+      serverBadge: this.serverName(s.server),
+      serverOpts: [['instellar1','Instellar 1'],['instellar2','Instellar 2']].map(([id, label]) => ({
+        label,
+        pick: () => this.setServer(id),
+        style: 'flex:1;border-radius:11px;padding:9px 4px;font-size:12px;font-weight:800;cursor:pointer;transition:all .15s;white-space:nowrap;' + (s.server === id
+          ? 'background:var(--accent);color:var(--on-accent);border:1px solid transparent'
+          : 'background:var(--raised);color:var(--muted);border:1px solid var(--line)')
+      })),
       loginUser: s.loginUser,
       loginPw: s.loginPw,
       loginError: s.loginError || false,
@@ -814,12 +1104,53 @@ class Component extends DCLogic {
       isDashboard: s.screen === 'dashboard',
       isPlayers: s.screen === 'players',
       isAudit: s.screen === 'audit',
+      isLogging: s.screen === 'logging',
       isStaff: s.screen === 'staff',
+      logsToday: String(s.justify.filter(j => new Date(j.created_at) >= dayStart).length),
+      logsTotal: String(s.justify.length),
+      jOpen: !!s.jOpen,
+      openJustify: () => this.setState({ jOpen: true, jWhat: '', jWhy: '', jAfter: '' }),
+      closeJustify: () => this.setState({ jOpen: false }),
+      jWhat: s.jWhat, jWhy: s.jWhy, jAfter: s.jAfter,
+      onJWhat: (e) => this.setState({ jWhat: e.target.value }),
+      onJWhy: (e) => this.setState({ jWhy: e.target.value }),
+      onJAfter: (e) => this.setState({ jAfter: e.target.value }),
+      justifyBtnStyle: 'flex:1;border:none;border-radius:999px;padding:12px;font-size:13.5px;font-weight:800;transition:all .15s;' + (canJustify
+        ? 'background:var(--accent);color:var(--on-accent);cursor:pointer;'
+        : 'background:var(--raised);color:var(--muted);cursor:not-allowed;'),
+      submitJustify: () => this.submitJustify(),
+      justifyView: [...s.justify].sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).map(j => ({
+        ...j, initial: (j.by || '?')[0].toUpperCase(), avBg: this.avBg(j.by || '?'), when: this.timeAgo(j.created_at),
+        status: j.status || 'Pending',
+        stStyle: this.statusStyle((j.status || 'Pending') === 'Approved' ? 'Executed' : 'Approval') + ';flex:none',
+        canApprove: isOwnership && (j.status || 'Pending') !== 'Approved',
+        approve: () => this.approveJustify(j)
+      })),
+      noJustify: s.justify.length === 0,
+
+      isGuides: s.screen === 'guides',
+      canEditGuides: canEditGuides,
+      gOpen: !!s.gOpen,
+      openGuide: () => this.setState({ gOpen: true, gTitle: '', gBody: '' }),
+      closeGuide: () => this.setState({ gOpen: false }),
+      gTitle: s.gTitle, gBody: s.gBody,
+      onGTitle: (e) => this.setState({ gTitle: e.target.value }),
+      onGBody: (e) => this.setState({ gBody: e.target.value }),
+      guideBtnStyle: 'flex:1;border:none;border-radius:999px;padding:12px;font-size:13.5px;font-weight:800;transition:all .15s;' + (s.gTitle.trim() && s.gBody.trim()
+        ? 'background:var(--accent);color:var(--on-accent);cursor:pointer;'
+        : 'background:var(--raised);color:var(--muted);cursor:not-allowed;'),
+      submitGuide: () => this.submitGuide(),
+      guidesView: [...s.guides].sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).map(g => ({
+        ...g, when: this.timeAgo(g.created_at),
+        canDelete: canEditGuides,
+        remove: () => this.removeGuide(g)
+      })),
+      noGuides: s.guides.length === 0,
       goAudit: () => this.setState({ screen: 'audit' }),
 
       navItems: navDefs.map(([key, label]) => ({
         label,
-        isDash: key === 'dashboard', isPlayers: key === 'players', isAudit: key === 'audit', isStaff: key === 'staff',
+        isDash: key === 'dashboard', isPlayers: key === 'players', isAudit: key === 'audit', isLogging: key === 'logging', isGuides: key === 'guides', isStaff: key === 'staff',
         count: key === 'audit' && pendingCount ? String(pendingCount) : false,
         style: navBase + (s.screen === key ? 'background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent)' : 'background:transparent;color:var(--muted)'),
         hover: s.screen === key ? '' : 'background:var(--soft);color:var(--text)',
@@ -847,7 +1178,7 @@ class Component extends DCLogic {
 
       auditQuery: s.auditQuery,
       onAuditQuery: (e) => this.setState({ auditQuery: e.target.value }),
-      auditChips: ['All','Executed','Pending','Approval','Failed'].map(f => ({
+      auditChips: ['All','Executed','Pending','Approval','Failed','Denied'].map(f => ({
         label: f, style: this.chipStyle(s.auditFilter === f), set: () => this.setState({ auditFilter: f })
       })),
       auditView: filteredAudit.map(a => ({
@@ -857,6 +1188,7 @@ class Component extends DCLogic {
         isPending: a.status === 'Pending', isFailed: a.status === 'Failed', isApproval: a.status === 'Approval',
         retry: () => this.retry(a.id),
         approve: () => this.approve(a.id),
+        deny: () => this.deny(a.id),
         open: () => this.setState({ selectedId: a.targetId, pickedAction: 'Warn', reason: '' })
       })),
       noAudit: filteredAudit.length === 0,
@@ -870,8 +1202,8 @@ class Component extends DCLogic {
         };
         return {
           ...st, initial: st.name[0], avBg: this.avBg(st.name),
-          roleColor: {Owner:'#EF64B4',Admin:'var(--danger)',Moderator:'var(--accent)',Helper:'var(--ok)'}[st.role],
-          openManage: () => this.setState({ manage: { handle: st.handle, name: st.name, role: st.role, perms: st.perms[0] === 'All permissions' ? ['Warn','Mute','Kick','Ban','Unban','Staff management','Server config'] : [...st.perms] } })
+          roleColor: {Owner:'#EF64B4',Management:'#8B7CF6','Sr Admin':'var(--danger)',Admin:'var(--danger)','Jr Admin':'#F09B4C','Sr Moderator':'var(--accent)',Moderator:'var(--accent)','Jr Moderator':'#4C9AF0',Helper:'var(--ok)',Trainee:'var(--muted)'}[st.role] || 'var(--muted)',
+          openManage: () => isOwnership && this.setState({ manage: { handle: st.handle, name: st.name, role: st.role, perms: st.perms[0] === 'All permissions' ? ['Warn','Mute','Kick','Ban','Unban','Guides','Staff management','Server config'] : [...st.perms] } })
         };
       }),
 
@@ -885,8 +1217,12 @@ class Component extends DCLogic {
       onInviteHandle: (e) => this.setState({ invite: {...s.invite, handle: e.target.value} }),
       onInvitePw: (e) => this.setState({ invite: {...s.invite, pw: e.target.value} }),
       onInvitePw2: (e) => this.setState({ invite: {...s.invite, pw2: e.target.value} }),
-      openInvite: () => this.setState({ invite: { name: '', handle: '', role: 'Moderator', pw: '', pw2: '' } }),
-      inviteRoles: ['Helper','Moderator','Admin','Owner'].map(r => ({
+      openInvite: () => {
+        if (!isOwnership) { this.toast('fail', 'Only instellarownership can invite staff.'); return; }
+        this.setState({ invite: { name: '', handle: '', role: 'Moderator', pw: '', pw2: '' } });
+      },
+      canManageStaff: isOwnership,
+      inviteRoles: this.roleList().map(r => ({
         label: r, style: this.chipStyle(!!s.invite && s.invite.role === r),
         pick: () => this.setState({ invite: {...s.invite, role: r} })
       })),
@@ -897,11 +1233,11 @@ class Component extends DCLogic {
         if (!i.name.trim() || !handle) { this.toast('fail', 'Name and username are required.'); return; }
         if (i.pw.length < 8) { this.toast('fail', 'Password must be at least 8 characters.'); return; }
         if (i.pw !== i.pw2) { this.toast('fail', 'Passwords do not match.'); return; }
-        const defaults = { Helper: ['Mute','Warn'], Moderator: ['Ban','Mute','Kick','Warn'], Admin: ['Ban','Unban','Mute','Kick','Warn','Staff management'], Owner: ['All permissions'] };
+        const defaults = { Trainee: ['Mute','Kick'], Helper: ['Mute','Kick','Warn'], 'Jr Moderator': ['Mute','Kick','Warn'], Moderator: ['Ban','Mute','Kick','Warn'], 'Sr Moderator': ['Ban','Mute','Kick','Warn'], 'Jr Admin': ['Ban','Unban','Mute','Kick','Warn'], Admin: ['Ban','Unban','Mute','Kick','Warn','Staff management'], 'Sr Admin': ['Ban','Unban','Mute','Kick','Warn','Staff management','Server config'], Management: ['Ban','Unban','Mute','Kick','Warn','Staff management','Server config'], Owner: ['All permissions'] };
         const tmp = window.supabase.createClient(this.SB_URL, this.SB_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
         const { data, error } = await tmp.auth.signUp({ email: handle + '@staff.instellar', password: i.pw });
         if (error || !data.user) { this.toast('fail', 'Could not create the login: ' + (error ? error.message : 'unknown error')); return; }
-        const { error: e2 } = await this.sb().from('staff').insert({ id: data.user.id, username: handle, display_name: i.name.trim(), role: i.role, perms: defaults[i.role] });
+        const { error: e2 } = await this.sbInsert('staff', { id: data.user.id, server: s.server, username: handle, display_name: i.name.trim(), role: i.role, perms: defaults[i.role] });
         if (e2) { this.toast('fail', 'Login created, but granting staff access failed: ' + e2.message); return; }
         this.setState({ invite: null });
         this.toast('ok', i.name.trim() + ' added as ' + i.role + ' — they sign in with username "' + handle + '".');
@@ -910,11 +1246,11 @@ class Component extends DCLogic {
 
       manage: s.manage ? { ...s.manage, initial: s.manage.name[0], avBg: this.avBg(s.manage.name) } : undefined,
       closeManage: () => this.setState({ manage: null }),
-      manageRoles: ['Helper','Moderator','Admin','Owner'].map(r => ({
+      manageRoles: this.roleList().map(r => ({
         label: r, style: this.chipStyle(!!s.manage && s.manage.role === r),
         pick: () => this.setState({ manage: {...s.manage, role: r} })
       })),
-      managePerms: ['Warn','Mute','Kick','Ban','Unban','Staff management','Server config'].map(p => {
+      managePerms: ['Warn','Mute','Kick','Ban','Unban','Guides','Staff management','Server config'].map(p => {
         const on = !!s.manage && s.manage.perms.includes(p);
         return {
           label: p, on,
@@ -948,7 +1284,7 @@ class Component extends DCLogic {
         label: d,
         pick: () => this.setState({ duration: d }),
         style: s.duration === d
-          ? 'background:var(--accent);color:#fff;border:1px solid transparent;border-radius:99px;padding:6px 13px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s'
+          ? 'background:var(--accent);color:var(--on-accent);border:1px solid transparent;border-radius:99px;padding:6px 13px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s'
           : 'background:var(--raised);color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:6px 13px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s'
       })),
       reason: s.reason,
@@ -958,14 +1294,21 @@ class Component extends DCLogic {
         this.openConfirm(s.pickedAction, s.selectedId);
       },
       execLabel: s.pickedAction + ' ' + (sel ? sel.name : ''),
-      execStyle: 'width:100%;box-sizing:border-box;margin-top:10px;border:none;border-radius:12px;padding:12px;font-size:13.5px;font-weight:800;transition:all .15s;' + (canExec
+      execStyle: 'width:100%;box-sizing:border-box;margin-top:10px;border:none;border-radius:999px;padding:12px;font-size:13.5px;font-weight:800;transition:all .15s;' + (canExec
         ? 'background:' + this.actionColor(s.pickedAction) + ';color:#fff;cursor:pointer;'
         : 'background:var(--raised);color:var(--muted);cursor:not-allowed;'),
-      addNote: (e) => {
+      addNote: async (e) => {
         if (e.key !== 'Enter' || !e.target.value.trim()) return;
         const text = e.target.value.trim(); e.target.value = '';
-        this.setState(st => ({ notesLocal: { ...st.notesLocal, [s.selectedId]: [...(st.notesLocal[s.selectedId] || []), { text, by: this.myName(), when: 'Just now' }] } }));
-        this.toast('ok', 'Note added (only visible in this browser).');
+        const target = s.selectedId;
+        const { error } = await this.sbInsert('player_notes', { server: s.server, target, text, by_id: s.me.id, by_name: this.myName() });
+        if (error) {
+          this.setState(st => ({ notesLocal: { ...st.notesLocal, [target]: [...(st.notesLocal[target] || []), { text, by: this.myName(), when: 'Just now' }] } }));
+          this.toast('fail', 'Saved in this browser only — shared notes table missing (' + error.message + ')');
+          return;
+        }
+        this.toast('ok', 'Note saved — visible to all staff.');
+        this.loadData();
       },
 
       confirm: conf ? {
@@ -979,7 +1322,7 @@ class Component extends DCLogic {
         ? "Your role can't run this command directly — it will be sent to a higher role for approval before it executes."
         : 'This command runs on the game server. It will show as Pending in the audit log until execution is confirmed.',
       confirmBtnLabel: s.confirm ? (confApproval ? 'Request approval' : 'Confirm ' + s.confirm.type.toLowerCase()) : '',
-      confirmBtnStyle: 'flex:1;border:none;border-radius:12px;padding:12px;font-size:13.5px;font-weight:800;transition:all .15s;' + (canExec
+      confirmBtnStyle: 'flex:1;border:none;border-radius:999px;padding:12px;font-size:13.5px;font-weight:800;transition:all .15s;' + (canExec
         ? 'background:' + (s.confirm ? this.actionColor(s.confirm.type) : 'var(--accent)') + ';color:#fff;cursor:pointer;'
         : 'background:var(--raised);color:var(--muted);cursor:not-allowed;'),
 

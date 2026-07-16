@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Poppins:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<script src="assets/supabase.js"></script>
+<meta name="ext-resource-dependency" content="assets/server1-a.jpg">
+<meta name="ext-resource-dependency" content="assets/server1-b.jpg">
+<meta name="ext-resource-dependency" content="assets/server1-c.jpg">
+<style>
+  html, body { margin: 0; padding: 0; background: #000000; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { color: inherit; }
+  html { scroll-behavior: smooth; scrollbar-width: none; -ms-overflow-style: none; }
+  ::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes rocketLaunch {
+    0% { transform: translateY(0); }
+    28% { transform: translateY(-1.5vh); }
+    100% { transform: translateY(-135vh); }
+  }
+  @keyframes rocketShake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-3px); }
+    40% { transform: translateX(3px); }
+    60% { transform: translateX(-2px); }
+    80% { transform: translateX(2px); }
+  }
+  @keyframes flameFlicker {
+    0%, 100% { transform: scaleY(1); opacity: 0.95; }
+    50% { transform: scaleY(1.35); opacity: 0.75; }
+  }
+  @keyframes titleFall {
+    0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+    15% { transform: translateY(2vh) rotate(-4deg); }
+    100% { transform: translateY(92vh) rotate(14deg); opacity: 0.9; }
+  }
+  @keyframes dustPuff {
+    0% { transform: translate(0, 0) scale(0.35); opacity: 0; }
+    8% { opacity: var(--op, 0.85); }
+    100% { transform: translate(var(--dx, 0px), var(--dy, -60px)) scale(var(--s, 2.4)); opacity: 0; }
+  }
+  @keyframes launchFlash {
+    0% { opacity: 0; }
+    15% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  @keyframes screenRumble {
+    0%, 100% { transform: translate(0, 0); }
+    20% { transform: translate(-4px, 2px); }
+    40% { transform: translate(4px, -2px); }
+    60% { transform: translate(-3px, -2px); }
+    80% { transform: translate(3px, 2px); }
+  }
+  @keyframes scareLunge {
+    0% { transform: scale(0.2) rotate(0deg); opacity: 0; filter: brightness(0.4) saturate(3) hue-rotate(-40deg); }
+    8% { opacity: 1; }
+    35% { transform: scale(1.6) rotate(-6deg); }
+    45% { transform: scale(1.45) rotate(5deg); }
+    55% { transform: scale(1.7) rotate(-4deg); }
+    65% { transform: scale(1.5) rotate(6deg); }
+    100% { transform: scale(2.4) rotate(0deg); opacity: 1; filter: brightness(1.6) saturate(4) hue-rotate(-40deg); }
+  }
+  @keyframes serverXfade {
+    0% { opacity: 0; }
+    8% { opacity: 1; }
+    33% { opacity: 1; }
+    41% { opacity: 0; }
+    100% { opacity: 0; }
+  }
+  @keyframes scareFlash {
+    0%, 100% { background: #000; }
+    30% { background: #4a0000; }
+    50% { background: #8f0000; }
+    70% { background: #2a0000; }
+  }
+  @keyframes nameFloat {
+    0% { transform: translateY(0) rotate(-4deg); opacity: 0; }
+    12% { opacity: 1; transform: translateY(-12vh) rotate(4deg); }
+    85% { opacity: 1; }
+    100% { transform: translateY(-120vh) rotate(-4deg); opacity: 0; }
+  }
+</style>
+</helmet>
+
+<div style="min-height: 100vh; background: {{ t.desk }}; font-family: 'Manrope', sans-serif; color: {{ t.text }}; transition: background 0.25s ease, color 0.25s ease;">
+
+  <div style="position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: {{ navBg }}; border-bottom: 1px solid {{ t.divider }};">
+    <div style="max-width: 1140px; margin: 0 auto; padding: 14px 32px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 24px;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <img src="assets/logo.png" alt="Instellar logo" onClick="{{ logoTap }}" style="width: 34px; height: 34px; border-radius: 10px; object-fit: cover; display: block; cursor: pointer;">
+        <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 15px; letter-spacing: 0.22em; color: {{ t.text }};">INSTELLAR</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 28px;">
+        <a href="#home" style="font-weight: 600; font-size: 14px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Home</a>
+        <a href="#servers" style="font-weight: 600; font-size: 14px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Servers</a>
+        <a href="apply/index.html" style="font-weight: 600; font-size: 14px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Staff Apps</a>
+        <a href="apply/index.html#appeal" style="font-weight: 600; font-size: 14px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Appeals</a>
+        <a href="{{ discordUrl }}" target="_blank" style="font-weight: 700; font-size: 14px; color: {{ t.pillText }}; background: {{ t.pillBg }}; border-radius: 999px; padding: 10px 22px;" style-hover="opacity: 0.85;">Discord</a>
+        <button onclick="{{ toggleTheme }}" title="Toggle theme" style="width: 40px; height: 40px; border-radius: 50%; border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; color: {{ t.text }}; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center;" style-hover="border-color: {{ t.muted }};">{{ themeIcon }}</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="home" style="position: relative; overflow: hidden;">
+    <div style="position: relative; max-width: 1140px; margin: 0 auto; padding: 170px 32px 70px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 24px; text-align: center;">
+    <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.28em; text-transform: uppercase; color: {{ t.muted }}; border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; border-radius: 999px; padding: 8px 18px; animation: fadeUp .7s ease backwards;">Minecraft Network</span>
+    <h1 style="margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: clamp(38px, 5vw, 58px); line-height: 1.15; letter-spacing: -0.01em; color: {{ t.text }}; max-width: 720px; animation: fadeUp .7s .05s ease backwards; cursor: default; user-select: none;" onClick="{{ titleClick }}" ref="{{ titleRef }}">instellar</h1>
+    <div style="display: flex; gap: 14px; animation: fadeUp .7s .25s ease backwards;">
+      <button onclick="{{ copyIp }}" style="border: none; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 15px; padding: 15px 28px; border-radius: 999px; cursor: pointer;" style-hover="opacity: 0.85;">{{ ipButtonLabel }}</button>
+      <a href="{{ discordUrl }}" target="_blank" style="display: inline-flex; align-items: center; border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; color: {{ t.text }}; font-weight: 700; font-size: 15px; padding: 15px 28px; border-radius: 999px;" style-hover="border-color: {{ t.muted }};">Join Discord</a>
+    </div>
+    <div style="display: flex; align-items: stretch; margin-top: 20px; border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; border-radius: 20px; overflow: hidden; animation: fadeUp .7s .35s ease backwards;">
+      <div style="display: flex; flex-direction: column; gap: 4px; padding: 20px 44px;">
+        <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 26px; color: {{ t.text }};">2</span>
+        <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: {{ t.muted }};">Servers</span>
+      </div>
+      <div style="width: 1px; background: {{ t.cardBorder }};"></div>
+      <div style="display: flex; flex-direction: column; gap: 4px; padding: 20px 44px;">
+        <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 26px; color: {{ t.text }};">24/7</span>
+        <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: {{ t.muted }};">Uptime</span>
+      </div>
+      <div style="width: 1px; background: {{ t.cardBorder }};"></div>
+      <div style="display: flex; flex-direction: column; gap: 4px; padding: 20px 44px;">
+        <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 26px; color: {{ t.text }};">1.21</span>
+        <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: {{ t.muted }};">Version</span>
+      </div>
+    </div>
+    </div>
+
+  <div id="servers" style="position: relative; max-width: 1140px; margin: 0 auto; padding: 320px 32px 90px; box-sizing: border-box; display: flex; flex-direction: column; gap: 36px;">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;">
+      <h2 style="margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 36px; letter-spacing: -0.01em; color: {{ t.text }};">Our servers</h2>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 28px;">
+      <div style="background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;" style-hover="transform: translateY(-5px); border-color: {{ t.muted }}; box-shadow: 0 18px 40px rgba(0,0,0,0.25);">
+        <div onclick="{{ openGallery }}" title="View full screenshots" style="height: 200px; position: relative; overflow: hidden; cursor: zoom-in;">
+          <img src="assets/server1-a.jpg" alt="Instellar 1" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;">
+          <img src="assets/server1-b.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; animation: serverXfade 15s 5s infinite;">
+          <img src="assets/server1-c.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; animation: serverXfade 15s 10s infinite;">
+          <span style="position: absolute; bottom: 12px; right: 12px; background: rgba(0,0,0,0.55); color: #ffffff; font-weight: 700; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 999px; padding: 6px 12px; backdrop-filter: blur(6px);">⤢ View</span>
+          <span style="position: absolute; top: 14px; left: 14px; display: inline-flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.55); color: #ffffff; font-weight: 700; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 999px; padding: 6px 12px; backdrop-filter: blur(6px);"><span style="width: 7px; height: 7px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80;"></span>Online</span>
+        </div>
+        <div style="padding: 28px; display: flex; flex-direction: column; gap: 12px; flex: 1;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 22px; color: {{ t.text }};">Instellar 1</span>
+            <span style="font-weight: 700; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: {{ t.muted }}; border: 1px solid {{ t.cardBorder }}; border-radius: 999px; padding: 4px 10px;">GEN SMP</span>
+          </div>
+          <span style="font-weight: 500; font-size: 15px; line-height: 1.6; color: {{ t.muted }};">A gen SMP running strong since 2025 grind, build your base, and climb the economy.</span>
+          <div style="flex: 1;"></div>
+          <div style="display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap;">
+            <button onclick="{{ copyIp1 }}" style="border: none; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 14px; padding: 12px 24px; border-radius: 999px; cursor: pointer;" style-hover="opacity: 0.85;">{{ ip1ButtonLabel }}</button>
+            <a href="apply/index.html?server=1" style="display: inline-flex; align-items: center; gap: 8px; border: 1px solid {{ t.cardBorder }}; background: transparent; color: {{ t.text }}; font-weight: 700; font-size: 14px; padding: 12px 24px; border-radius: 999px;" style-hover="border-color: {{ t.muted }};">Apply for staff →</a>
+          </div>
+          <span style="font-weight: 600; font-size: 12px; color: {{ t.muted }};">Join, then click on Gens in the lobby.</span>
+        </div>
+      </div>
+      <div style="background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;" style-hover="transform: translateY(-5px); border-color: {{ t.muted }}; box-shadow: 0 18px 40px rgba(0,0,0,0.25);">
+        <div style="height: 200px; position: relative; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid {{ t.cardBorder }};">
+          <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: {{ t.muted }}; border: 1px dashed {{ t.cardBorder }}; border-radius: 999px; padding: 9px 20px;">Server isn't out yet</span>
+          <span style="position: absolute; top: 14px; left: 14px; display: inline-flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.55); color: #ffffff; font-weight: 700; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 999px; padding: 6px 12px; backdrop-filter: blur(6px);"><span style="width: 7px; height: 7px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 8px #a78bfa;"></span>Coming soon</span>
+        </div>
+        <div style="padding: 28px; display: flex; flex-direction: column; gap: 12px; flex: 1;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 22px; color: {{ t.text }};">Instellar 2</span>
+            <span style="font-weight: 700; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: {{ t.muted }}; border: 1px solid {{ t.cardBorder }}; border-radius: 999px; padding: 4px 10px;">Whitelist</span>
+          </div>
+          <span style="font-weight: 500; font-size: 15px; line-height: 1.6; color: {{ t.muted }};">Space theme exploration server meant to have hundreds of hours of content.<br></span>
+          <div style="flex: 1;"></div>
+          <button style="margin-top: 12px; border: none; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 15px; padding: 14px 24px; border-radius: 999px; cursor: pointer; width: 100%; box-sizing: border-box;" style-hover="opacity: 0.85;" onclick="{{ openWhitelist }}">Join the whitelist</button>
+          <a href="apply/index.html?server=2" style="align-self: center; display: inline-flex; align-items: center; gap: 8px; color: {{ t.muted }}; font-weight: 700; font-size: 14px; padding: 8px 4px;" style-hover="color: {{ t.text }};">Apply for staff →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <sc-if value="{{ galleryOpen }}" hint-placeholder-val="{{ false }}">
+    <div onclick="{{ closeGalleryBackdrop }}" style="position: fixed; inset: 0; z-index: 110; background: rgba(0,0,0,0.88); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 40px; box-sizing: border-box;">
+      <sc-if value="{{ galleryIs0 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-a.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
+      <sc-if value="{{ galleryIs1 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-b.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
+      <sc-if value="{{ galleryIs2 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-c.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
+      <button onclick="{{ galleryPrev }}" style="position: absolute; left: 18px; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.5); color: #ffffff; font-size: 20px; cursor: pointer; backdrop-filter: blur(6px);" style-hover="background: rgba(255,255,255,0.15);">‹</button>
+      <button onclick="{{ galleryNext }}" style="position: absolute; right: 18px; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.5); color: #ffffff; font-size: 20px; cursor: pointer; backdrop-filter: blur(6px);" style-hover="background: rgba(255,255,255,0.15);">›</button>
+      <button onclick="{{ closeGallery }}" style="position: absolute; top: 18px; right: 18px; width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.5); color: #ffffff; font-size: 20px; cursor: pointer; backdrop-filter: blur(6px);" style-hover="background: rgba(255,255,255,0.15);">×</button>
+      <span style="position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.75); font-weight: 700; font-size: 13px; letter-spacing: 0.1em;">{{ galleryCount }}</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ wlOpen }}" hint-placeholder-val="{{ false }}">
+    <div onclick="{{ closeWhitelistBackdrop }}" style="position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.65); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box;">
+      <div style="background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 24px; width: 100%; max-width: 440px; padding: 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; animation: fadeUp .3s ease backwards;">
+        <sc-if value="{{ wlDone }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 16px 0;">
+            <span style="width: 54px; height: 54px; border-radius: 50%; background: rgba(74,222,128,0.14); color: #4ade80; display: flex; align-items: center; justify-content: center; font-size: 26px;">✓</span>
+            <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 21px; color: {{ t.text }};">Request sent!</span>
+            <span style="font-weight: 500; font-size: 14px; line-height: 1.6; color: {{ t.muted }};">We got your whitelist request — keep an eye on your Discord DMs.</span>
+            <button onclick="{{ closeWhitelist }}" style="margin-top: 8px; border: none; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 14px; padding: 12px 28px; border-radius: 999px; cursor: pointer;" style-hover="opacity: 0.85;">Close</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ wlFormVisible }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 21px; color: {{ t.text }};">Join the whitelist</span>
+              <span style="font-weight: 500; font-size: 13px; color: {{ t.muted }};">Instellar 2 — we'll DM you when you're in.</span>
+            </div>
+            <button onclick="{{ closeWhitelist }}" style="border: none; background: transparent; color: {{ t.muted }}; font-size: 20px; cursor: pointer; padding: 4px; line-height: 1;" style-hover="color: {{ t.text }};">×</button>
+          </div>
+          <div ref="{{ wlFormRef }}" style="display: flex; flex-direction: column; gap: 14px;">
+            <label style="display: flex; flex-direction: column; gap: 6px;">
+              <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: {{ t.muted }};">Minecraft username *</span>
+              <input name="minecraft_username" maxlength="32" style="background: transparent; border: 1px solid {{ t.cardBorder }}; border-radius: 12px; padding: 12px 14px; font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 14px; color: {{ t.text }}; outline: none;" style-focus="border-color: {{ t.muted }};">
+            </label>
+            <label style="display: flex; flex-direction: column; gap: 6px;">
+              <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: {{ t.muted }};">Discord username *</span>
+              <input name="discord_username" maxlength="64" style="background: transparent; border: 1px solid {{ t.cardBorder }}; border-radius: 12px; padding: 12px 14px; font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 14px; color: {{ t.text }}; outline: none;" style-focus="border-color: {{ t.muted }};">
+            </label>
+            <label style="display: flex; flex-direction: column; gap: 6px;">
+              <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: {{ t.muted }};">Username we should DM *</span>
+              <input name="dm_username" maxlength="64" style="background: transparent; border: 1px solid {{ t.cardBorder }}; border-radius: 12px; padding: 12px 14px; font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 14px; color: {{ t.text }}; outline: none;" style-focus="border-color: {{ t.muted }};">
+            </label>
+            <label style="display: flex; flex-direction: column; gap: 6px;">
+              <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: {{ t.muted }};">Why do you want to join? *</span>
+              <textarea name="why_join" maxlength="500" rows="3" style="background: transparent; border: 1px solid {{ t.cardBorder }}; border-radius: 12px; padding: 12px 14px; font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 14px; color: {{ t.text }}; outline: none; resize: vertical;" style-focus="border-color: {{ t.muted }};"></textarea>
+            </label>
+            <label style="display: flex; flex-direction: column; gap: 6px;">
+              <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: {{ t.muted }};">How did you find us?</span>
+              <input name="found_us" maxlength="120" style="background: transparent; border: 1px solid {{ t.cardBorder }}; border-radius: 12px; padding: 12px 14px; font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 14px; color: {{ t.text }}; outline: none;" style-focus="border-color: {{ t.muted }};">
+            </label>
+          </div>
+          <sc-if value="{{ wlError }}" hint-placeholder-val="{{ false }}">
+            <span style="font-weight: 600; font-size: 13px; color: #f87171;">{{ wlError }}</span>
+          </sc-if>
+          <button onclick="{{ submitWhitelist }}" style="border: none; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 15px; padding: 14px 24px; border-radius: 999px; cursor: pointer; width: 100%; box-sizing: border-box;" style-hover="opacity: 0.85;">{{ wlSubmitLabel }}</button>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <div style="border-top: 1px solid {{ t.divider }};">
+    <div style="max-width: 1140px; margin: 0 auto; padding: 26px 32px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+      <span style="font-weight: 700; font-size: 13px; color: {{ t.muted }};">© 2026 Instellar Network</span>
+      <div style="display: flex; align-items: center; gap: 22px;">
+        <a href="apply/index.html" style="font-weight: 600; font-size: 13px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Staff applications</a>
+        <a href="apply/index.html#appeal" style="font-weight: 600; font-size: 13px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Ban appeals</a>
+        <span style="font-weight: 500; font-size: 13px; color: {{ t.muted }};">Not affiliated with Mojang or Microsoft</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div ref="{{ fxRef }}" style="position: fixed; inset: 0; z-index: 100; pointer-events: none; overflow: hidden;"></div>
+
+
+<sc-if value="{{ scaring }}" hint-placeholder-val="{{ false }}">
+  <div style="position: fixed; inset: 0; z-index: 99999; display: flex; align-items: center; justify-content: center; overflow: hidden; animation: scareFlash 0.9s steps(2) infinite; cursor: none;">
+    <img src="assets/logo.png" alt="" style="width: 70vmin; height: 70vmin; object-fit: cover; animation: scareLunge 0.55s cubic-bezier(0.2, 1.4, 0.4, 1) forwards, screenRumble 0.12s linear 0.55s infinite;">
+  </div>
+</sc-if>
+
+</x-dc>
+<template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#000000"></rect><circle cx="50" cy="50" r="16" fill="none" stroke="#f4f4f7" stroke-width="3"></circle><circle cx="50" cy="50" r="4" fill="#f4f4f7"></circle></svg></template>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;serverIp&quot;: {&quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;ragehub.minehut.gg&quot;, &quot;tsType&quot;: &quot;string&quot;},
+  &quot;discordUrl&quot;: {&quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;#&quot;, &quot;tsType&quot;: &quot;string&quot;}
+}">
+const THEMES = {
+  dark: {
+    desk: "#000000", sheet: "#0b0b0f", divider: "#1c1c23",
+    text: "#f4f4f7", muted: "#9c9ca8",
+    card: "#15151c", cardBorder: "#232330",
+    pillBg: "#f4f4f7", pillText: "#111116",
+  },
+  light: {
+    desk: "#eceef1", sheet: "#ffffff", divider: "#dfe2e7",
+    text: "#16161d", muted: "#7a7a85",
+    card: "#f7f8fa", cardBorder: "#e3e5ea",
+    pillBg: "#1e1e28", pillText: "#ffffff",
+  },
+};
+
+class Component extends DCLogic {
+  state = { copied: false, theme: localStorage.getItem("instellar_theme") || "dark", scaring: false, galleryIdx: null, wlOpen: false, wlDone: false, wlSending: false, wlError: null };
+  wlFormRef = React.createRef();
+  _sbClient() {
+    if (!this._sb) this._sb = window.supabase.createClient(
+      this.props.supabaseUrl ?? "https://jaednahuxpjwrqjqytrt.supabase.co",
+      this.props.supabaseKey ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphZWRuYWh1eHBqd3JxanF5dHJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MzgwODQsImV4cCI6MjA5OTIxNDA4NH0.N30ZCl1afMAMFGd-D--5Ulq7VP4qB9aiBQbdRmwDumQ"
+    );
+    return this._sb;
+  }
+  async _submitWhitelist() {
+    if (this.state.wlSending) return;
+    const data = {};
+    if (this.wlFormRef.current) this.wlFormRef.current.querySelectorAll("input, textarea").forEach((el) => {
+      if (el.name) data[el.name] = el.value.trim().slice(0, 500);
+    });
+    if (!data.minecraft_username || !data.discord_username || !data.dm_username || !data.why_join) {
+      this.setState({ wlError: "Please fill in all required (*) fields." });
+      return;
+    }
+    if (data.why_join.length < 15) {
+      this.setState({ wlError: "Tell us a bit more about why you want to join." });
+      return;
+    }
+    const last = Number(localStorage.getItem("instellar_cooldown_whitelist") || 0);
+    const remaining = 24 * 60 * 60 * 1000 - (Date.now() - last);
+    if (remaining > 0) {
+      const hrs = Math.ceil(remaining / 3600000);
+      this.setState({ wlError: "You already sent a request. Try again in about " + hrs + " hour" + (hrs === 1 ? "" : "s") + "." });
+      return;
+    }
+    data.server = "Instellar 2";
+    this.setState({ wlSending: true, wlError: null });
+    try {
+      const { error } = await this._sbClient().from("whitelist_requests").insert(data);
+      if (error) {
+        const msg = /already sent/i.test(error.message)
+          ? "You've already sent a whitelist request — we'll DM you!"
+          : "Could not submit: " + error.message;
+        this.setState({ wlSending: false, wlError: msg });
+        return;
+      }
+      localStorage.setItem("instellar_cooldown_whitelist", String(Date.now()));
+      this.setState({ wlSending: false, wlDone: true });
+    } catch (e) {
+      this.setState({ wlSending: false, wlError: "Could not submit: " + e.message });
+    }
+  }
+  _logoTaps = [];
+  _scream() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const now = ctx.currentTime;
+      const DUR = 2.6;
+      // distortion for that harsh horror-movie sting
+      const shaper = ctx.createWaveShaper();
+      const curve = new Float32Array(256);
+      for (let i = 0; i < 256; i++) {
+        const x = (i / 128) - 1;
+        curve[i] = Math.tanh(x * 8);
+      }
+      shaper.curve = curve;
+      const master = ctx.createGain();
+      master.gain.setValueAtTime(0.9, now);
+      master.gain.setValueAtTime(0.9, now + DUR - 0.4);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + DUR);
+      shaper.connect(master).connect(ctx.destination);
+      // shrieking detuned oscillators — rising then wildly wobbling pitch
+      for (let i = 0; i < 5; i++) {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = i % 2 ? "square" : "sawtooth";
+        const base = 500 + i * 90;
+        o.frequency.setValueAtTime(base * 0.3, now);
+        o.frequency.exponentialRampToValueAtTime(base * 2.4, now + 0.15);
+        o.frequency.exponentialRampToValueAtTime(base * 1.4, now + 0.9);
+        o.frequency.exponentialRampToValueAtTime(base * 2.1, now + 1.5);
+        o.frequency.exponentialRampToValueAtTime(base * 0.5, now + DUR);
+        // vibrato wobble
+        const lfo = ctx.createOscillator();
+        const lg = ctx.createGain();
+        lfo.frequency.setValueAtTime(11 + i * 3, now);
+        lg.gain.setValueAtTime(base * 0.35, now);
+        lfo.connect(lg).connect(o.frequency);
+        lfo.start(now); lfo.stop(now + DUR);
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.exponentialRampToValueAtTime(0.5, now + 0.02);
+        o.connect(g).connect(shaper);
+        o.start(now); o.stop(now + DUR);
+      }
+      // sustained noise roar
+      const len = Math.floor(ctx.sampleRate * DUR);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const nf = ctx.createBiquadFilter();
+      nf.type = "bandpass";
+      nf.frequency.setValueAtTime(1800, now);
+      nf.frequency.exponentialRampToValueAtTime(400, now + DUR);
+      nf.Q.value = 0.7;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.9, now);
+      src.connect(nf).connect(ng).connect(shaper);
+      src.start(now);
+      // deep sub-bass impact thump
+      const sub = ctx.createOscillator();
+      const sg = ctx.createGain();
+      sub.type = "sine";
+      sub.frequency.setValueAtTime(120, now);
+      sub.frequency.exponentialRampToValueAtTime(30, now + 0.6);
+      sg.gain.setValueAtTime(1.0, now);
+      sg.gain.exponentialRampToValueAtTime(0.0001, now + 0.8);
+      sub.connect(sg).connect(ctx.destination);
+      sub.start(now); sub.stop(now + 0.9);
+      setTimeout(() => ctx.close(), (DUR + 0.4) * 1000);
+    } catch (e) {}
+  }
+  _logoTap() {
+    const now = Date.now();
+    this._logoTaps = this._logoTaps.filter((t) => now - t < 700);
+    this._logoTaps.push(now);
+    if (this._logoTaps.length >= 3 && !this.state.scaring) {
+      this._logoTaps = [];
+      this.setState({ scaring: true });
+      this._scream();
+      clearTimeout(this._scareT);
+      this._scareT = setTimeout(() => this.setState({ scaring: false }), 2600);
+    }
+  }
+  heroImgRef = React.createRef();
+  fxRef = React.createRef();
+  titleRef = React.createRef();
+  _titleClicks = 0;
+  _titleClick() {
+    clearTimeout(this._tcReset);
+    this._tcReset = setTimeout(() => { this._titleClicks = 0; }, 2000);
+    if (++this._titleClicks < 5) return;
+    this._titleClicks = 0;
+    const box = this.fxRef.current;
+    if (!box || box.childElementCount > 0) return;
+
+    // rocket floats up the middle
+    const el = document.createElement("div");
+    el.innerHTML =
+      "<div style='animation:rocketShake 0.12s linear 10;display:flex;flex-direction:column;align-items:center;gap:2px;'>" +
+        "<span style='font-size:88px;display:inline-block;transform:rotate(-45deg);line-height:1;'>🚀</span>" +
+        "<span style='width:14px;height:90px;border-radius:0 0 999px 999px;background:linear-gradient(180deg,#ffffff,#ffd66e 30%,#ff9a3d 60%,rgba(255,120,40,0));filter:blur(2px);transform-origin:top;animation:flameFlicker 0.14s linear infinite;'></span>" +
+      "</div>";
+    el.style.cssText = "position:absolute;bottom:-190px;left:50%;margin-left:-44px;animation:rocketLaunch 3s cubic-bezier(0.62,0.01,0.86,0.5) forwards;will-change:transform;";
+    box.appendChild(el);
+    setTimeout(() => el.remove(), 3300);
+
+    // ground flash at liftoff
+    const flash = document.createElement("div");
+    flash.style.cssText = "position:absolute;left:0;right:0;bottom:-10vh;height:45vh;background:radial-gradient(ellipse at 50% 100%, rgba(255,214,110,0.55), rgba(255,154,61,0.25) 40%, transparent 70%);animation:launchFlash 1.6s ease-out forwards;pointer-events:none;";
+    box.appendChild(flash);
+    setTimeout(() => flash.remove(), 1700);
+
+    // dust clouds billowing across the bottom of the screen
+    for (let i = 0; i < 34; i++) {
+      const dust = document.createElement("div");
+      const side = i % 2 === 0 ? -1 : 1;
+      const size = 70 + Math.random() * 130;
+      const dx = side * (60 + Math.random() * (window.innerWidth * 0.45));
+      const dy = -(30 + Math.random() * 160);
+      const dur = 2.2 + Math.random() * 2;
+      const delay = Math.random() * 1100;
+      const grey = 175 + Math.floor(Math.random() * 60);
+      dust.style.cssText = "position:absolute;bottom:" + (-size * 0.5 - 20) + "px;left:calc(50% + " + (side * Math.random() * 60) + "px);width:" + size + "px;height:" + size + "px;margin-left:" + (-size / 2) + "px;border-radius:50%;background:radial-gradient(circle, rgba(" + grey + "," + grey + "," + (grey + 5) + ",0.9), rgba(" + grey + "," + grey + "," + (grey + 5) + ",0) 70%);filter:blur(5px);--dx:" + dx.toFixed(0) + "px;--dy:" + dy.toFixed(0) + "px;--s:" + (1.8 + Math.random() * 1.6).toFixed(2) + ";--op:" + (0.5 + Math.random() * 0.4).toFixed(2) + ";animation:dustPuff " + dur.toFixed(2) + "s ease-out " + delay.toFixed(0) + "ms forwards;opacity:0;will-change:transform,opacity;";
+      box.appendChild(dust);
+      setTimeout(() => dust.remove(), dur * 1000 + delay + 200);
+    }
+
+    // screen rumble during liftoff
+    document.body.style.animation = "screenRumble 0.28s linear 6";
+    setTimeout(() => { document.body.style.animation = ""; }, 1750);
+
+    // name floats up on the left
+    const name = document.createElement("div");
+    name.innerHTML = "<span style='font-family:Manrope,sans-serif;font-weight:800;font-size:16px;color:#111116;background:#f4f4f7;border-radius:999px;padding:9px 18px;white-space:nowrap;box-shadow:0 4px 18px rgba(0,0,0,0.45);display:inline-block;'>bendystraws0</span>";
+    name.style.cssText = "position:absolute;bottom:-60px;left:10%;animation:nameFloat 4.5s ease-out forwards;will-change:transform,opacity;";
+    box.appendChild(name);
+    setTimeout(() => name.remove(), 4800);
+
+    // rocket smashes the instellar title -> it falls
+    const title = this.titleRef.current;
+    if (title) {
+      setTimeout(() => {
+        title.style.animation = "titleFall 1.8s cubic-bezier(0.4,0.05,0.8,0.4) forwards";
+        setTimeout(() => { title.style.animation = "fadeUp .7s ease backwards"; }, 4500);
+      }, 1650);
+    }
+  }
+  componentDidMount() {
+    this._px = 0; this._py = 0; this._tx = 0; this._ty = 0;
+    this._onScroll = () => {
+      const img = this.heroImgRef.current;
+      const bleed = img && img.parentElement ? img.parentElement.offsetHeight * 0.07 : 60;
+      this._ty = Math.min(window.scrollY * 0.1, bleed);
+    };
+    this._onMouse = (e) => {
+      this._tx = (e.clientX / window.innerWidth - 0.5) * 24;
+      this._pyMouse = (e.clientY / window.innerHeight - 0.5) * 14;
+    };
+    this._pyMouse = 0;
+    window.addEventListener("scroll", this._onScroll, { passive: true });
+    window.addEventListener("mousemove", this._onMouse, { passive: true });
+    const tick = () => {
+      this._px += (this._tx - this._px) * 0.06;
+      this._py += ((this._ty + this._pyMouse) - this._py) * 0.06;
+      const img = this.heroImgRef.current;
+      if (img) img.style.transform = "translate3d(" + this._px.toFixed(2) + "px, " + this._py.toFixed(2) + "px, 0)";
+      this._raf = requestAnimationFrame(tick);
+    };
+    this._raf = requestAnimationFrame(tick);
+  }
+  componentWillUnmount() {
+    cancelAnimationFrame(this._raf);
+    window.removeEventListener("scroll", this._onScroll);
+    window.removeEventListener("mousemove", this._onMouse);
+  }
+  renderVals() {
+    const ip = this.props.serverIp ?? 'ragehub.minehut.gg';
+    const theme = this.state.theme;
+    const t = THEMES[theme] || THEMES.dark;
+    return {
+      t,
+      heroImgRef: this.heroImgRef,
+      fxRef: this.fxRef,
+      titleRef: this.titleRef,
+      titleClick: () => this._titleClick(),
+      scaring: this.state.scaring,
+      logoTap: () => this._logoTap(),
+      navBg: theme === "dark" ? "rgba(0, 0, 0, 0.8)" : "rgba(236, 238, 241, 0.85)",
+      heroOverlay: theme === "dark"
+        ? "linear-gradient(180deg, rgba(0,0,0,0.75), rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.7) 55%, #000000 85%)"
+        : "linear-gradient(180deg, rgba(236,238,241,0.88), rgba(236,238,241,0.72) 35%, rgba(236,238,241,0.85) 55%, #eceef1 85%)",
+      themeIcon: theme === "dark" ? "☀️" : "🌙",
+      toggleTheme: () => {
+        const next = theme === "dark" ? "light" : "dark";
+        localStorage.setItem("instellar_theme", next);
+        this.setState({ theme: next });
+      },
+      discordUrl: this.props.discordUrl ?? '#',
+      ipButtonLabel: this.state.copied ? 'IP copied!' : ip,
+      copyIp: () => {
+        navigator.clipboard.writeText(ip);
+        this.setState({ copied: true });
+        clearTimeout(this._ct);
+        this._ct = setTimeout(() => this.setState({ copied: false }), 1600);
+      },
+      galleryOpen: this.state.galleryIdx != null,
+      galleryIs0: this.state.galleryIdx === 0,
+      galleryIs1: this.state.galleryIdx === 1,
+      galleryIs2: this.state.galleryIdx === 2,
+      galleryCount: ((this.state.galleryIdx || 0) + 1) + " / 3",
+      openGallery: () => this.setState({ galleryIdx: 0 }),
+      closeGallery: () => this.setState({ galleryIdx: null }),
+      closeGalleryBackdrop: (e) => { if (e.target === e.currentTarget) this.setState({ galleryIdx: null }); },
+      galleryPrev: () => this.setState(s => ({ galleryIdx: (s.galleryIdx + 2) % 3 })),
+      galleryNext: () => this.setState(s => ({ galleryIdx: (s.galleryIdx + 1) % 3 })),
+      wlOpen: this.state.wlOpen,
+      wlDone: this.state.wlDone,
+      wlFormVisible: !this.state.wlDone,
+      wlError: this.state.wlError,
+      wlSubmitLabel: this.state.wlSending ? "Sending..." : "Send request",
+      wlFormRef: this.wlFormRef,
+      openWhitelist: () => this.setState({ wlOpen: true, wlDone: false, wlError: null }),
+      closeWhitelist: () => this.setState({ wlOpen: false }),
+      closeWhitelistBackdrop: (e) => { if (e.target === e.currentTarget) this.setState({ wlOpen: false }); },
+      submitWhitelist: () => this._submitWhitelist(),
+      ip1ButtonLabel: this.state.copied1 ? 'IP copied!' : 'ragehub.minehut.gg',
+      copyIp1: () => {
+        navigator.clipboard.writeText('ragehub.minehut.gg');
+        this.setState({ copied1: true });
+        clearTimeout(this._ct1);
+        this._ct1 = setTimeout(() => this.setState({ copied1: false }), 1600);
+      },
+    };
+  }
+}
+
+</script>
+</body>
+</html>

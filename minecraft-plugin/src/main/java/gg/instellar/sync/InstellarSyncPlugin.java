@@ -38,6 +38,8 @@ public final class InstellarSyncPlugin extends JavaPlugin implements Listener {
 
     private String baseUrl;
     private String serviceKey;
+    /** Which panel server this Minecraft server is: "instellar1" or "instellar2". */
+    private String serverId;
     private HttpClient http;
     /** lowercase player name -> mute expiry (epoch ms; 0 = permanent) */
     private final Map<String, Long> mutes = new ConcurrentHashMap<>();
@@ -47,6 +49,7 @@ public final class InstellarSyncPlugin extends JavaPlugin implements Listener {
         saveDefaultConfig();
         baseUrl = getConfig().getString("supabase-url", "").replaceAll("/+$", "");
         serviceKey = getConfig().getString("service-role-key", "");
+        serverId = getConfig().getString("server", "instellar1").trim().toLowerCase();
         if (baseUrl.isEmpty() || serviceKey.isEmpty() || serviceKey.contains("PASTE")) {
             getLogger().severe("Set supabase-url and service-role-key in plugins/InstellarSync/config.yml, then restart.");
             getServer().getPluginManager().disablePlugin(this);
@@ -57,7 +60,7 @@ public final class InstellarSyncPlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(this, this);
         long ticks = 20L * Math.max(2, getConfig().getInt("poll-seconds", 5));
         getServer().getScheduler().runTaskTimerAsynchronously(this, this::poll, 40L, ticks);
-        getLogger().info("InstellarSync connected to " + baseUrl);
+        getLogger().info("InstellarSync connected to " + baseUrl + " as " + serverId);
     }
 
     // ---------------------------------------------------------------- polling
@@ -65,7 +68,8 @@ public final class InstellarSyncPlugin extends JavaPlugin implements Listener {
     private void poll() {
         try {
             HttpRequest req = HttpRequest.newBuilder(URI.create(baseUrl
-                            + "/rest/v1/mod_actions?status=eq.Pending&order=created_at.asc&limit=20&select=*"))
+                            + "/rest/v1/mod_actions?status=eq.Pending&server=eq." + serverId
+                            + "&order=created_at.asc&limit=20&select=*"))
                     .header("apikey", serviceKey)
                     .header("Authorization", "Bearer " + serviceKey)
                     .timeout(Duration.ofSeconds(10))

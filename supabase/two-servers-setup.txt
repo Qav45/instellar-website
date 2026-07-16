@@ -1,0 +1,88 @@
+=========================================================
+ INSTELLAR — TWO-SERVER SETUP (Instellar 1 + Instellar 2)
+=========================================================
+
+The panel now has an "Instellar 1 / Instellar 2" switcher at
+the bottom of the sidebar. Each server keeps its OWN:
+  - bans, mutes, kicks, warns + audit log
+  - staff team
+  - staff logs (Logging tab)
+  - guides
+  - player notes
+
+Everything that already exists automatically becomes
+Instellar 1. Instellar 2 starts empty.
+
+
+---------------------------------------------------------
+STEP 1 — Update the database (run once)
+---------------------------------------------------------
+1. Go to supabase.com -> your project -> SQL Editor.
+2. Paste the whole block below and press RUN.
+   (Also saved as supabase/two-servers-upgrade.sql.)
+   Safe to run more than once.
+
+-- ============================================================
+do $$
+declare t text;
+begin
+  foreach t in array array['staff','mod_actions','staff_logs','guides','player_notes'] loop
+    execute format(
+      'alter table public.%I add column if not exists server text not null default ''instellar1''', t);
+    execute format(
+      'alter table public.%I drop constraint if exists %I', t, t || '_server_check');
+    execute format(
+      'alter table public.%I add constraint %I check (server in (''instellar1'',''instellar2''))',
+      t, t || '_server_check');
+  end loop;
+end $$;
+
+create index if not exists mod_actions_server_status on public.mod_actions(server, status);
+create index if not exists staff_server        on public.staff(server);
+create index if not exists staff_logs_server   on public.staff_logs(server);
+create index if not exists guides_server       on public.guides(server);
+create index if not exists player_notes_server on public.player_notes(server);
+-- ============================================================
+
+Until this is run, the panel shows a red
+"Database not split yet" warning and shows combined data.
+
+
+---------------------------------------------------------
+STEP 2 — Plugin config on each Minecraft server
+---------------------------------------------------------
+Both Minecraft servers run the SAME InstellarSync jar,
+each with its own plugins/InstellarSync/config.yml:
+
+Instellar 1:
+  supabase-url: "https://jaednahuxpjwrqjqytrt.supabase.co"
+  service-role-key: "<your service_role key>"
+  server: "instellar1"
+  poll-seconds: 5
+
+Instellar 2:
+  supabase-url: "https://jaednahuxpjwrqjqytrt.supabase.co"
+  service-role-key: "<your service_role key>"
+  server: "instellar2"
+  poll-seconds: 5
+
+Restart both servers. Each plugin only executes actions
+queued for ITS server — a ban made while the panel is on
+Instellar 2 never touches Instellar 1.
+
+(If you still have an old jar, rebuild the plugin from
+minecraft-plugin/ so it knows about the "server" setting.)
+
+
+---------------------------------------------------------
+STEP 3 — Staff for Instellar 2
+---------------------------------------------------------
+Staff accounts belong to one server. To build the
+Instellar 2 team:
+  1. Sign in as instellarownership.
+  2. Click "Instellar 2" at the bottom of the sidebar.
+  3. Staff -> + Invite staff (the invite is created on the
+     server you are currently viewing).
+
+The instellarownership account can switch and manage BOTH
+servers, even though it is listed under Instellar 1.
