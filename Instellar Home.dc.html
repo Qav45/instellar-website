@@ -12,15 +12,23 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Poppins:wght@500;600;700&amp;display=swap" rel="stylesheet">
 <script src="assets/supabase.js"></script>
+<link rel="icon" type="image/png" href="assets/favicon.png">
 <meta name="ext-resource-dependency" content="assets/server1-a.jpg">
 <meta name="ext-resource-dependency" content="assets/server1-b.jpg">
 <meta name="ext-resource-dependency" content="assets/server1-c.jpg">
+<meta name="ext-resource-dependency" content="assets/server1-d.jpg">
+<meta name="ext-resource-dependency" content="assets/server1-e.jpg">
+<meta name="ext-resource-dependency" content="assets/server1-f.jpg">
 <style>
   html, body { margin: 0; padding: 0; background: #000000; }
   a { color: inherit; text-decoration: none; }
   a:hover { color: inherit; }
   html { scroll-behavior: smooth; scrollbar-width: none; -ms-overflow-style: none; }
   ::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  @media (max-width: 640px) {
+    #home > div:first-child { padding: 108px 18px 40px !important; }
+    #servers { padding: 110px 18px 60px !important; gap: 24px !important; }
+  }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes rocketLaunch {
     0% { transform: translateY(0); }
@@ -93,61 +101,68 @@
 
 <div style="min-height: 100vh; background: {{ t.desk }}; font-family: 'Manrope', sans-serif; color: {{ t.text }}; transition: background 0.25s ease, color 0.25s ease;">
 
-  <div style="position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: {{ navBg }}; border-bottom: 1px solid {{ t.divider }};">
-    <div style="max-width: 1140px; margin: 0 auto; padding: 14px 32px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 24px;">
+  <div style="position: fixed; inset: -50px; z-index: 0; pointer-events: none; overflow: hidden;">
+    <sc-if value="{{ bgIs0 }}" hint-placeholder-val="{{ true }}"><img ref="{{ heroImgRef }}" src="assets/server1-d.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;"></sc-if>
+    <sc-if value="{{ bgIs1 }}" hint-placeholder-val="{{ false }}"><img ref="{{ heroImgRef }}" src="assets/server1-e.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;"></sc-if>
+    <sc-if value="{{ bgIs2 }}" hint-placeholder-val="{{ false }}"><img ref="{{ heroImgRef }}" src="assets/server1-f.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;"></sc-if>
+    <sc-if value="{{ bgIs3 }}" hint-placeholder-val="{{ false }}"><img ref="{{ heroImgRef }}" src="assets/server1-a.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;"></sc-if>
+    <sc-if value="{{ bgIs4 }}" hint-placeholder-val="{{ false }}"><img ref="{{ heroImgRef }}" src="assets/server1-b.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;"></sc-if>
+    <sc-if value="{{ bgIs5 }}" hint-placeholder-val="{{ false }}"><img ref="{{ heroImgRef }}" src="assets/server1-c.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;"></sc-if>
+    <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.38);"></div>
+  </div>
+
+  <div style="position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: {{ navBg }};">
+    <div style="max-width: 1140px; margin: 0 auto; padding: 12px clamp(14px, 4vw, 32px); box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
       <div style="display: flex; align-items: center; gap: 12px;">
         <img src="assets/logo.png" alt="Instellar logo" onClick="{{ logoTap }}" style="width: 34px; height: 34px; border-radius: 10px; object-fit: cover; display: block; cursor: pointer;">
         <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 15px; letter-spacing: 0.22em; color: {{ t.text }};">INSTELLAR</span>
       </div>
-      <div style="display: flex; align-items: center; gap: 28px;">
+      <div style="display: flex; align-items: center; gap: clamp(12px, 2.5vw, 28px); flex-wrap: wrap; justify-content: flex-end;">
         <a href="#home" style="font-weight: 600; font-size: 14px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Home</a>
         <a href="#servers" style="font-weight: 600; font-size: 14px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Servers</a>
-        <a href="apply/index.html" style="font-weight: 600; font-size: 14px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Staff Apps</a>
-        <a href="apply/index.html#appeal" style="font-weight: 600; font-size: 14px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Appeals</a>
+        <a href="apply/index.html" style="font-weight: 600; font-size: 14px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Applications</a>
         <a href="{{ discordUrl }}" target="_blank" style="font-weight: 700; font-size: 14px; color: {{ t.pillText }}; background: {{ t.pillBg }}; border-radius: 999px; padding: 10px 22px;" style-hover="opacity: 0.85;">Discord</a>
-        <button onclick="{{ toggleTheme }}" title="Toggle theme" style="width: 40px; height: 40px; border-radius: 50%; border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; color: {{ t.text }}; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center;" style-hover="border-color: {{ t.muted }};">{{ themeIcon }}</button>
       </div>
     </div>
   </div>
 
   <div id="home" style="position: relative; overflow: hidden;">
-    <div style="position: relative; max-width: 1140px; margin: 0 auto; padding: 170px 32px 70px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 24px; text-align: center;">
-    <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.28em; text-transform: uppercase; color: {{ t.muted }}; border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; border-radius: 999px; padding: 8px 18px; animation: fadeUp .7s ease backwards;">Minecraft Network</span>
+    <div style="position: relative; max-width: 1140px; margin: 0 auto; padding: 150px clamp(16px, 5vw, 32px) 70px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 24px; text-align: center;">
     <h1 style="margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: clamp(38px, 5vw, 58px); line-height: 1.15; letter-spacing: -0.01em; color: {{ t.text }}; max-width: 720px; animation: fadeUp .7s .05s ease backwards; cursor: default; user-select: none;" onClick="{{ titleClick }}" ref="{{ titleRef }}">instellar</h1>
-    <div style="display: flex; gap: 14px; animation: fadeUp .7s .25s ease backwards;">
+    <div style="display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; animation: fadeUp .7s .25s ease backwards;">
       <button onclick="{{ copyIp }}" style="border: none; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 15px; padding: 15px 28px; border-radius: 999px; cursor: pointer;" style-hover="opacity: 0.85;">{{ ipButtonLabel }}</button>
       <a href="{{ discordUrl }}" target="_blank" style="display: inline-flex; align-items: center; border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; color: {{ t.text }}; font-weight: 700; font-size: 15px; padding: 15px 28px; border-radius: 999px;" style-hover="border-color: {{ t.muted }};">Join Discord</a>
     </div>
-    <div style="display: flex; align-items: stretch; margin-top: 20px; border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; border-radius: 20px; overflow: hidden; animation: fadeUp .7s .35s ease backwards;">
-      <div style="display: flex; flex-direction: column; gap: 4px; padding: 20px 44px;">
+    <div style="display: flex; align-items: stretch; flex-wrap: wrap; justify-content: center; margin-top: 20px; border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; border-radius: 20px; overflow: hidden; animation: fadeUp .7s .35s ease backwards;">
+      <div style="display: flex; flex-direction: column; gap: 4px; padding: 20px clamp(24px, 5vw, 44px);">
         <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 26px; color: {{ t.text }};">2</span>
         <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: {{ t.muted }};">Servers</span>
       </div>
       <div style="width: 1px; background: {{ t.cardBorder }};"></div>
-      <div style="display: flex; flex-direction: column; gap: 4px; padding: 20px 44px;">
-        <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 26px; color: {{ t.text }};">24/7</span>
+      <a onclick="{{ openUptime }}" title="See footnote" style="display: flex; flex-direction: column; gap: 4px; padding: 20px clamp(24px, 5vw, 44px); cursor: pointer;" style-hover="background: rgba(255,255,255,0.05);">
+        <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 26px; color: {{ t.text }};">24/7*</span>
         <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: {{ t.muted }};">Uptime</span>
-      </div>
+      </a>
       <div style="width: 1px; background: {{ t.cardBorder }};"></div>
-      <div style="display: flex; flex-direction: column; gap: 4px; padding: 20px 44px;">
+      <div style="display: flex; flex-direction: column; gap: 4px; padding: 20px clamp(24px, 5vw, 44px);">
         <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 26px; color: {{ t.text }};">1.21</span>
         <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: {{ t.muted }};">Version</span>
       </div>
     </div>
     </div>
 
-  <div id="servers" style="position: relative; max-width: 1140px; margin: 0 auto; padding: 320px 32px 90px; box-sizing: border-box; display: flex; flex-direction: column; gap: 36px;">
+  <div id="servers" style="position: relative; max-width: 1140px; margin: 0 auto; padding: 60vh clamp(16px, 5vw, 32px) 90px; box-sizing: border-box; display: flex; flex-direction: column; gap: 36px;">
     <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;">
-      <h2 style="margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 36px; letter-spacing: -0.01em; color: {{ t.text }};">Our servers</h2>
+      <h2 style="margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: clamp(28px, 7vw, 36px); letter-spacing: -0.01em; color: {{ t.text }};">Our servers</h2>
     </div>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 28px;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 28px;">
       <div style="background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;" style-hover="transform: translateY(-5px); border-color: {{ t.muted }}; box-shadow: 0 18px 40px rgba(0,0,0,0.25);">
         <div onclick="{{ openGallery }}" title="View full screenshots" style="height: 200px; position: relative; overflow: hidden; cursor: zoom-in;">
-          <img src="assets/server1-a.jpg" alt="Instellar 1" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;">
-          <img src="assets/server1-b.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; animation: serverXfade 15s 5s infinite;">
-          <img src="assets/server1-c.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; animation: serverXfade 15s 10s infinite;">
+          <img src="assets/server1-d.jpg" alt="Instellar 1" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;">
+          <img src="assets/server1-e.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; animation: serverXfade 15s 5s infinite;">
+          <img src="assets/server1-f.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; animation: serverXfade 15s 10s infinite;">
           <span style="position: absolute; bottom: 12px; right: 12px; background: rgba(0,0,0,0.55); color: #ffffff; font-weight: 700; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 999px; padding: 6px 12px; backdrop-filter: blur(6px);">⤢ View</span>
-          <span style="position: absolute; top: 14px; left: 14px; display: inline-flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.55); color: #ffffff; font-weight: 700; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 999px; padding: 6px 12px; backdrop-filter: blur(6px);"><span style="width: 7px; height: 7px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80;"></span>Online</span>
+          
         </div>
         <div style="padding: 28px; display: flex; flex-direction: column; gap: 12px; flex: 1;">
           <div style="display: flex; align-items: center; gap: 10px;">
@@ -166,7 +181,7 @@
       <div style="background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;" style-hover="transform: translateY(-5px); border-color: {{ t.muted }}; box-shadow: 0 18px 40px rgba(0,0,0,0.25);">
         <div style="height: 200px; position: relative; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid {{ t.cardBorder }};">
           <span style="font-weight: 700; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: {{ t.muted }}; border: 1px dashed {{ t.cardBorder }}; border-radius: 999px; padding: 9px 20px;">Server isn't out yet</span>
-          <span style="position: absolute; top: 14px; left: 14px; display: inline-flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.55); color: #ffffff; font-weight: 700; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 999px; padding: 6px 12px; backdrop-filter: blur(6px);"><span style="width: 7px; height: 7px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 8px #a78bfa;"></span>Coming soon</span>
+          
         </div>
         <div style="padding: 28px; display: flex; flex-direction: column; gap: 12px; flex: 1;">
           <div style="display: flex; align-items: center; gap: 10px;">
@@ -185,13 +200,28 @@
 
   <sc-if value="{{ galleryOpen }}" hint-placeholder-val="{{ false }}">
     <div onclick="{{ closeGalleryBackdrop }}" style="position: fixed; inset: 0; z-index: 110; background: rgba(0,0,0,0.88); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 40px; box-sizing: border-box;">
-      <sc-if value="{{ galleryIs0 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-a.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
-      <sc-if value="{{ galleryIs1 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-b.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
-      <sc-if value="{{ galleryIs2 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-c.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
+      <sc-if value="{{ galleryIs0 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-d.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
+      <sc-if value="{{ galleryIs1 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-e.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
+      <sc-if value="{{ galleryIs2 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-f.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
+      <sc-if value="{{ galleryIs3 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-a.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
+      <sc-if value="{{ galleryIs4 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-b.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
+      <sc-if value="{{ galleryIs5 }}" hint-placeholder-val="{{ false }}"><img src="assets/server1-c.jpg" alt="Instellar 1 screenshot" style="max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); animation: fadeUp .25s ease backwards;"></sc-if>
       <button onclick="{{ galleryPrev }}" style="position: absolute; left: 18px; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.5); color: #ffffff; font-size: 20px; cursor: pointer; backdrop-filter: blur(6px);" style-hover="background: rgba(255,255,255,0.15);">‹</button>
       <button onclick="{{ galleryNext }}" style="position: absolute; right: 18px; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.5); color: #ffffff; font-size: 20px; cursor: pointer; backdrop-filter: blur(6px);" style-hover="background: rgba(255,255,255,0.15);">›</button>
       <button onclick="{{ closeGallery }}" style="position: absolute; top: 18px; right: 18px; width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.5); color: #ffffff; font-size: 20px; cursor: pointer; backdrop-filter: blur(6px);" style-hover="background: rgba(255,255,255,0.15);">×</button>
       <span style="position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.75); font-weight: 700; font-size: 13px; letter-spacing: 0.1em;">{{ galleryCount }}</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ upOpen }}" hint-placeholder-val="{{ false }}">
+    <div onclick="{{ closeUptimeBackdrop }}" style="position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.65); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box;">
+      <div style="background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 24px; width: 100%; max-width: 620px; max-height: 84vh; padding: 30px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; animation: fadeUp .3s ease backwards;">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+          <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 20px; color: {{ t.text }};">* 24/7 uptime</span>
+          <button onclick="{{ closeUptime }}" style="border: none; background: transparent; color: {{ t.muted }}; font-size: 20px; cursor: pointer; padding: 4px; line-height: 1;" style-hover="color: {{ t.text }};">×</button>
+        </div>
+        <span style="font-weight: 500; font-size: 13px; line-height: 1.8; color: {{ t.muted }};">"24/7 uptime" describes Instellar's target availability and our sincere emotional commitment to the server being on, and shall not be construed as a warranty, guarantee, or measurable fact. Actual availability excludes, without limitation: scheduled maintenance; unscheduled maintenance; maintenance we forgot to schedule; server crashes; host provider outages; plugin updates, version updates, and updates to the updater; world backups; restarts (routine, emergency, or vibes-based); lag mitigation events; DDoS attacks and other acts of third parties; acts of Mojang; acts of God; power, network, or motivation failures; and any period during which the server is down for reasons we are still investigating. During such periods the server remains 24/7 in spirit. Uptime experiences may vary by player, region, and attitude. If the server is offline, please consult the Discord and try again shortly. Instellar's total liability for downtime is limited to one (1) heartfelt apology per incident.</span>
+      </div>
     </div>
   </sc-if>
 
@@ -202,7 +232,7 @@
           <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 16px 0;">
             <span style="width: 54px; height: 54px; border-radius: 50%; background: rgba(74,222,128,0.14); color: #4ade80; display: flex; align-items: center; justify-content: center; font-size: 26px;">✓</span>
             <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 21px; color: {{ t.text }};">Request sent!</span>
-            <span style="font-weight: 500; font-size: 14px; line-height: 1.6; color: {{ t.muted }};">We got your whitelist request — keep an eye on your Discord DMs.</span>
+            <span style="font-weight: 500; font-size: 14px; line-height: 1.6; color: {{ t.muted }};">We got your whitelist request. Keep an eye on your Discord DMs.</span>
             <button onclick="{{ closeWhitelist }}" style="margin-top: 8px; border: none; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 14px; padding: 12px 28px; border-radius: 999px; cursor: pointer;" style-hover="opacity: 0.85;">Close</button>
           </div>
         </sc-if>
@@ -210,7 +240,7 @@
           <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
             <div style="display: flex; flex-direction: column; gap: 4px;">
               <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 21px; color: {{ t.text }};">Join the whitelist</span>
-              <span style="font-weight: 500; font-size: 13px; color: {{ t.muted }};">Instellar 2 — we'll DM you when you're in.</span>
+              <span style="font-weight: 500; font-size: 13px; color: {{ t.muted }};">Instellar 2. We'll DM you when you're in.</span>
             </div>
             <button onclick="{{ closeWhitelist }}" style="border: none; background: transparent; color: {{ t.muted }}; font-size: 20px; cursor: pointer; padding: 4px; line-height: 1;" style-hover="color: {{ t.text }};">×</button>
           </div>
@@ -245,18 +275,15 @@
     </div>
   </sc-if>
 
-  <div style="border-top: 1px solid {{ t.divider }};">
-    <div style="max-width: 1140px; margin: 0 auto; padding: 26px 32px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+  <div style="position: relative; z-index: 1;">
+    <div style="max-width: 1140px; margin: 0 auto; padding: 26px clamp(16px, 4vw, 32px); box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
       <span style="font-weight: 700; font-size: 13px; color: {{ t.muted }};">© 2026 Instellar Network</span>
-      <div style="display: flex; align-items: center; gap: 22px;">
-        <a href="apply/index.html" style="font-weight: 600; font-size: 13px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Staff applications</a>
-        <a href="apply/index.html#appeal" style="font-weight: 600; font-size: 13px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Ban appeals</a>
+      <div style="display: flex; align-items: center; gap: 22px; flex-wrap: wrap;">
+        <a href="apply/index.html" style="font-weight: 600; font-size: 13px; color: {{ t.muted }};" style-hover="color: {{ t.text }};">Applications &amp; appeals</a>
         <span style="font-weight: 500; font-size: 13px; color: {{ t.muted }};">Not affiliated with Mojang or Microsoft</span>
       </div>
     </div>
   </div>
-
-</div>
 
 <div ref="{{ fxRef }}" style="position: fixed; inset: 0; z-index: 100; pointer-events: none; overflow: hidden;"></div>
 
@@ -271,7 +298,7 @@
 <template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#000000"></rect><circle cx="50" cy="50" r="16" fill="none" stroke="#f4f4f7" stroke-width="3"></circle><circle cx="50" cy="50" r="4" fill="#f4f4f7"></circle></svg></template>
 <script type="text/x-dc" data-dc-script data-props="{
   &quot;serverIp&quot;: {&quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;ragehub.minehut.gg&quot;, &quot;tsType&quot;: &quot;string&quot;},
-  &quot;discordUrl&quot;: {&quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;#&quot;, &quot;tsType&quot;: &quot;string&quot;}
+  &quot;discordUrl&quot;: {&quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;https://discord.gg/4Vdjnw9JNK&quot;, &quot;tsType&quot;: &quot;string&quot;}
 }">
 const THEMES = {
   dark: {
@@ -289,7 +316,7 @@ const THEMES = {
 };
 
 class Component extends DCLogic {
-  state = { copied: false, theme: localStorage.getItem("instellar_theme") || "dark", scaring: false, galleryIdx: null, wlOpen: false, wlDone: false, wlSending: false, wlError: null };
+  state = { copied: false, theme: "dark", scaring: false, upOpen: false, bgIdx: 3 + Math.floor(Math.random() * 3), galleryIdx: null, wlOpen: false, wlDone: false, wlSending: false, wlError: null };
   wlFormRef = React.createRef();
   _sbClient() {
     if (!this._sb) this._sb = window.supabase.createClient(
@@ -325,7 +352,7 @@ class Component extends DCLogic {
       const { error } = await this._sbClient().from("whitelist_requests").insert(data);
       if (error) {
         const msg = /already sent/i.test(error.message)
-          ? "You've already sent a whitelist request — we'll DM you!"
+          ? "You've already sent a whitelist request. We'll DM you!"
           : "Could not submit: " + error.message;
         this.setState({ wlSending: false, wlError: msg });
         return;
@@ -355,7 +382,7 @@ class Component extends DCLogic {
       master.gain.setValueAtTime(0.9, now + DUR - 0.4);
       master.gain.exponentialRampToValueAtTime(0.0001, now + DUR);
       shaper.connect(master).connect(ctx.destination);
-      // shrieking detuned oscillators — rising then wildly wobbling pitch
+      // shrieking detuned oscillators, rising then wildly wobbling pitch
       for (let i = 0; i < 5; i++) {
         const o = ctx.createOscillator();
         const g = ctx.createGain();
@@ -484,8 +511,25 @@ class Component extends DCLogic {
     }
   }
   componentDidMount() {
+    this._onKey = (e) => {
+      if (this.state.galleryIdx == null) return;
+      if (e.key === "ArrowLeft") { e.preventDefault(); this.setState(s => ({ galleryIdx: (s.galleryIdx + 5) % 6 })); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); this.setState(s => ({ galleryIdx: (s.galleryIdx + 1) % 6 })); }
+      else if (e.key === "Escape") { this.setState({ galleryIdx: null }); }
+    };
+    window.addEventListener("keydown", this._onKey);
     this._px = 0; this._py = 0; this._tx = 0; this._ty = 0;
+    this._sCur = window.scrollY; this._sTarget = window.scrollY;
+    this._onWheel = (e) => {
+      if (this.state.galleryIdx != null || this.state.wlOpen || e.ctrlKey || e.defaultPrevented) return;
+      e.preventDefault();
+      const step = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      this._sTarget = Math.max(0, Math.min(max, this._sTarget + step));
+    };
+    window.addEventListener("wheel", this._onWheel, { passive: false });
     this._onScroll = () => {
+      if (Math.abs(window.scrollY - this._sCur) > 1.5) { this._sCur = this._sTarget = window.scrollY; }
       const img = this.heroImgRef.current;
       const bleed = img && img.parentElement ? img.parentElement.offsetHeight * 0.07 : 60;
       this._ty = Math.min(window.scrollY * 0.1, bleed);
@@ -498,6 +542,13 @@ class Component extends DCLogic {
     window.addEventListener("scroll", this._onScroll, { passive: true });
     window.addEventListener("mousemove", this._onMouse, { passive: true });
     const tick = () => {
+      if (Math.abs(this._sTarget - this._sCur) > 0.4) {
+        this._sCur += (this._sTarget - this._sCur) * 0.14;
+        window.scrollTo({ top: this._sCur, behavior: "instant" });
+      } else if (this._sCur !== this._sTarget) {
+        this._sCur = this._sTarget;
+        window.scrollTo({ top: this._sCur, behavior: "instant" });
+      }
       this._px += (this._tx - this._px) * 0.06;
       this._py += ((this._ty + this._pyMouse) - this._py) * 0.06;
       const img = this.heroImgRef.current;
@@ -508,6 +559,7 @@ class Component extends DCLogic {
   }
   componentWillUnmount() {
     cancelAnimationFrame(this._raf);
+    window.removeEventListener("wheel", this._onWheel);
     window.removeEventListener("scroll", this._onScroll);
     window.removeEventListener("mousemove", this._onMouse);
   }
@@ -518,12 +570,14 @@ class Component extends DCLogic {
     return {
       t,
       heroImgRef: this.heroImgRef,
+      bgIs0: this.state.bgIdx === 0, bgIs1: this.state.bgIdx === 1, bgIs2: this.state.bgIdx === 2,
+      bgIs3: this.state.bgIdx === 3, bgIs4: this.state.bgIdx === 4, bgIs5: this.state.bgIdx === 5,
       fxRef: this.fxRef,
       titleRef: this.titleRef,
       titleClick: () => this._titleClick(),
       scaring: this.state.scaring,
       logoTap: () => this._logoTap(),
-      navBg: theme === "dark" ? "rgba(0, 0, 0, 0.8)" : "rgba(236, 238, 241, 0.85)",
+      navBg: theme === "dark" ? "transparent" : "rgba(236, 238, 241, 0.85)",
       heroOverlay: theme === "dark"
         ? "linear-gradient(180deg, rgba(0,0,0,0.75), rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.7) 55%, #000000 85%)"
         : "linear-gradient(180deg, rgba(236,238,241,0.88), rgba(236,238,241,0.72) 35%, rgba(236,238,241,0.85) 55%, #eceef1 85%)",
@@ -533,7 +587,7 @@ class Component extends DCLogic {
         localStorage.setItem("instellar_theme", next);
         this.setState({ theme: next });
       },
-      discordUrl: this.props.discordUrl ?? '#',
+      discordUrl: this.props.discordUrl ?? 'https://discord.gg/4Vdjnw9JNK',
       ipButtonLabel: this.state.copied ? 'IP copied!' : ip,
       copyIp: () => {
         navigator.clipboard.writeText(ip);
@@ -545,12 +599,19 @@ class Component extends DCLogic {
       galleryIs0: this.state.galleryIdx === 0,
       galleryIs1: this.state.galleryIdx === 1,
       galleryIs2: this.state.galleryIdx === 2,
-      galleryCount: ((this.state.galleryIdx || 0) + 1) + " / 3",
+      galleryIs3: this.state.galleryIdx === 3,
+      galleryIs4: this.state.galleryIdx === 4,
+      galleryIs5: this.state.galleryIdx === 5,
+      galleryCount: ((this.state.galleryIdx || 0) + 1) + " / 6",
       openGallery: () => this.setState({ galleryIdx: 0 }),
       closeGallery: () => this.setState({ galleryIdx: null }),
       closeGalleryBackdrop: (e) => { if (e.target === e.currentTarget) this.setState({ galleryIdx: null }); },
-      galleryPrev: () => this.setState(s => ({ galleryIdx: (s.galleryIdx + 2) % 3 })),
-      galleryNext: () => this.setState(s => ({ galleryIdx: (s.galleryIdx + 1) % 3 })),
+      galleryPrev: () => this.setState(s => ({ galleryIdx: (s.galleryIdx + 5) % 6 })),
+      galleryNext: () => this.setState(s => ({ galleryIdx: (s.galleryIdx + 1) % 6 })),
+      upOpen: this.state.upOpen,
+      openUptime: () => this.setState({ upOpen: true }),
+      closeUptime: () => this.setState({ upOpen: false }),
+      closeUptimeBackdrop: (e) => { if (e.target === e.currentTarget) this.setState({ upOpen: false }); },
       wlOpen: this.state.wlOpen,
       wlDone: this.state.wlDone,
       wlFormVisible: !this.state.wlDone,

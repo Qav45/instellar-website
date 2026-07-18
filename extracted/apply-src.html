@@ -8,6 +8,7 @@
 
 <x-dc>
 <helmet>
+<link rel="icon" type="image/png" href="../assets/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
 <style>/* cyrillic-ext */
@@ -310,11 +311,19 @@
 </style>
 <script src="apply-cafabe19.bin"></script>
 <style>
+  html { scroll-behavior: smooth; }
   body { margin: 0; background: #000000; font-family: 'Manrope', sans-serif; }
   a { color: inherit; text-decoration: none; }
   a:hover { color: inherit; }
   input::placeholder, textarea::placeholder { color: #a6a6b0; }
-  .no-scrollbar::-webkit-scrollbar { display: none; }
+  * { scrollbar-width: none; -ms-overflow-style: none; }
+  *::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  @media (max-width: 700px) {
+    .shell { flex-direction: column !important; padding: 10px !important; gap: 10px !important; }
+    .sb { width: 100% !important; flex-direction: row !important; align-items: center !important; padding: 8px 12px !important; gap: 8px !important; }
+    .sb:hover { width: 100% !important; }
+    .sb .sb-label { display: none !important; }
+  }
   .sb { width: 76px; transition: width .28s cubic-bezier(0.2, 0.8, 0.3, 1), background .25s ease; overflow: hidden; }
   .sb:hover { width: 224px; }
   .sb .sb-label { opacity: 0; transform: translateX(-8px); transition: opacity .18s ease, transform .28s cubic-bezier(0.2, 0.8, 0.3, 1); white-space: nowrap; }
@@ -327,7 +336,7 @@
   @keyframes confettiFall { 0% { transform: translateY(-20px) rotate(0deg); opacity: 1; } 80% { opacity: 1; } 100% { transform: translateY(420px) rotate(680deg); opacity: 0; } }
 </style>
 </helmet>
-<div style="min-height: 100vh; padding: 16px; box-sizing: border-box; display: flex; gap: 16px; background: {{ t.desk }}; transition: background .25s ease;">
+<div class="shell" style="min-height: 100vh; padding: 16px; box-sizing: border-box; display: flex; gap: 16px; background: {{ t.desk }}; transition: background .25s ease;">
   <div class="sb" style="flex-shrink: 0; background: {{ t.sheet }}; border-radius: 24px; padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
     <span class="sb-label" style="font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: {{ t.muted }}; padding: 4px 10px 6px;">Server</span>
     <button onclick="{{ pickServer1 }}" title="Instellar 1" style="display: flex; align-items: center; gap: 12px; border: none; background: transparent; padding: 4px; border-radius: 999px; cursor: pointer;" style-hover="background: {{ t.card }};">
@@ -347,16 +356,15 @@
   <div style="flex: 1; background: {{ t.sheet }}; border-radius: 24px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.05); transition: background .25s ease;">
 
     <div style="position: relative; display: flex; align-items: center; justify-content: center; padding: 34px 24px; border-bottom: 1px solid {{ t.divider }};">
-      <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 15px; letter-spacing: 0.35em; color: {{ t.text }}; text-transform: uppercase;">{{ serverName }}</span>
-      <button onclick="{{ toggleTheme }}" title="Toggle theme" style="position: absolute; right: 28px; top: 50%; transform: translateY(-50%); width: 42px; height: 42px; border-radius: 50%; border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; font-size: 17px; cursor: pointer; display: flex; align-items: center; justify-content: center;">{{ themeIcon }}</button>
+      <a href="../index.html" onclick="{{ goHome }}" title="Back to home" style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 15px; letter-spacing: 0.35em; color: {{ t.text }}; text-transform: uppercase; cursor: pointer;" style-hover="opacity: 0.7;">{{ serverName }}</a>
     </div>
 
-    <div style="flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 48px; padding: 64px 24px 88px; overflow: hidden;">
+    <div style="flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 36px; padding: 48px clamp(16px, 4vw, 32px) 64px; overflow: hidden;">
 
       <sc-if value="{{ needsServer }}" hint-placeholder-val="{{ false }}">
-        <h1 style="margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 46px; color: {{ t.text }}; letter-spacing: -0.01em; text-align: center; animation: fadeUp .7s .05s ease backwards;">Choose your server</h1>
-        <div style="display: flex; flex-wrap: wrap; gap: 24px; justify-content: center;">
-          <div onclick="{{ pickServer1 }}" style="cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; width: 380px; padding: 28px; box-sizing: border-box; background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 20px; transition: transform .15s ease, box-shadow .15s ease; animation: fadeUp .7s .2s ease backwards;" style-hover="transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,0.25);">
+        <h1 style="margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: clamp(30px, 8vw, 46px); color: {{ t.text }}; letter-spacing: -0.01em; text-align: center; animation: fadeUp .7s .05s ease backwards;">Choose your server</h1>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 20px; width: min(820px, 100%); margin: 0 auto;">
+          <div onclick="{{ pickServer1 }}" style="cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; width: 100%; padding: 26px; box-sizing: border-box; background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 20px; transition: transform .15s ease, box-shadow .15s ease; animation: fadeUp .7s .2s ease backwards;" style-hover="transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,0.25);">
             <div style="width: 56px; height: 56px; border-radius: 50%; background: {{ t.staffIconBg }}; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 22px; color: {{ t.staffIcon }};">1</div>
             <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 25px; color: {{ t.text }};">Instellar 1</span>
             <span style="font-size: 15px; color: {{ t.muted }}; line-height: 1.5;">Our gen SMP running since 2025.</span>
@@ -367,9 +375,9 @@
               </div>
             </div>
           </div>
-          <div onclick="{{ pickServer2 }}" style="cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; width: 380px; padding: 28px; box-sizing: border-box; background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 20px; transition: transform .15s ease, box-shadow .15s ease; animation: fadeUp .7s .35s ease backwards;" style-hover="transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,0.25);">
+          <div onclick="{{ pickServer2 }}" style="cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; width: 100%; padding: 26px; box-sizing: border-box; background: {{ t.card }}; border: 1px solid {{ t.text }}; border-radius: 20px; box-shadow: 0 0 0 1px {{ t.text }}; transition: transform .15s ease, box-shadow .15s ease; animation: fadeUp .7s .35s ease backwards;" style-hover="transform: translateY(-3px); box-shadow: 0 0 0 1px {{ t.text }}, 0 12px 30px rgba(0,0,0,0.25);">
             <div style="width: 56px; height: 56px; border-radius: 50%; background: {{ t.appealIconBg }}; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 22px; color: {{ t.appealIcon }};">2</div>
-            <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 25px; color: {{ t.text }};">Instellar 2</span>
+            <span style="display: flex; align-items: center; gap: 10px;"><span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 25px; color: {{ t.text }};">Instellar 2</span><span style="font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: {{ t.pillText }}; background: {{ t.pillBg }}; border-radius: 999px; padding: 4px 10px;">Newest</span></span>
             <span style="font-size: 15px; color: {{ t.muted }}; line-height: 1.5;">The space exploration world.</span>
             <div style="align-self: stretch; margin-top: 16px; display: flex; align-items: center; justify-content: space-between; background: {{ t.pillBg }}; border-radius: 999px; padding: 8px 8px 8px 22px;">
               <span style="font-weight: 600; font-size: 15px; color: {{ t.pillText }};">Select</span>
@@ -382,15 +390,15 @@
       </sc-if>
 
       <sc-if value="{{ hasServer }}" hint-placeholder-val="{{ true }}">
-      <h1 style="margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 46px; color: {{ t.text }}; letter-spacing: -0.01em; text-align: center; animation: fadeUp .7s .05s ease backwards;">Select your application</h1>
+      <h1 style="margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: clamp(30px, 8vw, 46px); color: {{ t.text }}; letter-spacing: -0.01em; text-align: center; animation: fadeUp .7s .05s ease backwards;">Select your application</h1>
 
-      <div style="display: flex; flex-wrap: wrap; gap: 24px; justify-content: center;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 20px; width: min(820px, 100%); margin: 0 auto;">
 
-        <div onclick="{{ openStaff }}" style="cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; width: 380px; padding: 28px; box-sizing: border-box; background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 20px; transition: transform .15s ease, box-shadow .15s ease; animation: fadeUp .7s .2s ease backwards;" style-hover="transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,0.25);">
+        <div onclick="{{ openStaff }}" style="cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; width: 100%; padding: 26px; box-sizing: border-box; background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 20px; transition: transform .15s ease, box-shadow .15s ease; animation: fadeUp .7s .2s ease backwards;" style-hover="transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,0.25);">
           <div style="width: 56px; height: 56px; border-radius: 50%; background: {{ t.staffIconBg }}; display: flex; align-items: center; justify-content: center; margin-bottom: 12px;">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="{{ t.staffIcon }}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"></circle><path d="M3.5 19c0-3 2.5-4.8 5.5-4.8s5.5 1.8 5.5 4.8"></path><circle cx="16.5" cy="9" r="2.4"></circle><path d="M16.5 14.5c2.4 0 4.3 1.5 4.3 3.9"></path></svg>
           </div>
-          <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 25px; color: {{ t.text }};">Staff Application</span>
+          <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 25px; color: {{ t.text }};">Staff Application<a onClick="{{ openTerms }}" title="See the rules" style="color: {{ t.muted }}; cursor: pointer;" style-hover="color: {{ t.text }};">*</a></span>
           <span style="font-size: 15px; color: {{ t.muted }}; line-height: 1.5;">Apply to join the {{ serverName }} staff team.</span>
           <div style="align-self: stretch; margin-top: 16px; display: flex; align-items: center; justify-content: space-between; background: {{ t.pillBg }}; border-radius: 999px; padding: 8px 8px 8px 22px;">
             <span style="font-weight: 600; font-size: 15px; color: {{ t.pillText }};">Select</span>
@@ -400,11 +408,11 @@
           </div>
         </div>
 
-        <div onclick="{{ openAppeal }}" style="cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; width: 380px; padding: 28px; box-sizing: border-box; background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 20px; transition: transform .15s ease, box-shadow .15s ease; animation: fadeUp .7s .35s ease backwards;" style-hover="transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,0.25);">
+        <div onclick="{{ openAppeal }}" style="cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; width: 100%; padding: 26px; box-sizing: border-box; background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 20px; transition: transform .15s ease, box-shadow .15s ease; animation: fadeUp .7s .35s ease backwards;" style-hover="transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,0.25);">
           <div style="width: 56px; height: 56px; border-radius: 50%; background: {{ t.appealIconBg }}; display: flex; align-items: center; justify-content: center; margin-bottom: 12px;">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="{{ t.appealIcon }}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 2.5v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10v-5L12 3z"></path><path d="M9.2 12l2 2 3.6-3.8"></path></svg>
           </div>
-          <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 25px; color: {{ t.text }};">Ban Appeal</span>
+          <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 25px; color: {{ t.text }};">Ban Appeal<a onClick="{{ openTerms }}" title="See the rules" style="color: {{ t.muted }}; cursor: pointer;" style-hover="color: {{ t.text }};">*</a></span>
           <span style="font-size: 15px; color: {{ t.muted }}; line-height: 1.5;">Ask the moderation team to review your ban.</span>
           <div style="align-self: stretch; margin-top: 16px; display: flex; align-items: center; justify-content: space-between; background: {{ t.pillBg }}; border-radius: 999px; padding: 8px 8px 8px 22px;">
             <span style="font-weight: 600; font-size: 15px; color: {{ t.pillText }};">Select</span>
@@ -419,6 +427,23 @@
     </div>
   </div>
 
+  <sc-if value="{{ termsOpen }}" hint-placeholder-val="{{ false }}">
+    <div onclick="{{ closeTermsBackdrop }}" style="position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; z-index: 60; animation: fadeIn .25s ease backwards;">
+      <div style="background: {{ t.sheet }}; border-radius: 24px; width: 720px; max-width: 100%; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.4); animation: modalIn .35s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 20px 26px; border-bottom: 1px solid {{ t.divider }};">
+          <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 18px; color: {{ t.text }};">Rules</span>
+          <button onclick="{{ closeTerms }}" style="width: 36px; height: 36px; border-radius: 50%; border: none; background: {{ t.card }}; color: {{ t.text }}; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;">✕</button>
+        </div>
+        <div class="no-scrollbar" style="overflow-y: auto; padding: 24px 26px; display: flex; flex-direction: column; gap: 14px;">
+          <span style="font-weight: 500; font-size: 12.5px; line-height: 1.75; color: {{ t.muted }};"><b style="color: {{ t.text }};">1.</b> When you send in a staff application or ban appeal it does not mean you will get in or even get a response. The Instellar team looks at all submissions. Decides what to do with them. We can say no to any application. Appeal for any reason or for no reason at all.</span>
+          <span style="font-weight: 500; font-size: 12.5px; line-height: 1.75; color: {{ t.muted }};"><b style="color: {{ t.text }};">2.</b> Getting accepted is not something you can expect to happen. The team chooses who to accept. It is a privilege. If we say no that is it. You cannot appeal our decision. Try to negotiate with us. We can stop, open applications and appeals whenever we want. Just because you meet all the requirements does not mean you will get in.</span>
+          <span style="font-weight: 500; font-size: 12.5px; line-height: 1.75; color: {{ t.muted }};"><b style="color: {{ t.text }};">3.</b> What you write in your application or appeal has to follow the server rules. If you are mean or lie or try to spam us we might say no away. If you are trying to appeal a ban and you do something your ban might get longer or become permanent. Do not. Send in fake appeals. This can get you in trouble.</span>
+          <span style="font-weight: 500; font-size: 12.5px; line-height: 1.75; color: {{ t.muted }};"><b style="color: {{ t.text }};">4.</b> You can only send in one application or appeal, per day. Sending in more does not help you. The staff team looks at what you send in to make sure you are following the rules. We can change these rules whenever we want and the new rules will apply when we look at your application or appeal. If something is not covered in these rules the Owner of Instellar gets to decide what to do. Even if something is covered in these rules the Owner still gets to make the decision.</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
   <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
     <div style="position: fixed; bottom: 36px; left: 50%; z-index: 70; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 15px; padding: 13px 24px 13px 16px; border-radius: 999px; box-shadow: 0 12px 32px rgba(0,0,0,0.35); animation: toastPop 1.8s ease forwards; display: flex; align-items: center; gap: 10px;">
       <span style="width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%; background: {{ t.pillCircle }}; display: flex; align-items: center; justify-content: center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>
@@ -431,12 +456,12 @@
       <div style="background: {{ t.sheet }}; border-radius: 24px; width: 1040px; max-width: 100%; max-height: 94vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.4); animation: modalIn .35s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;">
 
         <div style="display: flex; align-items: center; justify-content: space-between; padding: 22px 28px; border-bottom: 1px solid {{ t.divider }};">
-          <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 20px; color: {{ t.text }};">Staff Application</span>
+          <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 20px; color: {{ t.text }};">Staff Application<a onClick="{{ openTerms }}" title="See the rules" style="color: {{ t.muted }}; cursor: pointer;" style-hover="color: {{ t.text }};">*</a></span>
           <button onclick="{{ close }}" style="width: 36px; height: 36px; border-radius: 50%; border: none; background: {{ t.card }}; color: {{ t.text }}; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;">✕</button>
         </div>
 
         <sc-if value="{{ notSubmitted }}" hint-placeholder-val="{{ true }}">
-        <div ref="{{ staffFormRef }}" class="no-scrollbar" style="overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; padding: 28px; display: flex; flex-direction: column; gap: 24px;">
+        <div ref="{{ staffFormRef }}" onChange="{{ staffChange }}" class="no-scrollbar" style="overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; padding: 28px; display: flex; flex-direction: column; gap: 24px;">
 
           <div style="background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 16px; padding: 20px 22px; display: flex; flex-direction: column; gap: 8px;">
             <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 15px; color: {{ t.text }};">Staff Requirements</span>
@@ -452,6 +477,11 @@
             </div>
           </div>
 
+          <sc-if value="{{ reqNo }}" hint-placeholder-val="{{ false }}">
+            <div style="background: {{ t.errBg }}; border: 1px solid {{ t.errBorder }}; border-radius: 12px; padding: 14px 18px; font-size: 14px; color: {{ t.errText }}; line-height: 1.6;">Unfortunately you can't apply until you meet all the requirements above. Come back once you do, we'd love to have you!</div>
+          </sc-if>
+
+          <sc-if value="{{ reqYes }}" hint-placeholder-val="{{ true }}">
           <div style="display: flex; flex-direction: column; gap: 8px;">
             <label style="font-weight: 600; font-size: 15px; color: {{ t.text }};">How old are you? <span style="color: #e0554d;">*</span></label>
             <input type="text" name="age" style="background: {{ t.inputBg }}; color: {{ t.text }}; border: 1px solid {{ t.inputBorder }}; border-radius: 14px; padding: 14px 18px; font-size: 15px; line-height: 1.55; font-family: 'Manrope', sans-serif; outline: none; box-shadow: inset 0 1px 2px rgba(0,0,0,0.10); transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;" style-focus="border-color: {{ t.text }}; box-shadow: inset 0 1px 2px rgba(0,0,0,0.06), 0 0 0 4px color-mix(in srgb, {{ t.text }} 10%, transparent);">
@@ -475,6 +505,11 @@
             </div>
           </div>
 
+          <sc-if value="{{ linkedNo }}" hint-placeholder-val="{{ false }}">
+            <div style="background: {{ t.errBg }}; border: 1px solid {{ t.errBorder }}; border-radius: 12px; padding: 14px 18px; font-size: 14px; color: {{ t.errText }}; line-height: 1.6;">You need to link your Discord before applying. Join the server and run <b>/link</b> ingame, then come back and pick Yes. Your answers are saved.</div>
+          </sc-if>
+
+          <sc-if value="{{ linkedYes }}" hint-placeholder-val="{{ true }}">
           <div style="display: flex; flex-direction: column; gap: 8px;">
             <label style="font-weight: 600; font-size: 15px; color: {{ t.text }};">Why do you want to be staff? (minimum of 1–2 sentences) <span style="color: #e0554d;">*</span></label>
             <textarea rows="6" name="why_staff" style="background: {{ t.inputBg }}; color: {{ t.text }}; border: 1px solid {{ t.inputBorder }}; border-radius: 14px; padding: 14px 18px; font-size: 15px; line-height: 1.55; font-family: 'Manrope', sans-serif; outline: none; box-shadow: inset 0 1px 2px rgba(0,0,0,0.10); transition: border-color .15s ease, box-shadow .15s ease, background .15s ease; resize: vertical;" style-focus="border-color: {{ t.text }}; box-shadow: inset 0 1px 2px rgba(0,0,0,0.06), 0 0 0 4px color-mix(in srgb, {{ t.text }} 10%, transparent);"></textarea>
@@ -511,8 +546,19 @@
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 8px;">
-            <label style="font-weight: 600; font-size: 15px; color: {{ t.text }};">Please make a ticket (ownership ticket on the Discord)</label>
-            <label style="display: flex; align-items: center; gap: 8px; padding: 10px 18px; border: 1px solid {{ t.inputBorder }}; border-radius: 999px; font-size: 15px; color: {{ t.text }}; cursor: pointer; align-self: flex-start;"><input type="checkbox" name="ticket_ok" style="accent-color: {{ t.text }};"> Ok</label>
+            <label style="font-weight: 600; font-size: 15px; color: {{ t.text }};">One last step: open a ticket</label>
+            <div style="background: {{ t.card }}; border: 1px solid {{ t.cardBorder }}; border-radius: 16px; padding: 22px; display: flex; flex-direction: column; gap: 18px;">
+              <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                <span style="width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; background: {{ t.pillBg }}; color: {{ t.pillText }}; display: flex; align-items: center; justify-content: center; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 15px;">1</span>
+                <span style="font-size: 15px; color: {{ t.text }}; font-weight: 600;">Join our Discord</span>
+                <a href="https://discord.gg/4Vdjnw9JNK" target="_blank" style="margin-left: auto; background: #5865F2; color: #ffffff; font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 14px; padding: 11px 22px; border-radius: 999px; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;" style-hover="opacity: 0.9;"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 2.9l-.6 1.2a18.3 18.3 0 0 0-5.6 0l-.6-1.2c-1.7.3-3.4.8-4.9 1.5A20.4 20.4 0 0 0 .1 18.1a19.9 19.9 0 0 0 6 3l1.3-2a12.9 12.9 0 0 1-2-1l.5-.4a14.2 14.2 0 0 0 12.2 0l.5.4c-.6.4-1.3.7-2 1l1.3 2a19.9 19.9 0 0 0 6-3A20.3 20.3 0 0 0 20.3 4.4ZM8 15.3c-1.2 0-2.1-1.1-2.1-2.4S6.8 10.5 8 10.5s2.1 1.1 2.1 2.4-1 2.4-2.1 2.4Zm8 0c-1.2 0-2.1-1.1-2.1-2.4s.9-2.4 2.1-2.4 2.1 1.1 2.1 2.4-.9 2.4-2.1 2.4Z"></path></svg>Join Discord</a>
+              </div>
+              <div style="display: flex; align-items: center; gap: 14px;">
+                <span style="width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; background: {{ t.pillBg }}; color: {{ t.pillText }}; display: flex; align-items: center; justify-content: center; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 15px;">2</span>
+                <span style="font-size: 15px; color: {{ t.text }}; line-height: 1.5;"><b>Click the tickets channel</b> and open a ticket. That's it!</span>
+              </div>
+              <label style="display: flex; align-items: center; gap: 12px; padding: 14px 20px; border: 1px solid {{ t.inputBorder }}; background: {{ t.inputBg }}; border-radius: 14px; font-size: 15px; font-weight: 600; color: {{ t.text }}; cursor: pointer;"><input type="checkbox" name="ticket_ok" style="accent-color: {{ t.text }}; width: 18px; height: 18px;"> I opened my ticket (or will right after this)</label>
+            </div>
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -525,6 +571,8 @@
           </sc-if>
 
           <button onclick="{{ submitStaff }}" style="border: none; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 16px; padding: 15px; border-radius: 999px; cursor: pointer;" style-hover="opacity: 0.9;">{{ staffSubmitLabel }}</button>
+          </sc-if>
+          </sc-if>
         </div>
         </sc-if>
 
@@ -539,8 +587,11 @@
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="{{ t.okIcon }}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
           </div>
           <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 22px; color: {{ t.text }};">Application submitted</span>
-          <span style="font-size: 15px; color: {{ t.muted }}; line-height: 1.6; max-width: 380px;">Thanks for applying! Don't forget to open an ownership ticket on the Discord so we can review it.</span>
-          <button onclick="{{ close }}" style="margin-top: 8px; border: none; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 15px; padding: 12px 32px; border-radius: 999px; cursor: pointer;">Done</button>
+          <span style="font-size: 15px; color: {{ t.muted }}; line-height: 1.6; max-width: 380px;">Thanks for applying! Now join our Discord and open a ticket in the <b>tickets</b> channel so we can review it.</span>
+          <div style="display: flex; gap: 10px; margin-top: 8px;">
+            <a href="https://discord.gg/4Vdjnw9JNK" target="_blank" style="border: none; background: {{ t.pillBg }}; color: {{ t.pillText }}; font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 15px; padding: 12px 32px; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center;">Join the Discord</a>
+            <button onclick="{{ close }}" style="border: 1px solid {{ t.cardBorder }}; background: {{ t.card }}; color: {{ t.text }}; font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 15px; padding: 12px 32px; border-radius: 999px; cursor: pointer;">Done</button>
+          </div>
         </div>
         </sc-if>
 
@@ -553,12 +604,12 @@
       <div style="background: {{ t.sheet }}; border-radius: 24px; width: 1040px; max-width: 100%; max-height: 94vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.4); animation: modalIn .35s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;">
 
         <div style="display: flex; align-items: center; justify-content: space-between; padding: 22px 28px; border-bottom: 1px solid {{ t.divider }};">
-          <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 20px; color: {{ t.text }};">Ban Appeal</span>
+          <span style="font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 20px; color: {{ t.text }};">Ban Appeal<a onClick="{{ openTerms }}" title="See the rules" style="color: {{ t.muted }}; cursor: pointer;" style-hover="color: {{ t.text }};">*</a></span>
           <button onclick="{{ close }}" style="width: 36px; height: 36px; border-radius: 50%; border: none; background: {{ t.card }}; color: {{ t.text }}; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;">✕</button>
         </div>
 
         <sc-if value="{{ notSubmitted }}" hint-placeholder-val="{{ true }}">
-        <div ref="{{ appealFormRef }}" class="no-scrollbar" style="overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; padding: 28px; display: flex; flex-direction: column; gap: 24px;">
+        <div ref="{{ appealFormRef }}" onChange="{{ appealChange }}" class="no-scrollbar" style="overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; padding: 28px; display: flex; flex-direction: column; gap: 24px;">
 
           <div style="display: flex; flex-direction: column; gap: 8px;">
             <label style="font-weight: 600; font-size: 15px; color: {{ t.text }};">What is your Minecraft username? <span style="color: #e0554d;">*</span></label>
@@ -614,6 +665,7 @@
   </sc-if>
 
 </div>
+
 </x-dc>
 <template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#000000"></rect><circle cx="50" cy="50" r="16" fill="none" stroke="#f4f4f7" stroke-width="3"></circle><circle cx="50" cy="50" r="4" fill="#f4f4f7"></circle></svg></template>
 <script type="text/x-dc" data-dc-script="" data-props="{
@@ -648,7 +700,7 @@ const THEMES = {
 };
 
 class Component extends DCLogic {
-  state = { modal: null, submitted: false, sending: false, error: null, toast: null, server: (["1","2"].includes(new URLSearchParams(location.search).get("server")) ? new URLSearchParams(location.search).get("server") : null), theme: localStorage.getItem("instellar_theme") || this.props.defaultTheme || "dark" };
+  state = { modal: null, termsOpen: false, submitted: false, sending: false, error: null, toast: null, gateReq: null, gateLinked: null, server: (["1","2"].includes(new URLSearchParams(location.search).get("server")) ? new URLSearchParams(location.search).get("server") : null), theme: "dark" };
   staffFormRef = React.createRef();
   appealFormRef = React.createRef();
 
@@ -672,6 +724,37 @@ class Component extends DCLogic {
     const key = this.props.supabaseKey || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphZWRuYWh1eHBqd3JxanF5dHJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MzgwODQsImV4cCI6MjA5OTIxNDA4NH0.N30ZCl1afMAMFGd-D--5Ulq7VP4qB9aiBQbdRmwDumQ";
     if (!this._client) this._client = window.supabase.createClient(url, key);
     return this._client;
+  }
+
+  getDraft(kind) {
+    try { return JSON.parse(localStorage.getItem("instellar_draft_" + kind) || "null") || {}; } catch (e) { return {}; }
+  }
+
+  saveDraft(kind, ref) {
+    clearTimeout(this._draftT);
+    this._draftT = setTimeout(() => {
+      const d = Object.assign(this.getDraft(kind), this.collect(ref));
+      try { localStorage.setItem("instellar_draft_" + kind, JSON.stringify(d)); } catch (e) {}
+    }, 250);
+  }
+
+  fillForm(ref, d) {
+    setTimeout(() => {
+      if (!ref.current) return;
+      ref.current.querySelectorAll("input, textarea").forEach((el) => {
+        if (!el.name || d[el.name] === undefined) return;
+        if (el.type === "radio") el.checked = el.value === d[el.name];
+        else if (el.type === "checkbox") el.checked = d[el.name] === "Yes";
+        else if (!el.value) el.value = d[el.name];
+      });
+    }, 80);
+  }
+
+  restoreDraft(kind) {
+    const d = this.getDraft(kind);
+    if (kind === "staff") this.setState({ gateReq: d.meets_requirements || null, gateLinked: d.linked || null });
+    const ref = kind === "staff" ? this.staffFormRef : this.appealFormRef;
+    this.fillForm(ref, d);
   }
 
   collect(ref) {
@@ -720,6 +803,7 @@ class Component extends DCLogic {
       const { error } = await this.getClient().from(table).insert(data);
       if (error) { this.setState({ sending: false, error: "Could not submit: " + error.message }); return; }
       localStorage.setItem(cdKey, String(Date.now()));
+      try { localStorage.removeItem("instellar_draft_" + (table === "staff_applications" ? "staff" : "appeal")); } catch (e) {}
       this.setState({ sending: false, submitted: true });
     } catch (e) {
       this.setState({ sending: false, error: "Could not submit: " + e.message });
@@ -780,10 +864,30 @@ class Component extends DCLogic {
       error: this.state.error,
       staffFormRef: this.staffFormRef,
       appealFormRef: this.appealFormRef,
+      reqYes: this.state.gateReq === "Yes",
+      reqNo: this.state.gateReq === "No",
+      linkedYes: this.state.gateLinked === "Yes",
+      linkedNo: this.state.gateLinked === "No",
+      staffChange: (e) => {
+        const el = e.target;
+        if (el && (el.name === "meets_requirements" || el.name === "linked")) {
+          const d = this.getDraft("staff");
+          d[el.name] = el.value;
+          try { localStorage.setItem("instellar_draft_staff", JSON.stringify(d)); } catch (err) {}
+          this.setState(el.name === "meets_requirements" ? { gateReq: el.value } : { gateLinked: el.value });
+          this.fillForm(this.staffFormRef, d);
+        }
+        this.saveDraft("staff", this.staffFormRef);
+      },
+      appealChange: () => this.saveDraft("appeal", this.appealFormRef),
+      openTerms: (e) => { e.stopPropagation(); this.setState({ termsOpen: true }); },
+      closeTerms: () => this.setState({ termsOpen: false }),
+      closeTermsBackdrop: (e) => { if (e.target === e.currentTarget) this.setState({ termsOpen: false }); },
+      termsOpen: this.state.termsOpen,
       staffSubmitLabel: sending ? "Submitting…" : "Submit application",
       appealSubmitLabel: sending ? "Submitting…" : "Submit appeal",
-      openStaff: () => this.setState({ modal: "staff", submitted: false, error: null }),
-      openAppeal: () => this.setState({ modal: "appeal", submitted: false, error: null }),
+      openStaff: () => { this.setState({ modal: "staff", submitted: false, error: null }); this.restoreDraft("staff"); },
+      openAppeal: () => { this.setState({ modal: "appeal", submitted: false, error: null }); this.restoreDraft("appeal"); },
       close: () => this.setState({ modal: null, submitted: false, error: null }),
       submitStaff: () => {
         if (sending) return;

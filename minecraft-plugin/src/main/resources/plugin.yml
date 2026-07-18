@@ -1,6 +1,0 @@
-name: InstellarSync
-version: 1.0.0
-main: gg.instellar.sync.InstellarSyncPlugin
-api-version: '1.20'
-author: Instellar
-description: Executes moderation actions queued from the Instellar web panel (Supabase).
