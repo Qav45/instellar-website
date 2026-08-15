@@ -54,8 +54,9 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 -- 3) Public lookup (called by instellar.net/punishment) ----------
--- Counts only EXECUTED Warns and Bans. Unbans, mutes, kicks,
--- staff notes, reasons and staff names are never returned.
+-- Returns only EXECUTED Warns and Bans (counts + each entry's type,
+-- reason, duration, date, server). Unbans, mutes, kicks, staff notes
+-- and staff names are never returned.
 create or replace function public.lookup_punishments(p_name text) returns json
 language plpgsql stable security definer set search_path = public as $$
 declare n text := lower(trim(coalesce(p_name, '')));
@@ -81,6 +82,17 @@ begin
         where lower(target) = n and status = 'Executed' and type in ('Warn','Ban')
         group by server
       ) x
+    ), '[]'::json),
+    'entries', coalesce((
+      select json_agg(json_build_object(
+               'type', e.type, 'reason', e.reason, 'duration', e.duration,
+               'server', e.server, 'at', e.created_at) order by e.created_at desc)
+      from (
+        select type, reason, duration, server, created_at
+        from mod_actions
+        where lower(target) = n and status = 'Executed' and type in ('Warn','Ban')
+        order by created_at desc limit 100
+      ) e
     ), '[]'::json)
   );
 end $$;
