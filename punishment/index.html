@@ -141,8 +141,9 @@
       });
       $('per').textContent = per.length ? per.join(' · ') : 'Clean record: no warnings or bans.';
       $('list').innerHTML = (d.entries || []).map(function (e) {
-        var meta = [SERVER_NAMES[e.server] || e.server, e.duration, when(e.at)].filter(Boolean).join(' · ');
-        return '<div class="row"><span class="tag ' + esc(e.type) + '">' + esc(e.type) + '</span><div><div class="r">' + esc(e.reason) + '</div><div class="m">' + esc(meta) + '</div></div></div>';
+        var wiped = e.type === 'Wipeban';
+        var meta = [SERVER_NAMES[e.server] || e.server, wiped ? 'Permanent' : e.duration, wiped ? 'account wiped' : null, when(e.at)].filter(Boolean).join(' · ');
+        return '<div class="row"><span class="tag ' + (wiped ? 'Ban' : esc(e.type)) + '">' + (wiped ? 'Ban' : esc(e.type)) + '</span><div><div class="r">' + esc(e.reason) + '</div><div class="m">' + esc(meta) + '</div></div></div>';
       }).join('');
       $('list').style.display = (d.entries && d.entries.length) ? '' : 'none';
       res.className = 'result show';

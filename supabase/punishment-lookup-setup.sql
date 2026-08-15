@@ -54,7 +54,7 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 -- 3) Public lookup (called by instellar.net/punishment) ----------
--- Returns only EXECUTED Warns and Bans (counts + each entry's type,
+-- Returns only EXECUTED Warns and Bans/Wipebans (counts + each entry's type,
 -- reason, duration, date, server). Unbans, mutes, kicks, staff notes
 -- and staff names are never returned.
 create or replace function public.lookup_punishments(p_name text) returns json
@@ -71,15 +71,15 @@ begin
     'blocked', false,
     'name', coalesce((select target from mod_actions where lower(target) = n order by created_at desc limit 1), trim(p_name)),
     'warns', (select count(*) from mod_actions where lower(target) = n and type = 'Warn' and status = 'Executed'),
-    'bans',  (select count(*) from mod_actions where lower(target) = n and type = 'Ban'  and status = 'Executed'),
+    'bans',  (select count(*) from mod_actions where lower(target) = n and type in ('Ban','Wipeban') and status = 'Executed'),
     'servers', coalesce((
       select json_agg(json_build_object('server', x.server, 'warns', x.warns, 'bans', x.bans) order by x.server)
       from (
         select server,
                count(*) filter (where type = 'Warn') as warns,
-               count(*) filter (where type = 'Ban')  as bans
+               count(*) filter (where type in ('Ban','Wipeban')) as bans
         from mod_actions
-        where lower(target) = n and status = 'Executed' and type in ('Warn','Ban')
+        where lower(target) = n and status = 'Executed' and type in ('Warn','Ban','Wipeban')
         group by server
       ) x
     ), '[]'::json),
@@ -90,7 +90,7 @@ begin
       from (
         select type, reason, duration, server, created_at
         from mod_actions
-        where lower(target) = n and status = 'Executed' and type in ('Warn','Ban')
+        where lower(target) = n and status = 'Executed' and type in ('Warn','Ban','Wipeban')
         order by created_at desc limit 100
       ) e
     ), '[]'::json)
