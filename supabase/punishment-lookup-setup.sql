@@ -1,10 +1,10 @@
 -- ============================================================
--- Instellar — PUBLIC PUNISHMENT LOOKUP + BLACKLIST
+-- Instellar: PUBLIC PUNISHMENT LOOKUP + BLACKLIST
 -- Paste into the Supabase SQL editor and RUN, after
 -- panel-upgrade.sql and two-servers-upgrade.sql. Safe to run again.
 --
 -- Powers instellar.net/punishment (anyone types a username and
--- sees how many times it was warned / banned — nothing else) and
+-- sees how many times it was warned / banned, nothing else) and
 -- the panel's "Blacklist" tab (usernames that can NOT be looked
 -- up on that page). The blacklist is enforced server-side here,
 -- so it cannot be bypassed by calling the API directly.
