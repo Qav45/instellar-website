@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Punishment lookup — Instellar</title>
+<link rel="icon" type="image/png" href="../assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Poppins:wght@600&display=swap" rel="stylesheet">
+<style>
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: #000000; font-family: 'Manrope', sans-serif; color: #f4f4f7; }
+  a { color: inherit; text-decoration: none; }
+  input::placeholder { color: #a6a6b0; }
+  * { scrollbar-width: none; -ms-overflow-style: none; box-sizing: border-box; }
+  *::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .shell { min-height: 100vh; padding: 16px; display: flex; gap: 16px; }
+  .sb { flex-shrink: 0; width: 76px; background: #0b0b0f; border-radius: 24px; padding: 20px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .sb a { display: flex; align-items: center; gap: 12px; padding: 4px; border-radius: 999px; }
+  .sb a:hover { background: #15151c; }
+  .sb a span { width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; border: 1px solid #232330; background: #15151c; display: flex; align-items: center; justify-content: center; }
+  .sheet { flex: 1; background: #0b0b0f; border-radius: 24px; display: flex; flex-direction: column; overflow: hidden; }
+  .head { display: flex; align-items: center; justify-content: center; padding: 34px 24px; border-bottom: 1px solid #1c1c23; }
+  .head a { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 15px; letter-spacing: 0.35em; text-transform: uppercase; }
+  .head a:hover { opacity: .7; }
+  .main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 48px clamp(16px, 4vw, 32px) 64px; }
+  h1 { margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: clamp(30px, 8vw, 46px); letter-spacing: -0.01em; text-align: center; animation: fadeUp .7s .05s ease backwards; }
+  .sub { margin: -14px 0 0; color: #9c9ca8; font-size: 15px; line-height: 1.5; text-align: center; max-width: 520px; animation: fadeUp .7s .12s ease backwards; }
+  .card { width: min(520px, 100%); background: #15151c; border: 1px solid #232330; border-radius: 20px; padding: 26px; display: flex; flex-direction: column; gap: 14px; animation: fadeUp .7s .2s ease backwards; }
+  form { display: flex; gap: 10px; }
+  input { flex: 1; min-width: 0; background: #101016; border: 1px solid #2a2a36; border-radius: 999px; padding: 13px 20px; font: inherit; font-size: 15px; font-weight: 600; color: #f4f4f7; outline: none; transition: border-color .15s; }
+  input:focus { border-color: #f4f4f7; }
+  button { border: none; background: #f4f4f7; color: #111116; font: inherit; font-weight: 700; font-size: 15px; padding: 12px 24px; border-radius: 999px; cursor: pointer; white-space: nowrap; transition: opacity .15s; }
+  button:hover { opacity: .9; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .result { display: none; flex-direction: column; gap: 14px; }
+  .result.show { display: flex; }
+  .who { font-size: 13px; color: #9c9ca8; }
+  .who b { color: #f4f4f7; font-weight: 800; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat { background: #101016; border: 1px solid #232330; border-radius: 16px; padding: 18px 20px; }
+  .stat .n { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 34px; line-height: 1; }
+  .stat .l { margin-top: 6px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #9c9ca8; }
+  .stat.warn .n { color: #4C9AF0; }
+  .stat.ban .n { color: #EF6461; }
+  .per { font-size: 13px; color: #9c9ca8; line-height: 1.7; }
+  .msg { display: none; border-radius: 14px; padding: 12px 16px; font-size: 14px; line-height: 1.5; }
+  .msg.show { display: block; }
+  .msg.err { background: #3a2020; border: 1px solid #5a3030; color: #f08a80; }
+  .msg.info { background: #101016; border: 1px solid #232330; color: #9c9ca8; }
+  .spinner { display: none; width: 16px; height: 16px; border-radius: 99px; border: 2px solid #9c9ca8; border-top-color: transparent; animation: spin .8s linear infinite; margin: 0 auto; }
+  .spinner.show { display: block; }
+  .foot { font-size: 12px; color: #9c9ca8; text-align: center; line-height: 1.6; max-width: 460px; }
+  @media (max-width: 700px) {
+    .shell { flex-direction: column; padding: 10px; gap: 10px; }
+    .sb { width: 100%; flex-direction: row; padding: 8px 12px; }
+    form { flex-direction: column; }
+    .stats { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="sb">
+    <a href="../index.html" title="Home"><span><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5.5 9v11h13V9"></path></svg></span></a>
+    <a href="../apply/index.html" title="Applications & appeals"><span><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 2.5v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10v-5L12 3z"></path><path d="M9.2 12l2 2 3.6-3.8"></path></svg></span></a>
+  </div>
+  <div class="sheet">
+    <div class="head"><a href="../index.html" title="Back to home">Instellar</a></div>
+    <div class="main">
+      <h1>Punishment lookup</h1>
+      <p class="sub">Type your Minecraft username to see how many times you have been warned or banned on Instellar.</p>
+      <div class="card">
+        <form id="f" autocomplete="off">
+          <input id="name" name="name" placeholder="Minecraft username" maxlength="32" spellcheck="false" required>
+          <button id="go" type="submit">Check</button>
+        </form>
+        <div class="spinner" id="spin"></div>
+        <div class="msg" id="msg"></div>
+        <div class="result" id="res">
+          <div class="who">Record for <b id="who"></b></div>
+          <div class="stats">
+            <div class="stat warn"><div class="n" id="warns">0</div><div class="l">Warnings</div></div>
+            <div class="stat ban"><div class="n" id="bans">0</div><div class="l">Bans</div></div>
+          </div>
+          <div class="per" id="per"></div>
+        </div>
+      </div>
+      <p class="foot">Only warnings and bans are counted. If you think a punishment was a mistake, you can <a href="../apply/index.html" style="color:#f4f4f7;font-weight:700">appeal it here</a>.</p>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var SB_URL = 'https://jaednahuxpjwrqjqytrt.supabase.co';
+  var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphZWRuYWh1eHBqd3JxanF5dHJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MzgwODQsImV4cCI6MjA5OTIxNDA4NH0.N30ZCl1afMAMFGd-D--5Ulq7VP4qB9aiBQbdRmwDumQ';
+  var SERVER_NAMES = { instellar1: 'Instellar 1', instellar2: 'Instellar 2' };
+  var $ = function (id) { return document.getElementById(id); };
+  var form = $('f'), input = $('name'), go = $('go'), spin = $('spin'), msg = $('msg'), res = $('res');
+
+  function showMsg(kind, text) { msg.className = 'msg show ' + kind; msg.textContent = text; }
+  function hideMsg() { msg.className = 'msg'; }
+  function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = input.value.trim();
+    if (!name) return;
+    if (!/^[A-Za-z0-9_]{1,16}$/.test(name)) { res.className = 'result'; showMsg('err', 'That is not a valid Minecraft username.'); return; }
+    hideMsg(); res.className = 'result'; spin.className = 'spinner show'; go.disabled = true;
+    fetch(SB_URL + '/rest/v1/rpc/lookup_punishments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY },
+      body: JSON.stringify({ p_name: name })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (d) {
+      if (d.error) { showMsg('err', d.error); return; }
+      if (d.blocked) { showMsg('info', 'This username cannot be looked up.'); return; }
+      $('who').textContent = d.name || name;
+      $('warns').textContent = d.warns;
+      $('bans').textContent = d.bans;
+      var per = (d.servers || []).map(function (s) {
+        return (SERVER_NAMES[s.server] || s.server) + ': ' + plural(s.warns, 'warning') + ', ' + plural(s.bans, 'ban');
+      });
+      $('per').textContent = per.length ? per.join(' · ') : 'Clean record — no warnings or bans.';
+      res.className = 'result show';
+    }).catch(function () {
+      showMsg('err', 'Could not reach the server — please try again in a moment.');
+    }).then(function () {
+      spin.className = 'spinner'; go.disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>
