@@ -1,12 +1,15 @@
 -- ============================================================
--- Instellar Panel - REVOKE STAFF ACCESS
--- Paste into the Supabase SQL editor and RUN. Safe to run again.
+-- Instellar Panel - REVOKE STAFF ACCESS + "only below your rank"
+-- Paste into the Supabase SQL editor and RUN. Safe to run again
+-- (also fine to run again if you already ran the earlier version).
 --
--- Adds revoke_staff(uuid): removes the staff row AND the login
--- (auth.users), so the account stops working everywhere at once and
--- the username can be invited again later. Same rule as the existing
--- staff_delete policy: Admin+ (rank 7) only, the Owner can not be
--- revoked, and you can not revoke yourself.
+-- 1) revoke_staff(uuid): removes the staff row AND the login
+--    (auth.users), so the account stops working everywhere at once and
+--    the username can be invited again later.
+-- 2) Rank rule, enforced in the database for revoke, role/permission
+--    edits and invites: Admin+ (rank 7) only, and you can only touch
+--    people BELOW your own role. The Owner is the exception (can manage
+--    everyone) and can never be revoked. You can not revoke yourself.
 -- ============================================================
 
 create or replace function public.revoke_staff(target_id uuid) returns void
@@ -18,6 +21,9 @@ begin
   select * into t from staff where id = target_id;
   if t is null then raise exception 'Staff member not found'; end if;
   if t.role = 'Owner' then raise exception 'The Owner account can not be revoked'; end if;
+  if my_role() <> 'Owner' and staff_rank(t.role) >= staff_rank(my_role()) then
+    raise exception 'You can only revoke staff below your own role';
+  end if;
 
   -- 1) drop panel access (RLS uses is_staff(), so every request they make fails from here on)
   delete from staff where id = target_id;
@@ -33,3 +39,28 @@ end $$;
 
 revoke all on function public.revoke_staff(uuid) from public;
 grant execute on function public.revoke_staff(uuid) to authenticated;
+
+-- Same "below your own rank" rule for editing roles/permissions,
+-- deleting rows and inviting (replaces the panel-upgrade.sql versions).
+drop policy if exists staff_insert on public.staff;
+create policy staff_insert on public.staff
+  for insert to authenticated
+  with check (public.staff_rank(public.my_role()) >= 7
+              and (public.my_role() = 'Owner'
+                   or public.staff_rank(role) < public.staff_rank(public.my_role())));
+
+drop policy if exists staff_update on public.staff;
+create policy staff_update on public.staff
+  for update to authenticated
+  using (public.staff_rank(public.my_role()) >= 7
+         and (public.my_role() = 'Owner'
+              or public.staff_rank(role) < public.staff_rank(public.my_role())))
+  with check (public.my_role() = 'Owner'
+              or public.staff_rank(role) < public.staff_rank(public.my_role()));
+
+drop policy if exists staff_delete on public.staff;
+create policy staff_delete on public.staff
+  for delete to authenticated
+  using (public.staff_rank(public.my_role()) >= 7 and role <> 'Owner'
+         and (public.my_role() = 'Owner'
+              or public.staff_rank(role) < public.staff_rank(public.my_role())));
