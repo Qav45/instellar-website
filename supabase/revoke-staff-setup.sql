@@ -1,5 +1,6 @@
 -- ============================================================
 -- Instellar Panel - REVOKE STAFF ACCESS + "only below your rank"
+-- (superseded by supervisor-setup.sql, which includes everything here)
 -- Paste into the Supabase SQL editor and RUN. Safe to run again
 -- (also fine to run again if you already ran the earlier version).
 --
