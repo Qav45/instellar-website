@@ -8,7 +8,7 @@
 
   function navItems(s) {
     return Object.keys(P.screens).map(function (k) { return P.screens[k]; })
-      .filter(function (d) { return d.nav && (!d.nav.show || d.nav.show(s)); })
+      .filter(function (d) { return d.nav && (!d.nav.show || d.nav.show(s)) && P.screenAllowed(d.key); })
       .sort(function (a, b) { return (a.nav.order || 0) - (b.nav.order || 0); });
   }
   function icon(name) {

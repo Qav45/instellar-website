@@ -8,7 +8,8 @@
 
   var PERM_LABEL = {
     Warn: 'Warn players', Mute: 'Mute players', Kick: 'Kick players', Ban: 'Ban players', Unban: 'Unban players',
-    Wipeban: 'Wipeban players', Guides: 'Edit guides', 'Staff management': 'Add and remove staff', 'Server config': 'Change server settings'
+    Wipeban: 'Wipeban players', Guides: 'Edit guides', 'Staff management': 'Add and remove staff', 'Server config': 'Change server settings',
+    Simplification: 'Simple view (only the basic tabs)'
   };
 
   function myRank() { return P.rank(P.currentRole()); }
@@ -23,7 +24,8 @@
   }
   function expandPerms(perms) {
     perms = Array.isArray(perms) ? perms : [];
-    return perms.indexOf('All permissions') > -1 ? P.PERMS.slice() : perms.slice();
+    // 'All permissions' means every real permission, but NOT the "simple view" flag.
+    return perms.indexOf('All permissions') > -1 ? P.PERMS.filter(function (p) { return p !== 'Simplification'; }) : perms.slice();
   }
   function hasLastSeen() {
     var d = P.state.data;

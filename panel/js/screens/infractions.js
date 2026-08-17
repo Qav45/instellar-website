@@ -89,12 +89,15 @@
   }
   function manual(u, target) {
     var off = target ? '' : ' p-off';
-    var h = '<button type="button" class="gl-btn p-go' + off + '" data-action="manual" data-type="Ban">Ban' + (target ? ' ' + esc(target) : '') + '</button>'
-      + '<div class="p-alts"><span class="p-or">Or:</span>';
-    ['Warn', 'Mute', 'Kick', 'Unban'].concat(P.canWipeban() ? ['Wipeban'] : []).forEach(function (t) {
-      h += '<button type="button" class="p-alt ' + P.actionClass(t) + off + '" data-action="manual" data-type="' + t + '">' + t + '</button>';
+    var acts = ['Warn', 'Mute', 'Kick', 'Ban', 'Unban'].concat(P.canWipeban() ? ['Wipeban'] : []);
+    var h = '<div class="p-actions">';
+    acts.forEach(function (t) {
+      h += '<button type="button" class="p-act ' + P.actionClass(t) + (t === 'Ban' ? ' is-key' : '') + off + '" data-action="manual" data-type="' + t + '">' + t + '</button>';
     });
-    return h + '</div>';
+    h += '</div><p class="hint-line p-actions-hint">' + (target
+      ? 'Pick an action for ' + esc(target) + ' — you add a reason and proof next.'
+      : 'Pick a player above first.') + '</p>';
+    return h;
   }
   function tplForm(u) {
     return '<div class="p-tform">'
@@ -164,14 +167,14 @@
   }
 
   P.registerScreen('infractions', {
-    title: 'Punish a player',
-    nav: { label: 'Punish a player', icon: 'infractions', order: 20 },
+    title: 'Infractions',
+    nav: { label: 'Infractions', icon: 'infractions', order: 20 },
     onEnter: function (s) {
       if (s.param) { var u = ui(); u.target = String(s.param).trim(); u.q = u.target; }
     },
     render: function (root) {
       var u = ui();
-      root.innerHTML = '<div class="page-head"><div><h2>Punish a player</h2><p class="sub">Pick who, pick why — we suggest the rest.</p></div></div>'
+      root.innerHTML = '<div class="page-head"><div><h2>Infractions</h2><p class="sub">Pick a player, pick a reason — we suggest the rest.</p></div></div>'
         + '<div class="p-grid"><div class="p-col">'
         + '<div class="gl-card p-card">' + stepWho(u) + '</div>'
         + '<div class="gl-card p-card">' + stepWhy(u) + '</div>'

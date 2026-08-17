@@ -134,7 +134,7 @@
      --------------------------------------------------------------------- */
   P.rank = function (role) { return ({ Trainee: 1, Helper: 2, 'Jr Moderator': 3, Moderator: 4, 'Sr Moderator': 5, 'Jr Admin': 6, Admin: 7, 'Sr Admin': 8, Management: 9, Owner: 10, Supervisor: 11 })[role] || 0; };
   P.roleList = function () { return ['Trainee', 'Helper', 'Jr Moderator', 'Moderator', 'Sr Moderator', 'Jr Admin', 'Admin', 'Sr Admin', 'Management', 'Owner']; };
-  P.PERMS = ['Warn', 'Mute', 'Kick', 'Ban', 'Unban', 'Wipeban', 'Guides', 'Staff management', 'Server config'];
+  P.PERMS = ['Warn', 'Mute', 'Kick', 'Ban', 'Unban', 'Wipeban', 'Guides', 'Staff management', 'Server config', 'Simplification'];
   P.ROLE_DEFAULT_PERMS = { Trainee: ['Mute', 'Kick'], Helper: ['Mute', 'Kick', 'Warn'], 'Jr Moderator': ['Mute', 'Kick', 'Warn'], Moderator: ['Ban', 'Mute', 'Kick', 'Warn'], 'Sr Moderator': ['Ban', 'Mute', 'Kick', 'Warn'], 'Jr Admin': ['Ban', 'Unban', 'Mute', 'Kick', 'Warn'], Admin: ['Ban', 'Unban', 'Mute', 'Kick', 'Warn', 'Staff management'], 'Sr Admin': ['Ban', 'Unban', 'Mute', 'Kick', 'Warn', 'Staff management', 'Server config'], Management: ['Ban', 'Unban', 'Mute', 'Kick', 'Warn', 'Staff management', 'Server config'], Owner: ['All permissions'] };
 
   P.durationDays = function (d) {
@@ -165,6 +165,19 @@
   P.canEditGuides = function () { return P.isOwnership() || P.hasPerm('Guides'); };
   P.isOwnership = function () { var me = P.state.me; return !!me && (me.username === 'instellarownership' || me.role === 'Supervisor'); };
   P.isSupervisor = function () { var me = P.state.me; return !!me && me.role === 'Supervisor'; };
+  // Simplified view: only the four everyday tabs. Applies to anyone below Jr Admin,
+  // or anyone explicitly given the 'Simplification' permission. Never applies to
+  // the Owner / Supervisor or an "All permissions" account.
+  P.SIMPLE_SCREENS = ['infractions', 'players', 'guides', 'logging'];
+  P.isSimplified = function () {
+    var me = P.state.me; if (!me) return false;
+    if (me.role === 'Owner' || me.role === 'Supervisor') return false;
+    var perms = me.perms || [];
+    if (perms.indexOf('All permissions') > -1) return false;
+    if (perms.indexOf('Simplification') > -1) return true;
+    return P.rank(me.role) < P.rank('Jr Admin');
+  };
+  P.screenAllowed = function (key) { return !(P.isSimplified() && P.SIMPLE_SCREENS.indexOf(key) < 0); };
   P.canDecide = function (a) { return P.rank(P.currentRole()) >= P.rank(P.requiredRole(a.type, a.duration)); };
 
   /* ---------------------------------------------------------------------
@@ -315,6 +328,7 @@
     if (key === 'dashboard' && P.isSupervisor() && P.screens.supdash) key = 'supdash';
     var def = P.screens[key];
     if (def && def.guard && !def.guard(P.state)) key = P.isSupervisor() && P.screens.supdash ? 'supdash' : 'dashboard';
+    if (!P.screenAllowed(key)) key = P.isSimplified() ? 'infractions' : (P.isSupervisor() && P.screens.supdash ? 'supdash' : 'dashboard');
     return key;
   }
   P.parseHash = function () {
