@@ -1,0 +1,26 @@
+/* staff.css — Staff (st-) + Hidden names (bl-) screen extras. Shared bits live in panel.css. */
+
+/* staff table */
+.st-tbl{width:100%}
+.st-tbl .st-perms{font-size:13px;color:var(--gl-ink-2);line-height:1.45;min-width:0;overflow-wrap:anywhere}
+.st-tbl .x-user .x-name .x-you{margin-left:6px;vertical-align:middle}
+
+/* manage modal — two-step remove */
+.st-revoke .st-revoke-q{font-size:13px;color:var(--gl-danger);font-weight:600;margin:0 0 10px;text-align:center}
+.st-revoke .st-revoke-btns{display:flex;gap:8px}
+.st-revoke .st-revoke-btns .gl-btn{flex:1;color:inherit}
+.st-revoke .st-revoke-btns .gl-btn-danger{color:var(--gl-danger)}
+.st-revoke .st-revoke-btns .gl-btn-ghost,.st-revoke .st-revoke-btns .gl-btn-ghost:hover{background:transparent;border-color:var(--f-line-2);color:var(--gl-ink-2)}
+
+/* hidden names */
+.bl-count{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:12px;font-weight:700;
+  color:var(--gl-ink-3);background:var(--f-raised);border:1px solid var(--f-line-2);vertical-align:middle;margin-left:6px}
+.bl-add{border-radius:24px;margin-bottom:16px;padding:16px 20px}
+.bl-add-row{gap:10px;flex-wrap:nowrap}
+.bl-add-row .bl-input{flex:1;max-width:340px;height:42px;font-size:14px}
+.bl-add-row .gl-btn{flex:none;height:42px}
+.bl-list{padding:8px 24px;border-radius:24px}
+.bl-list .empty{padding:20px 0}
+.bl-list .x-bl-row .x-dim{font-size:12px}
+@media (max-width:700px){.bl-add-row{flex-wrap:wrap}.bl-add-row .bl-input{max-width:none}}
+.st-tbl .x-needs{white-space:nowrap}

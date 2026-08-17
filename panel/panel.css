@@ -1,0 +1,1150 @@
+/* Instellar moderation panel — panel.css
+   Layers: fonts → base design system → page layout/components → screen shared (x-) → flat dark overrides → shell sizes → app additions.
+   Screen-specific CSS lives in css/*.css. */
+@font-face{font-family:"Manrope";font-style:normal;font-weight:200 800;font-display:swap;src:url(fonts/manrope-var.woff2) format("woff2")}
+@font-face{font-family:"Poppins";font-style:normal;font-weight:500;font-display:swap;src:url(fonts/poppins-500.woff2) format("woff2")}
+@font-face{font-family:"Poppins";font-style:normal;font-weight:600;font-display:swap;src:url(fonts/poppins-600.woff2) format("woff2")}
+
+/* ===== 1. BASE DESIGN SYSTEM ===== */
+/* =========================================================================
+   LIQUID GLASS — a restrained,Apple-style glass design system
+   Dark admin panel brand. Pure black page,Manrope body / Poppins headings.
+   Self-contained: no external deps except the Google Fonts @import below.
+   ========================================================================= */
+
+/* -------------------------------------------------------------------------
+   1. TOKENS
+   ------------------------------------------------------------------------- */
+:root{
+  /* Type */
+  --gl-font-body: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --gl-font-head: 'Poppins', var(--gl-font-body);
+
+  --gl-fs-xs: 11px;
+  --gl-fs-sm: 12px;
+  --gl-fs-base: 13px;
+  --gl-fs-md: 14px;
+  --gl-fs-lg: 15px;
+  --gl-fs-xl: 18px;
+  --gl-fs-2xl: 22px;
+  --gl-fs-3xl: 30px;
+
+  /* Ink */
+  --gl-ink: rgba(255, 255, 255, 0.94);
+  --gl-ink-2: rgba(255, 255, 255, 0.66);
+  --gl-ink-3: rgba(255, 255, 255, 0.44);
+  --gl-ink-4: rgba(255, 255, 255, 0.26);
+
+  /* Accent — cool soft indigo. No neon. */
+  --gl-accent: #7c9cff;
+  --gl-accent-rgb: 124, 156, 255;
+  --gl-accent-soft: rgba(124, 156, 255, 0.16);
+  --gl-accent-line: rgba(124, 156, 255, 0.34);
+
+  /* Semantics */
+  --gl-danger: #ff6b6b;
+  --gl-danger-rgb: 255, 107, 107;
+  --gl-warn: #ffc46b;
+  --gl-warn-rgb: 255, 196, 107;
+  --gl-ok: #6ee7a8;
+  --gl-ok-rgb: 110, 231, 168;
+  --gl-info: #8fd3ff;
+  --gl-info-rgb: 143, 211, 255;
+  --gl-muted-rgb: 190, 190, 205;
+
+  /* Glass fills */
+  --gl-fill: rgba(255, 255, 255, 0.055);
+  --gl-fill-2: rgba(255, 255, 255, 0.04);
+  --gl-fill-strong: rgba(255, 255, 255, 0.08);
+  --gl-fill-hover: rgba(255, 255, 255, 0.10);
+  --gl-fill-press: rgba(255, 255, 255, 0.14);
+
+  /* Blur */
+  --gl-blur: 22px;
+  --gl-blur-lg: 28px;
+  --gl-blur-sm: 18px;
+  --gl-sat: 172%;
+
+  /* Hairlines */
+  --gl-hairline: rgba(255, 255, 255, 0.08);
+  --gl-hairline-2: rgba(255, 255, 255, 0.13);
+
+  /* Rim: 1px inner highlight, bright top-left → faint bottom */
+  --gl-rim:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.35),
+    inset 1px 0 0 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.08);
+
+  /* Outer soft shadow */
+  --gl-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -8px rgba(0, 0, 0, 0.65);
+  --gl-shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.45), 0 40px 90px -20px rgba(0, 0, 0, 0.85);
+
+  /* Radii */
+  --gl-r-card: 22px;
+  --gl-r-lg: 24px;
+  --gl-r-sm: 14px;
+  --gl-r-xs: 10px;
+  --gl-r-pill: 999px;
+
+  /* Space */
+  --gl-sp-1: 4px;
+  --gl-sp-2: 8px;
+  --gl-sp-3: 12px;
+  --gl-sp-4: 16px;
+  --gl-sp-5: 22px;
+  --gl-sp-6: 28px;
+  --gl-sp-7: 40px;
+
+  --gl-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --gl-dur: 320ms;
+}
+
+/* -------------------------------------------------------------------------
+   2. BASE
+   ------------------------------------------------------------------------- */
+*,*::before,*::after{ box-sizing: border-box; }
+
+body.gl-body{
+  margin: 0;
+  background: #000;
+  color: var(--gl-ink);
+  font-family: var(--gl-font-body);
+  font-size: var(--gl-fs-md);
+  font-weight: 500;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.gl-label{
+  font-size: var(--gl-fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--gl-ink-2);
+  display: block;
+  margin-bottom: var(--gl-sp-2);
+}
+
+/* -------------------------------------------------------------------------
+   3. THE GLASS PRIMITIVE
+   Every surface derives from .gl-glass:
+     · translucent fill  · backdrop blur + saturate
+     · gradient border via padding-box/border-box clip (refraction feel)
+     · inset rim highlight + outer soft shadow
+     · ::before specular sheen clipped to the top edge
+   ------------------------------------------------------------------------- */
+.gl-glass{
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--gl-r-card);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035)) padding-box,
+    linear-gradient(150deg,
+      rgba(255, 255, 255, 0.42) 0%,
+      rgba(255, 255, 255, 0.10) 34%,
+      rgba(255, 255, 255, 0.04) 62%,
+      rgba(255, 255, 255, 0.16) 100%) border-box;
+  -webkit-backdrop-filter: blur(var(--gl-blur)) saturate(var(--gl-sat));
+  backdrop-filter: blur(var(--gl-blur)) saturate(var(--gl-sat));
+  box-shadow: var(--gl-rim), var(--gl-shadow);
+}
+
+/* Specular sheen — a soft lens glare pinned to the top edge. */
+.gl-glass::before{
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(120% 60% at 26% -26%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.035) 40%, transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 18%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.3) 32%, transparent 62%);
+  mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.3) 32%, transparent 62%);
+}
+.gl-glass > *{ position: relative; z-index: 1; }
+
+/* -------------------------------------------------------------------------
+   4. CARDS
+   ------------------------------------------------------------------------- */
+.gl-card{
+  padding: var(--gl-sp-5);
+  border-radius: var(--gl-r-card);
+}
+.gl-card-head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gl-sp-3);
+  margin-bottom: var(--gl-sp-4);
+}
+.gl-card-title{
+  font-family: var(--gl-font-head);
+  font-size: var(--gl-fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.gl-card-sub{
+  font-size: var(--gl-fs-base);
+  color: var(--gl-ink-3);
+  margin: 2px 0 0;
+}
+
+/* -------------------------------------------------------------------------
+   5. BUTTONS — pill controls with a "lens" hover
+   ------------------------------------------------------------------------- */
+.gl-btn{
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gl-sp-2);
+  height: 38px;
+  padding: 0 18px;
+  border-radius: var(--gl-r-pill);
+  border: 1px solid transparent;
+  font-family: var(--gl-font-body);
+  font-size: var(--gl-fs-base);
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  color: var(--gl-ink);
+  cursor: pointer;
+  white-space: nowrap;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.04)) padding-box,
+    linear-gradient(150deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.06) 55%, rgba(255, 255, 255, 0.18)) border-box;
+  -webkit-backdrop-filter: blur(var(--gl-blur-sm)) saturate(var(--gl-sat));
+  backdrop-filter: blur(var(--gl-blur-sm)) saturate(var(--gl-sat));
+  box-shadow: var(--gl-rim), 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 20px -8px rgba(0, 0, 0, 0.6);
+  transition:
+    transform var(--gl-dur) var(--gl-ease),
+    box-shadow var(--gl-dur) var(--gl-ease),
+    background-color 180ms var(--gl-ease),
+    filter 180ms var(--gl-ease);
+}
+.gl-btn::before{
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 52%);
+  -webkit-mask-image: linear-gradient(180deg, #000, transparent 70%);
+  mask-image: linear-gradient(180deg, #000, transparent 70%);
+}
+.gl-btn:hover{
+  transform: scale(1.02);
+  filter: brightness(1.14);
+  box-shadow: var(--gl-rim), 0 2px 4px rgba(0, 0, 0, 0.35), 0 14px 30px -10px rgba(0, 0, 0, 0.7);
+}
+.gl-btn:active{
+  transform: scale(0.985);
+  filter: brightness(0.95);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45), inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
+}
+.gl-btn:focus-visible{
+  outline: none;
+  box-shadow: var(--gl-rim), 0 0 0 3px rgba(var(--gl-accent-rgb), 0.38);
+}
+.gl-btn[disabled],.gl-btn.is-disabled{
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.gl-btn-primary{
+  background:
+    linear-gradient(180deg, rgba(var(--gl-accent-rgb), 0.36), rgba(var(--gl-accent-rgb), 0.18)) padding-box,
+    linear-gradient(150deg, rgba(255, 255, 255, 0.50), rgba(var(--gl-accent-rgb), 0.30) 55%, rgba(255, 255, 255, 0.16)) border-box;
+  color: #fff;
+}
+.gl-btn-danger{
+  background:
+    linear-gradient(180deg, rgba(var(--gl-danger-rgb), 0.32), rgba(var(--gl-danger-rgb), 0.15)) padding-box,
+    linear-gradient(150deg, rgba(255, 255, 255, 0.46), rgba(var(--gl-danger-rgb), 0.28) 55%, rgba(255, 255, 255, 0.14)) border-box;
+  color: #fff;
+}
+.gl-btn-ghost{
+  background: transparent padding-box, linear-gradient(150deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05)) border-box;
+  box-shadow: none;
+  color: var(--gl-ink-2);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.gl-btn-ghost::before{ display: none; }
+.gl-btn-ghost:hover{
+  color: var(--gl-ink);
+  background: rgba(255, 255, 255, 0.055) padding-box, linear-gradient(150deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.07)) border-box;
+  box-shadow: none;
+}
+.gl-btn-sm{ height: 30px; padding: 0 13px; font-size: var(--gl-fs-sm); }
+.gl-btn-icon{ width: 38px; padding: 0; }
+
+/* -------------------------------------------------------------------------
+   6. SEGMENTED CONTROL — sliding glass pill,radio-driven,CSS only
+   ------------------------------------------------------------------------- */
+.gl-seg{
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: var(--gl-r-pill);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.025)) padding-box,
+    linear-gradient(150deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.05) 60%, rgba(255, 255, 255, 0.12)) border-box;
+  -webkit-backdrop-filter: blur(var(--gl-blur-sm)) saturate(var(--gl-sat));
+  backdrop-filter: blur(var(--gl-blur-sm)) saturate(var(--gl-sat));
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 0 rgba(255, 255, 255, 0.05);
+  --gl-seg-count: 4;
+  --gl-seg-index: 0;
+}
+.gl-seg input{ position: absolute; opacity: 0; pointer-events: none; }
+.gl-seg-item{
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 18px;
+  border-radius: var(--gl-r-pill);
+  font-size: var(--gl-fs-base);
+  font-weight: 600;
+  color: var(--gl-ink-3);
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 1 0 auto;
+  transition: color 220ms var(--gl-ease);
+}
+.gl-seg-item:hover{ color: var(--gl-ink-2); }
+/* The sliding indicator */
+.gl-seg-thumb{
+  position: absolute;
+  z-index: 0;
+  top: 4px;
+  left: 4px;
+  height: 32px;
+  width: calc((100% - 8px) / var(--gl-seg-count));
+  border-radius: var(--gl-r-pill);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06)) padding-box,
+    linear-gradient(150deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.08) 60%, rgba(255, 255, 255, 0.2)) border-box;
+  box-shadow: var(--gl-rim), 0 4px 14px -4px rgba(0, 0, 0, 0.6);
+  transform: translateX(calc(var(--gl-seg-index) * 100%));
+  transition: transform var(--gl-dur) var(--gl-ease);
+  pointer-events: none;
+}
+.gl-seg input:nth-of-type(1):checked ~ .gl-seg-thumb{ --gl-seg-index: 0; }
+.gl-seg input:nth-of-type(2):checked ~ .gl-seg-thumb{ --gl-seg-index: 1; }
+.gl-seg input:nth-of-type(3):checked ~ .gl-seg-thumb{ --gl-seg-index: 2; }
+.gl-seg input:nth-of-type(4):checked ~ .gl-seg-thumb{ --gl-seg-index: 3; }
+.gl-seg input:nth-of-type(5):checked ~ .gl-seg-thumb{ --gl-seg-index: 4; }
+.gl-seg input:nth-of-type(1):checked ~ label:nth-of-type(1),.gl-seg input:nth-of-type(2):checked ~ label:nth-of-type(2),.gl-seg input:nth-of-type(3):checked ~ label:nth-of-type(3),.gl-seg input:nth-of-type(4):checked ~ label:nth-of-type(4),.gl-seg input:nth-of-type(5):checked ~ label:nth-of-type(5){
+  color: var(--gl-ink);
+}
+.gl-seg input:focus-visible + label{ box-shadow: 0 0 0 2px rgba(var(--gl-accent-rgb), 0.5); }
+
+/* -------------------------------------------------------------------------
+   7. SIDEBAR NAV
+   ------------------------------------------------------------------------- */
+.gl-nav{ display: flex; flex-direction: column; gap: 3px; }
+.gl-nav-section{
+  font-size: var(--gl-fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gl-ink-4);
+  padding: var(--gl-sp-4) 12px var(--gl-sp-2);
+}
+.gl-nav-item{
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: 38px;
+  padding: 0 13px;
+  border-radius: var(--gl-r-sm);
+  font-size: var(--gl-fs-base);
+  font-weight: 600;
+  color: var(--gl-ink-2);
+  text-decoration: none;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 200ms var(--gl-ease), color 200ms var(--gl-ease);
+}
+.gl-nav-item .gl-nav-icon{ width: 16px; text-align: center; opacity: 0.75; flex: none; }
+.gl-nav-item:hover{ background: rgba(255, 255, 255, 0.055); color: var(--gl-ink); }
+.gl-nav-item.is-active{
+  color: #fff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)) padding-box,
+    linear-gradient(150deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.06) 60%, rgba(255, 255, 255, 0.16)) border-box;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.28), 0 6px 18px -8px rgba(0, 0, 0, 0.7);
+}
+.gl-nav-item.is-active .gl-nav-icon{ opacity: 1; }
+.gl-nav-item.is-active::after{
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--gl-accent);
+  box-shadow: 0 0 10px rgba(var(--gl-accent-rgb), 0.7);
+}
+.gl-nav-item.is-disabled{ opacity: 0.35; pointer-events: none; }
+.gl-nav-count{
+  margin-left: auto;
+  font-size: var(--gl-fs-xs);
+  font-weight: 700;
+  color: var(--gl-ink-3);
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: var(--gl-r-pill);
+  padding: 1px 7px;
+}
+
+/* -------------------------------------------------------------------------
+   9. FORM CONTROLS
+   ------------------------------------------------------------------------- */
+.gl-field{ display: block; }
+
+.gl-input,.gl-textarea{
+  width: 100%;
+  font-family: var(--gl-font-body);
+  font-size: var(--gl-fs-base);
+  font-weight: 500;
+  color: var(--gl-ink);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(0, 0, 0, 0.14)) padding-box,
+    linear-gradient(150deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.05) 58%, rgba(255, 255, 255, 0.12)) border-box;
+  -webkit-backdrop-filter: blur(var(--gl-blur-sm)) saturate(var(--gl-sat));
+  backdrop-filter: blur(var(--gl-blur-sm)) saturate(var(--gl-sat));
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 0 rgba(255, 255, 255, 0.04);
+  transition: box-shadow 200ms var(--gl-ease), background-color 200ms var(--gl-ease);
+  outline: none;
+}
+.gl-input{
+  height: 38px;
+  padding: 0 16px;
+  border-radius: var(--gl-r-pill);
+}
+.gl-textarea{
+  min-height: 92px;
+  padding: 11px 16px;
+  border-radius: var(--gl-r-sm);
+  resize: vertical;
+  line-height: 1.55;
+}
+.gl-input::placeholder,.gl-textarea::placeholder{ color: var(--gl-ink-4); font-weight: 500; }
+.gl-input:hover,.gl-textarea:hover{
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 0 rgba(255, 255, 255, 0.05);
+}
+.gl-input:focus,.gl-textarea:focus{
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.22),
+    0 0 0 3px rgba(var(--gl-accent-rgb), 0.30);
+}
+
+/* Search input with a leading glyph */
+.gl-search{ position: relative; }
+.gl-search .gl-search-icon{
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--gl-ink-4);
+  font-size: var(--gl-fs-md);
+  pointer-events: none;
+  line-height: 1;
+}
+.gl-search .gl-input{ padding-left: 40px; }
+
+/* Toggle switch */
+.gl-switch{
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+  font-size: var(--gl-fs-base);
+  font-weight: 600;
+  color: var(--gl-ink-2);
+  user-select: none;
+}
+.gl-switch input{ position: absolute; opacity: 0; pointer-events: none; }
+.gl-switch-track{
+  position: relative;
+  width: 46px;
+  height: 27px;
+  flex: none;
+  border-radius: var(--gl-r-pill);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  -webkit-backdrop-filter: blur(var(--gl-blur-sm)) saturate(var(--gl-sat));
+  backdrop-filter: blur(var(--gl-blur-sm)) saturate(var(--gl-sat));
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4), inset 0 1px 0 0 rgba(255, 255, 255, 0.10);
+  transition: background-color var(--gl-dur) var(--gl-ease), border-color var(--gl-dur) var(--gl-ease);
+}
+.gl-switch-track::after{
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #fff, #d6d9e4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 -1px 1px rgba(0, 0, 0, 0.12);
+  transition: transform var(--gl-dur) var(--gl-ease);
+}
+.gl-switch input:checked + .gl-switch-track{
+  background: rgba(var(--gl-accent-rgb), 0.42);
+  border-color: rgba(var(--gl-accent-rgb), 0.55);
+}
+.gl-switch input:checked + .gl-switch-track::after{ transform: translateX(19px); }
+.gl-switch input:focus-visible + .gl-switch-track{ box-shadow: 0 0 0 3px rgba(var(--gl-accent-rgb), 0.35); }
+.gl-switch:has(input:checked){ color: var(--gl-ink); }
+
+/* -------------------------------------------------------------------------
+   10. TABLE — sticky glass header,hairline dividers{
+  border-radius: var(--gl-r-card);
+  overflow: hidden;
+}
+
+/* -------------------------------------------------------------------------
+   11. MODAL / DIALOG SHEET
+   ------------------------------------------------------------------------- */
+.gl-modal-scrim{
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/* -------------------------------------------------------------------------
+   12. TOAST
+   ------------------------------------------------------------------------- */
+.gl-toast{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 18px;
+  border-radius: var(--gl-r-pill);
+  max-width: 420px;
+}
+.gl-toast-icon{
+  width: 24px; height: 24px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: var(--gl-fs-sm);
+  font-weight: 700;
+  color: #0a1020;
+  background: var(--gl-ok);
+}
+.gl-toast--danger .gl-toast-icon{ background: var(--gl-danger); color: #2a0808; }
+.gl-toast-text{ font-size: var(--gl-fs-base); font-weight: 600; }
+.gl-toast-sub{ font-size: var(--gl-fs-sm); color: var(--gl-ink-3); font-weight: 500; }
+.gl-row{ display: flex; align-items: center; gap: var(--gl-sp-3); flex-wrap: wrap; }
+.gl-spacer{ flex: 1; }
+
+/* -------------------------------------------------------------------------
+   18. REDUCED MOTION
+   ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .gl-btn:hover { transform: none; }
+  .gl-skeleton::after { animation: none; transform: none; opacity: 0.5; }
+}
+
+/* ===== 2. PAGE LAYOUT + SHARED COMPONENTS ===== */
+/* =========================================================================
+   INSTELLAR PANEL — page layer on top of glass.css
+   -------------------------------------------------------------------------
+   SHARED COMPONENT CONTRACT  (other screens MUST reuse these — do not invent
+   new stat/row/chip styles; that duplication is critique item 3 + 5).
+
+   .page-head                 screen title row.
+                              <div class="page-head">
+                                <div><h2>Title</h2><p class="sub">subtitle</p></div>
+                                <div class="actions"> …buttons/chips… </div>
+                              </div>
+
+   .stat-grid > .stat         THE ONE stat card (glass, radius 24).
+                              <div class="stat gl-glass">
+                                <div class="stat-label">AWAITING APPROVAL</div>
+                                <div class="stat-value">3</div>
+                                <div class="stat-sub">need an Admin to sign off</div>
+                              </div>
+                              .stat-value may carry .is-warn / .is-danger / .is-ok.
+
+   .list                      THE ONE list/table card (glass, radius 24).
+                              Column template comes from the --cols custom
+                              property set ON .list, so a table screen just does
+                                <div class="list gl-glass" style="--cols:100px minmax(160px,1.2fr) 130px 1fr 110px 110px">
+                              Default --cols: 34px minmax(0,1fr) auto auto
+                              (avatar | main | meta | status).
+                              Optional first child: .list-top (title + right link).
+                              Wrap rows in .list-body.scroll-y for a scrolling
+                              list — .scroll-y has a VISIBLE thin scrollbar.
+
+   .list-row                  one row; grid = var(--cols). Children in order:
+                              .avatar,.main (> .name + .sub),.meta (tabular
+                              nums,right-aligned),status pill.
+                              .list-row.is-head === .table-head.
+
+   .table-head                uppercase 11px header row,same grid as .list-row.
+
+   .chip / .chip.is-active    pill chip — filters,template names,durations,ladder steps. .chip-wrap wraps a group.
+
+   .filter-row                search field + chips on one line.
+
+   .empty                     empty-state line inside a card.
+
+   .avatar / .avatar-sm       rounded-square initials avatar (radius 12).
+                              Colour = .av-1 … .av-6 (the 6-colour palette).
+
+   .type-pill.ban|.mute|.kick|.warn|.unban|.wipeban
+                              action-type pill. Ban red · Wipeban violet ·
+                              Kick orange · Mute amber · Warn blue · Unban green.
+
+   .status.ok|.warn|.danger|.muted
+                              status pill (Executed / Approval / Failed /
+                              Pending·Denied·Offline).
+
+   .role-pill.supervisor|.owner|.management|.admin|.moderator|.helper
+
+   Screens: <section class="screen" data-screen="KEY" hidden> … </section>
+   directly inside <main class="page">. Keys: dashboard,infractions,players,audit,approvals,logging,guides,staff,blacklist,login.
+
+   SCALES — do not go outside these:
+     radius     999 / 24 / 16 / 12
+     font-size  11 / 12 / 13 / 14 / 15 / 18 / 22 / 30
+     weight     700 max (emphasis),600 labels. Never 800.
+   ========================================================================= */
+
+:root{
+  --r-pill:999px; --r-lg:24px; --r-md:16px; --r-sm:12px;
+  --av-1:#5661D6; --av-2:#2FA97E; --av-3:#C9863B;
+  --av-4:#7C6FE8; --av-5:#3E86C9; --av-6:#C95D5D;
+  --t-ban:255,107,107; --t-wipeban:167,139,250; --t-kick:240,155,76;
+  --t-mute:255,196,107; --t-warn:107,168,255; --t-unban:110,231,168;
+}
+
+/* ---- 0. reset-ish ---------------------------------------------------- */
+html,body{height:100%}
+body.gl-body{overflow:hidden;font-size:13px}
+button{font-family:inherit}
+a{color:inherit;text-decoration:none}
+h1,h2,h3,p{margin:0}
+
+/* Dark-tinted glass. glass.css tints the fill with white only, which turns
+   milky over a bright photo; we slip a dark layer under it so every surface
+   keeps its contrast while still refracting the backdrop. */
+.gl-glass{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.035)) padding-box,
+    linear-gradient(180deg, rgba(10,11,16,.34), rgba(10,11,16,.46)) padding-box,
+    linear-gradient(150deg,
+      rgba(255,255,255,.42) 0%, rgba(255,255,255,.10) 34%,
+      rgba(255,255,255,.04) 62%, rgba(255,255,255,.16) 100%) border-box;
+}
+.sidebar,.sheet,.modal,.login-card{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03)) padding-box,
+    linear-gradient(180deg, rgba(9,10,15,.68), rgba(9,10,15,.78)) padding-box,
+    linear-gradient(150deg,
+      rgba(255,255,255,.46) 0%, rgba(255,255,255,.10) 34%,
+      rgba(255,255,255,.05) 62%, rgba(255,255,255,.18) 100%) border-box;
+}
+
+/* Same treatment for the controls: their fill layers are nearly transparent,so the border-box gradient washes the whole pill milky-grey. A dark
+   padding-box layer under the fill keeps the rim but restores contrast. */
+.gl-input,.gl-textarea{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.10)) padding-box,
+    linear-gradient(180deg, rgba(9,10,15,.58), rgba(9,10,15,.68)) padding-box,
+    linear-gradient(150deg, rgba(255,255,255,.26), rgba(255,255,255,.05) 58%,
+      rgba(255,255,255,.12)) border-box;
+}
+.gl-btn:not(.gl-btn-primary):not(.gl-btn-danger):not(.gl-btn-ghost){
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.085), rgba(255,255,255,.04)) padding-box,
+    linear-gradient(180deg, rgba(12,13,19,.52), rgba(12,13,19,.62)) padding-box,
+    linear-gradient(150deg, rgba(255,255,255,.42), rgba(255,255,255,.06) 55%,
+      rgba(255,255,255,.18)) border-box;
+}
+.gl-btn-ghost,.gl-btn-ghost:hover{
+  background:transparent;border:1px solid rgba(255,255,255,.16);box-shadow:none;
+}
+.gl-btn-ghost:hover{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26)}
+
+/* ---- 2. desk + sheet ------------------------------------------------- */
+.app{display:flex;gap:16px;padding:16px;height:100dvh}
+.sidebar{width:220px;flex:none;border-radius:var(--r-lg);display:flex;flex-direction:column;
+  padding:20px 14px 14px}
+.sheet{flex:1;min-width:0;border-radius:var(--r-lg);display:flex;flex-direction:column;overflow:hidden}
+
+/* wordmark */
+.brand{padding:2px 8px 18px}
+.wordmark{font-family:var(--gl-font-head);font-weight:600;font-size:15px;letter-spacing:.22em;
+  text-transform:uppercase;color:#fff;line-height:1}
+
+/* nav */
+.gl-nav-item{border-radius:var(--r-sm)}
+.gl-nav-icon svg{display:block;width:16px;height:16px}
+
+/* server switcher */
+.side-foot{margin-top:auto;padding-top:16px}
+.gl-seg.server-seg{--gl-seg-count:2;width:100%;display:flex}
+.server-seg .gl-seg-item{flex:1 1 0;padding:0 8px;font-size:12px;height:28px}
+.server-seg .gl-seg-thumb{height:28px}
+
+/* identity row */
+.ident{display:flex;align-items:center;gap:10px;margin-top:16px;padding:12px 8px 2px;
+  border-top:1px solid var(--gl-hairline)}
+.ident .who{min-width:0;flex:1}
+.ident .who b{display:block;font-size:13px;font-weight:700;color:var(--gl-ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ident .who span{display:block;font-size:11px;color:var(--gl-ink-3)}
+.icon-btn{width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:var(--r-sm);
+  border:1px solid transparent;background:transparent;color:var(--gl-ink-3);cursor:pointer;
+  transition:background-color .2s var(--gl-ease),color .2s var(--gl-ease)}
+.icon-btn:hover{background:rgba(255,255,255,.07);color:var(--gl-ink)}
+.icon-btn svg{width:16px;height:16px;display:block}
+
+/* ---- 3. sheet header ------------------------------------------------- */
+.topbar{position:sticky;top:0;z-index:20;flex:none;display:flex;align-items:center;gap:14px;
+  padding:14px 24px;border-bottom:1px solid var(--gl-hairline);
+  background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),
+    linear-gradient(180deg,rgba(9,10,15,.55),rgba(9,10,15,.42));
+  -webkit-backdrop-filter:blur(var(--gl-blur-lg)) saturate(var(--gl-sat));
+  backdrop-filter:blur(var(--gl-blur-lg)) saturate(var(--gl-sat))}
+.topbar h1{font-family:var(--gl-font-head);font-weight:600;font-size:18px;letter-spacing:-.02em}
+.topbar .gl-spacer{flex:1}
+.ghost-link{font-size:12px;font-weight:600;color:var(--gl-ink-3);padding:6px 10px;
+  border-radius:var(--r-pill);cursor:pointer;white-space:nowrap;
+  transition:color .2s var(--gl-ease),background-color .2s var(--gl-ease)}
+.ghost-link:hover{color:var(--gl-ink);background:rgba(255,255,255,.06)}
+
+/* ---- 4. page + screens ----------------------------------------------- */
+.page{flex:1;min-height:0;overflow-y:auto;padding:26px 24px 34px;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent}
+.page::-webkit-scrollbar{width:10px}
+.page::-webkit-scrollbar-thumb{background:rgba(255,255,255,.20);border-radius:999px;
+  border:3px solid transparent;background-clip:content-box}
+.screen[hidden]{display:none}
+.screen{animation:pg-fade .28s var(--gl-ease)}
+@keyframes pg-fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.page-head{display:flex;align-items:flex-end;gap:16px;margin-bottom:20px}
+.page-head h2{font-family:var(--gl-font-head);font-weight:600;font-size:22px;letter-spacing:-.02em}
+.page-head .sub{font-size:13px;color:var(--gl-ink-3);margin-top:3px}
+.page-head .actions{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
+
+/* ---- 5. THE stat card ------------------------------------------------ */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;
+  margin-bottom:20px}
+.stat{padding:20px 22px;border-radius:var(--r-lg)}
+.stat-label{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--gl-ink-3)}
+.stat-value{font-family:var(--gl-font-head);font-weight:600;font-size:30px;letter-spacing:-.03em;
+  line-height:1.1;margin:10px 0 4px;font-variant-numeric:tabular-nums}
+.stat-value.is-warn{color:var(--gl-warn)}
+.stat-value.is-danger{color:var(--gl-danger)}
+.stat-value.is-ok{color:var(--gl-ok)}
+.stat-sub{font-size:12px;color:var(--gl-ink-3)}
+
+/* ---- 6. THE list / table card ---------------------------------------- */
+.list{--cols:34px minmax(0,1fr) auto auto;border-radius:var(--r-lg);padding:6px}
+.list-top{display:flex;align-items:center;gap:12px;padding:14px 16px 12px}
+.list-top h3{font-family:var(--gl-font-head);font-weight:600;font-size:15px;letter-spacing:-.01em}
+.list-top .gl-spacer{flex:1}
+.list-body{display:flex;flex-direction:column}
+.list-row{display:grid;grid-template-columns:var(--cols);align-items:center;gap:14px;
+  padding:11px 16px;border-radius:var(--r-md);min-height:52px;
+  transition:background-color .18s var(--gl-ease)}
+.list-row + .list-row{box-shadow:inset 0 1px 0 0 var(--gl-hairline)}
+.list-row:hover{background:rgba(255,255,255,.045)}
+.list-row .main{min-width:0}
+.list-row .name{font-size:13px;font-weight:700;color:var(--gl-ink);display:flex;align-items:center;
+  gap:8px;flex-wrap:wrap}
+.list-row .sub{font-size:12px;color:var(--gl-ink-3);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.list-row .meta{font-size:12px;color:var(--gl-ink-3);text-align:right;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.table-head,.list-row.is-head{display:grid;grid-template-columns:var(--cols);gap:14px;
+  padding:10px 16px;font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--gl-ink-4);border-bottom:1px solid var(--gl-hairline);min-height:0}
+.table-head .r,.list-row .r{text-align:right}
+
+.empty{padding:26px 18px;text-align:center;font-size:13px;color:var(--gl-ink-3)}
+
+/* ---- 7. chips -------------------------------------------------------- */
+.chip{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 13px;
+  border-radius:var(--r-pill);font-size:12px;font-weight:600;color:var(--gl-ink-2);cursor:pointer;
+  border:1px solid var(--gl-hairline-2);background:rgba(255,255,255,.045);white-space:nowrap;
+  transition:background-color .18s var(--gl-ease),color .18s var(--gl-ease),
+    border-color .18s var(--gl-ease)}
+.chip:hover{background:rgba(255,255,255,.09);color:var(--gl-ink)}
+.chip.is-active{color:#fff;background:rgba(var(--gl-accent-rgb),.20);
+  border-color:var(--gl-accent-line);box-shadow:inset 0 1px 0 0 rgba(255,255,255,.18)}
+.chip-wrap{display:flex;flex-wrap:wrap;gap:7px}
+.filter-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.filter-row .gl-search{flex:1;min-width:200px;max-width:340px}
+
+/* ---- 8. avatars ------------------------------------------------------ */
+.avatar{width:34px;height:34px;flex:none;border-radius:var(--r-sm);display:grid;place-items:center;
+  font-size:13px;font-weight:700;color:#fff;letter-spacing:.01em;
+  box-shadow:inset 0 1px 0 0 rgba(255,255,255,.28)}
+.avatar-sm{width:26px;height:26px;border-radius:var(--r-sm);font-size:11px}
+.avatar-lg{width:46px;height:46px;border-radius:var(--r-md);font-size:15px}
+.av-1{background:var(--av-1)}.av-2{background:var(--av-2)}.av-3{background:var(--av-3)}
+.av-4{background:var(--av-4)}.av-5{background:var(--av-5)}.av-6{background:var(--av-6)}
+
+/* ---- 9. type / status / role pills ----------------------------------- */
+.type-pill{display:inline-flex;align-items:center;height:22px;padding:0 10px;
+  border-radius:var(--r-pill);font-size:11px;font-weight:700;letter-spacing:.02em;
+  white-space:nowrap;color:rgb(var(--tint));background:rgba(var(--tint),.14);
+  border:1px solid rgba(var(--tint),.30)}
+.type-pill.ban{--tint:var(--t-ban)}
+.type-pill.wipeban{--tint:var(--t-wipeban)}
+.type-pill.kick{--tint:var(--t-kick)}
+.type-pill.mute{--tint:var(--t-mute)}
+.type-pill.warn{--tint:var(--t-warn)}
+.type-pill.unban{--tint:var(--t-unban)}
+
+.status{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 11px;
+  border-radius:var(--r-pill);font-size:11px;font-weight:700;white-space:nowrap;
+  color:rgb(var(--tint));background:rgba(var(--tint),.13);border:1px solid rgba(var(--tint),.26)}
+.status.ok{--tint:var(--gl-ok-rgb)}
+.status.warn{--tint:var(--gl-warn-rgb)}
+.status.danger{--tint:var(--gl-danger-rgb)}
+.status.muted{--tint:var(--gl-muted-rgb);color:var(--gl-ink-3)}
+.status .dot{width:5px;height:5px;border-radius:50%;background:currentColor;
+  box-shadow:0 0 7px currentColor}
+
+.role-pill{display:inline-flex;align-items:center;height:22px;padding:0 10px;
+  border-radius:var(--r-pill);font-size:11px;font-weight:700;white-space:nowrap;
+  color:rgb(var(--tint));background:rgba(var(--tint),.14);border:1px solid rgba(var(--tint),.30)}
+.role-pill.supervisor{--tint:245,197,66}
+.role-pill.owner{--tint:239,100,180}
+.role-pill.management{--tint:167,139,250}
+.role-pill.admin{--tint:255,107,107}
+.role-pill.moderator{--tint:143,211,255}
+.role-pill.helper{--tint:110,231,168}
+.ann{padding:14px 16px;border-radius:var(--r-md);background:rgba(255,255,255,.045);
+  border:1px solid var(--gl-hairline)}
+.ann p{font-size:13px;color:var(--gl-ink-2)}
+.ann .by{font-size:11px;color:var(--gl-ink-4);margin-top:7px}
+.queue-line{font-size:13px;color:var(--gl-ink-2);margin-bottom:16px}
+.queue-line b{color:var(--gl-ink);font-weight:700}
+.field-label{font-size:12px;font-weight:600;color:var(--gl-ink-2);margin:18px 0 8px;
+  display:flex;align-items:center;gap:8px}
+.field-label:first-of-type{margin-top:0}
+.field-label .hint{font-weight:500;color:var(--gl-ink-4);font-size:11px}
+.ladder{display:flex;align-items:center;gap:5px;margin-top:10px}
+.ladder .chip{height:26px;font-size:11px;padding:0 9px}
+
+/* ---- 12. modal ------------------------------------------------------- */
+.overlay{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:24px}
+.overlay[hidden]{display:none}
+.overlay .gl-modal-scrim{position:absolute;border-radius:0}
+.modal{position:relative;z-index:1;width:100%;max-width:470px;padding:22px;border-radius:var(--r-lg);
+  animation:mo-pop .3s var(--gl-ease)}
+@keyframes mo-pop{from{opacity:0;transform:scale(.97) translateY(8px)}to{opacity:1;transform:none}}
+.modal-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.modal-head h3{font-family:var(--gl-font-head);font-weight:600;font-size:18px;letter-spacing:-.02em}
+.modal-head .sub{font-size:12px;color:var(--gl-ink-3);margin-top:2px}
+.modal .gl-textarea{min-height:72px;border-radius:var(--r-sm)}
+.proof-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.file-chip{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 6px 0 12px;
+  border-radius:var(--r-pill);font-size:12px;font-weight:600;color:var(--gl-ink-2);
+  background:rgba(var(--gl-accent-rgb),.14);border:1px solid var(--gl-accent-line)}
+.file-chip button{width:18px;height:18px;border:0;border-radius:50%;background:rgba(255,255,255,.12);
+  color:var(--gl-ink-2);font-size:11px;line-height:1;cursor:pointer;display:grid;place-items:center}
+.modal .note-line{font-size:11px;color:var(--gl-ink-3);line-height:1.6;margin:16px 0 18px;
+  padding:11px 13px;border-radius:var(--r-sm);background:rgba(255,255,255,.04);
+  border:1px solid var(--gl-hairline)}
+.modal-actions{display:flex;gap:10px}
+.modal-actions .gl-btn{flex:1;height:40px}
+
+/* ---- 13. toasts ------------------------------------------------------ */
+.toasts{position:fixed;right:26px;bottom:26px;z-index:90;display:flex;flex-direction:column;
+  gap:10px;align-items:flex-end}
+.toasts .gl-toast{animation:to-in .32s var(--gl-ease)}
+@keyframes to-in{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.gl-toast .gl-toast-text,.gl-toast .gl-toast-sub{display:block;line-height:1.4}
+.toast-close{margin-left:4px;width:20px;height:20px;border:0;border-radius:50%;
+  background:rgba(255,255,255,.10);color:var(--gl-ink-3);font-size:11px;cursor:pointer;
+  display:grid;place-items:center}
+
+/* ---- 14. login ------------------------------------------------------- */
+body.is-login .sidebar,body.is-login .topbar,body.is-login .toasts{display:none}
+body.is-login .sheet{background:none;border:0;box-shadow:none;-webkit-backdrop-filter:none;
+  backdrop-filter:none}
+body.is-login .sheet::before{display:none}
+body.is-login .app{padding:0;gap:0}
+body.is-login .page{display:grid;place-items:center;padding:24px}
+.login-wrap{width:380px;max-width:100%;text-align:center}
+.login-wrap .wordmark{font-size:15px}
+.login-wrap .tagline{font-size:13px;color:var(--gl-ink-3);margin:9px 0 22px}
+.login-card{padding:24px;border-radius:var(--r-lg);text-align:left;display:flex;
+  flex-direction:column;gap:14px}
+.login-card .gl-label{margin-bottom:7px}
+.or{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--gl-ink-4);margin:2px 0}
+.or::before,.or::after{content:'';flex:1;height:1px;background:var(--gl-hairline-2)}
+.login-foot{font-size:11px;color:var(--gl-ink-4);margin-top:18px}
+.login-foot a{color:var(--gl-ink-2);font-weight:600;cursor:pointer}
+.login-foot a:hover{color:var(--gl-ink)}
+
+/* ---- 15. responsive -------------------------------------------------- */
+@media (max-width:1180px){
+  .dash-grid{grid-template-columns:minmax(0,1fr)}
+  .infr-grid{grid-template-columns:minmax(0,1fr)}
+  .top-search{width:170px}
+}
+
+/* ===== 3. SHARED SCREEN COMPONENTS (x-) ===== */
+
+/* ===== TASK-G screen styles — plain,flat,x- prefixed ================== */
+
+/* --- page head ------------------------------------------------------- */
+.x-head{display:flex;align-items:flex-end;gap:16px;margin:0 0 22px}
+.x-head h2{font-family:var(--gl-font-head);font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0;line-height:1.2}
+.x-head .x-sub{font-size:14px;color:var(--gl-ink-3);margin:6px 0 0;max-width:70ch;font-weight:500}
+.x-head .x-actions{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
+
+/* --- search row -------------------------------------------------------- */
+.x-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.x-filters .gl-search{width:320px;flex:none}
+.x-filters .gl-input{height:42px;font-size:14px}
+.x-chips{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.x-chip{display:inline-flex;align-items:center;height:32px;padding:0 15px;border-radius:999px;
+  font-size:13px;font-weight:600;color:var(--gl-ink-3);cursor:pointer;white-space:nowrap;
+  border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04)}
+.x-chip:hover{color:var(--gl-ink-2);background:rgba(255,255,255,.07)}
+.x-chip.is-active{color:#fff;background:rgba(var(--gl-accent-rgb),.20);border-color:var(--gl-accent-line)}
+.x-you{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:11px;
+  font-weight:700;color:var(--gl-accent);background:rgba(var(--gl-accent-rgb),.16);border:1px solid var(--gl-accent-line)}
+
+/* --- one shared table component (CSS grid) --------------------------- */
+.x-tbl{border-radius:24px;overflow:hidden}
+.x-tbl .x-th,.x-tbl .x-tr{display:grid;grid-template-columns:var(--x-cols);align-items:center;gap:16px;padding:0 22px}
+.x-tbl .x-th{min-height:40px;font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:rgba(255,255,255,.52);background:rgba(255,255,255,.045)}
+.x-tbl .x-tr{min-height:56px;padding-top:9px;padding-bottom:9px;
+  border-top:1px solid rgba(255,255,255,.08);font-size:14px;color:var(--gl-ink-2)}
+.x-tbl .x-tr:hover{background:rgba(255,255,255,.035)}
+.x-right{justify-self:end;display:flex;align-items:center;gap:7px;justify-content:flex-end}
+.x-strong{color:var(--gl-ink);font-weight:700}
+.x-dim{color:var(--gl-ink-3);font-size:13px}
+.x-num{white-space:nowrap}
+.x-ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.x-what{display:flex;align-items:center;gap:9px;min-width:0;flex-wrap:wrap;line-height:1.45}
+.x-what .x-dim{font-size:14px}
+
+/* --- avatars + people -------------------------------------------------- */
+.x-av{width:34px;height:34px;flex:none;border-radius:12px;display:grid;place-items:center;
+  font-size:13px;font-weight:700;color:#fff}
+.x-av-sm{width:26px;height:26px;font-size:11px}.x-av.c2{background:#2FA97E}
+.x-user{display:flex;align-items:center;gap:11px;min-width:0}
+.x-user .x-name{font-size:14px;font-weight:700;color:var(--gl-ink);line-height:1.3}
+.x-user .x-handle{font-size:13px;color:var(--gl-ink-3);font-weight:500;line-height:1.3}
+
+/* --- action-type pills ------------------------------------------------ */
+.x-type{display:inline-flex;align-items:center;height:22px;padding:0 11px;border-radius:999px;
+  font-size:11px;font-weight:700;white-space:nowrap;border:1px solid transparent}
+.x-type.ban{color:#ffb3b3;background:rgba(var(--gl-danger-rgb),.15);border-color:rgba(var(--gl-danger-rgb),.32)}
+.x-type.wipeban{color:#d9c4ff;background:rgba(178,140,255,.15);border-color:rgba(178,140,255,.32)}
+.x-type.kick{color:#ffc79b;background:rgba(255,164,92,.15);border-color:rgba(255,164,92,.32)}
+.x-type.mute{color:#ffdfae;background:rgba(var(--gl-warn-rgb),.15);border-color:rgba(var(--gl-warn-rgb),.32)}
+.x-type.warn{color:#a9e8ff;background:rgba(var(--gl-info-rgb),.14);border-color:rgba(var(--gl-info-rgb),.30)}
+.x-type.unban{color:#a8ecc9;background:rgba(var(--gl-ok-rgb),.14);border-color:rgba(var(--gl-ok-rgb),.30)}
+
+/* --- role pills -------------------------------------------------------- */
+.x-role{display:inline-flex;align-items:center;height:24px;padding:0 12px;border-radius:999px;
+  font-size:12px;font-weight:700;white-space:nowrap;border:1px solid transparent}
+.x-role.supervisor{color:#F5C542;background:rgba(245,197,66,.13);border-color:rgba(245,197,66,.32)}
+.x-role.owner{color:#EF64B4;background:rgba(239,100,180,.13);border-color:rgba(239,100,180,.32)}
+.x-role.management{color:#b6a8ff;background:rgba(139,124,246,.14);border-color:rgba(139,124,246,.34)}
+.x-role.admin{color:#ffb3b3;background:rgba(var(--gl-danger-rgb),.14);border-color:rgba(var(--gl-danger-rgb),.30)}
+.x-role.moderator{color:#b9cbff;background:rgba(var(--gl-accent-rgb),.16);border-color:var(--gl-accent-line)}
+.x-role.helper{color:#d6d6e2;background:rgba(190,190,205,.10);border-color:rgba(190,190,205,.22)}
+
+/* --- status + small controls ------------------------------------------- */
+.x-stat-pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 12px;border-radius:999px;
+  font-size:12px;font-weight:700;white-space:nowrap;border:1px solid transparent}
+.x-stat-pill.ok{color:#a8ecc9;background:rgba(var(--gl-ok-rgb),.13);border-color:rgba(var(--gl-ok-rgb),.28)}
+.x-stat-pill.bad{color:#ffb3b3;background:rgba(var(--gl-danger-rgb),.13);border-color:rgba(var(--gl-danger-rgb),.30)}
+.x-needs{display:inline-flex;align-items:center;height:26px;padding:0 12px;border-radius:999px;font-size:12px;
+  font-weight:600;color:var(--gl-ink-3);background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.x-mini{height:30px;padding:0 14px;font-size:13px}
+.x-link{font-size:13px;font-weight:700;color:var(--gl-accent);text-decoration:none;cursor:pointer;white-space:nowrap}
+.x-link:hover{text-decoration:underline}
+
+/* --- guides ------------------------------------------------------------ */
+.x-guides{display:flex;flex-direction:column;gap:18px}
+.x-guide-head{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.x-guide-title{font-family:var(--gl-font-head);font-size:18px;font-weight:600;letter-spacing:-.015em;margin:0}
+.x-ladders{display:grid;grid-template-columns:1fr 1.2fr;gap:16px 34px;margin-top:16px;align-items:start}
+.x-ladder-col > .x-col-head{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;
+  color:var(--gl-ink);padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:10px}
+.x-dot{width:7px;height:7px;border-radius:50%;flex:none}
+.x-dot.red{background:var(--gl-danger)}
+.x-dot.amber{background:var(--gl-warn)}
+.x-lad{display:grid;grid-template-columns:minmax(120px,1fr) 2.2fr;gap:10px 14px;align-items:center;padding:8px 0}
+.x-lad + .x-lad{border-top:1px solid rgba(255,255,255,.055)}
+.x-lad-name{font-size:14px;font-weight:600;color:var(--gl-ink);line-height:1.35}
+.x-steps{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.x-step{display:inline-flex;align-items:center;height:22px;padding:0 10px;border-radius:999px;font-size:12px;
+  font-weight:600;color:var(--gl-ink-2);background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.10)}
+.x-step.is-last{color:#ffb3b3;background:rgba(var(--gl-danger-rgb),.14);border-color:rgba(var(--gl-danger-rgb),.30)}
+.x-arrow{color:var(--gl-ink-4);font-size:11px;line-height:1}
+.x-guide-body{font-size:14px;color:var(--gl-ink-2);line-height:1.8;margin:0}
+
+/* --- staff logs --------------------------------------------------------- */
+.x-logs{display:flex;flex-direction:column;gap:14px}
+.x-logcard{padding:18px 22px;border-radius:24px}
+.x-log-top{display:flex;align-items:center;gap:11px;margin-bottom:12px}
+.x-log-lines{display:grid;grid-template-columns:60px 1fr;gap:8px 14px}
+.x-log-k{font-size:13px;font-weight:700;color:var(--gl-ink-3)}
+.x-log-v{font-size:14px;color:var(--gl-ink-2);line-height:1.5}
+
+/* --- hidden names -------------------------------------------------------- */
+.x-bl-row{display:grid;grid-template-columns:34px 1fr auto;gap:14px;align-items:center;min-height:56px;padding:8px 0}
+.x-bl-row + .x-bl-row{border-top:1px solid rgba(255,255,255,.08)}
+.x-bl-name{font-size:14px;font-weight:700;color:var(--gl-ink)}
+
+/* --- manage modal --------------------------------------------------------- */
+#x-manage-modal{position:fixed;inset:0;z-index:400;display:grid;place-items:center;padding:24px}
+#x-manage-modal[hidden]{display:none}
+#x-manage-modal .gl-modal-scrim{position:absolute;inset:0;border-radius:0;cursor:pointer}
+#x-manage-modal .x-sheet{position:relative;z-index:1;width:100%;max-width:460px;max-height:88vh;
+  display:flex;flex-direction:column;padding:0;border-radius:24px;overflow:hidden}
+.x-modal-head{display:flex;align-items:center;gap:12px;padding:22px 22px 16px}
+.x-modal-scrollarea{padding:0 22px;overflow-y:auto;flex:1;min-height:0;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent}
+.x-modal-scrollarea::-webkit-scrollbar{width:6px;display:block}
+.x-modal-scrollarea::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:999px}
+.x-modal-foot{display:flex;gap:8px;padding:16px 22px 20px;border-top:1px solid rgba(255,255,255,.08)}
+.x-modal-foot .gl-btn{flex:1}
+.x-sec{font-size:14px;font-weight:700;color:var(--gl-ink);display:block;margin:20px 0 10px}
+.x-toggles{display:flex;flex-direction:column}
+.x-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0}
+.x-toggle-row + .x-toggle-row{border-top:1px solid rgba(255,255,255,.06)}
+.x-toggle-row .x-tlabel{font-size:14px;font-weight:600;color:var(--gl-ink-2)}
+.x-revoke{margin:20px 0 4px}
+.x-revoke .gl-btn{width:100%;color:#ffb3b3}
+
+@media (max-width:1180px){.x-ladders{grid-template-columns:1fr}}
+
+/* ===== 4. FLAT DARK OVERRIDES ===== */
+/* =========================================================================
+   FLAT OVERRIDE — removes the Liquid Glass treatment.
+   Solid surfaces using the public site's dark tokens; layout unchanged.
+   ========================================================================= */
+:root{
+  --f-desk:#000000; --f-sheet:#070709; --f-card:#0f0f13; --f-raised:#17171d; --f-input:#0b0b0e;
+  --f-line:#1a1a20; --f-line-2:#22222a;
+  --gl-hairline:#161619; --gl-hairline-2:#1e1e24;
+  --gl-rim:0 0 0 0 transparent;
+  --gl-shadow:none; --gl-shadow-lg:0 24px 64px rgba(0,0,0,.5);
+}
+html,body.gl-body{background:var(--f-desk)}
+
+/* kill blur + sheen everywhere */
+*,*::before,*::after{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+.gl-glass::before,.gl-btn::before{display:none}
+.gl-glass,.gl-card,.gl-toast,.stat,.list,.sidebar,.sheet,.modal,.login-card,.gl-btn,.gl-input,.gl-textarea,.gl-seg,.gl-switch-track,.chip,.x-chip,.x-tbl .x-th,.gl-search{box-shadow:none}
+
+/* big slabs: sidebar + sheet + modal + login card */
+.sidebar,.sheet,.modal,.login-card{
+  background:var(--f-sheet);border:1px solid var(--f-line)}
+.modal{box-shadow:var(--gl-shadow-lg)}
+body.is-login .sheet{background:none;border:0}
+
+/* cards / stats / lists / toasts */
+.gl-glass,.gl-card,.stat,.list,.gl-toast{
+  background:var(--f-card);border:1px solid var(--f-line)}
+.topbar{background:var(--f-sheet);border-bottom:1px solid var(--f-line)}
+.gl-modal-scrim{background:rgba(0,0,0,.65)}
+.list-row + .list-row{box-shadow:inset 0 1px 0 0 var(--f-line)}
+.list-row:hover,.x-tbl .x-tr:hover{background:var(--f-raised)}
+.x-tbl .x-th,.table-head{background:var(--f-raised);box-shadow:none;border-bottom:1px solid var(--f-line)}
+.x-tbl .x-tr{border-top:1px solid var(--f-line)}
+
+/* controls */
+.gl-input,.gl-textarea{
+  background:var(--f-input);border:1px solid var(--f-line-2)}
+.gl-search{background:transparent;border:0}
+.gl-input:focus,.gl-textarea:focus{border-color:var(--gl-accent);box-shadow:none}
+.gl-btn,.gl-btn:not(.gl-btn-primary):not(.gl-btn-danger):not(.gl-btn-ghost){
+  background:var(--f-raised);border:1px solid var(--f-line-2);color:var(--gl-ink);filter:none}
+.gl-btn:hover{transform:none;filter:none;background:#1e1e26;box-shadow:none}
+.gl-btn:active{transform:none;box-shadow:none;filter:brightness(.95)}
+.gl-btn-primary,.gl-btn-primary:hover{background:var(--gl-accent);border-color:var(--gl-accent);color:#0b0b0f}
+.gl-btn-primary:hover{background:#93adff}
+.gl-btn-danger,.gl-btn-danger:hover{background:rgba(var(--gl-danger-rgb),.16);border-color:rgba(var(--gl-danger-rgb),.45);color:var(--gl-danger)}
+.gl-btn-danger:hover{background:rgba(var(--gl-danger-rgb),.24)}
+.gl-btn-ghost,.gl-btn-ghost:hover{background:transparent;border:1px solid var(--f-line-2)}
+.gl-btn-ghost:hover{background:var(--f-raised)}
+.x-revoke .gl-btn,.x-revoke .gl-btn:hover{background:rgba(var(--gl-danger-rgb),.10);border:1px solid rgba(var(--gl-danger-rgb),.4)}
+.gl-seg{background:var(--f-input);border:1px solid var(--f-line-2)}
+.gl-seg-thumb{background:var(--f-raised);border:1px solid var(--f-line-2);box-shadow:none}
+.gl-nav-item.is-active{background:var(--f-raised);box-shadow:none;color:var(--gl-ink)}
+.gl-nav-item.is-active::after{display:none}
+.chip,.x-chip{background:var(--f-raised);border:1px solid var(--f-line-2);box-shadow:none}
+.chip:hover,.x-chip:hover{background:#1e1e26}
+.chip.is-active,.x-chip.is-active{background:rgba(var(--gl-accent-rgb),.18);border-color:rgba(var(--gl-accent-rgb),.5);color:#fff;box-shadow:none}
+.gl-switch-track{background:var(--f-input);border:1px solid var(--f-line-2);box-shadow:none}
+.type-pill,.status,.role-pill{box-shadow:none}
+.icon-btn:hover,.ghost-link:hover{background:var(--f-raised)}
+/* no glow dots */
+.x-dot,.x-pulse,.status::before{box-shadow:none}
+
+.toasts[hidden]{display:none}
+
+/* ===== 5. SHELL SIZES ===== */
+/* SHELL — simpler,larger,calmer */
+body.gl-body{font-size:14px}
+.gl-nav{gap:4px}
+.gl-nav-item{height:42px;padding:0 14px;font-size:14px;gap:12px;font-weight:600}
+.gl-nav-icon svg{width:17px;height:17px}
+.gl-nav-count{font-size:11px;font-weight:700;background:rgba(var(--gl-accent-rgb),.18);color:var(--gl-accent);border:0}
+.brand{padding:4px 10px 22px}
+.side-foot .server-seg{--gl-seg-count:2}
+.ident .who b{font-size:14px}
+.ident .who span{font-size:12px}
+.topbar{padding:16px 28px;min-height:64px}
+.topbar h1{font-size:19px}
+.page{padding:28px 28px 40px}
+.page-head{margin-bottom:22px}
+.page-head h2{font-size:24px}
+.page-head .sub{font-size:14px;margin-top:4px}
+.list-row .name{font-size:14px}
+.list-row .sub,.list-row .meta{font-size:13px}
+.list-row{min-height:56px}
+.stat-label{font-size:12px;letter-spacing:.06em}
+.stat-sub{font-size:13px}
+.gl-btn{font-size:14px}
+.gl-btn-sm{font-size:13px}
+.chip{font-size:13px;height:32px}
+.gl-input,.gl-textarea{font-size:14px}
+body.is-supervisor #meRole{color:#F5C542;font-weight:700}
+

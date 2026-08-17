@@ -1,0 +1,45 @@
+/* ===== PROTECTION screen (Supervisor only) — flat, pr- prefixed ============ */
+
+/* two small stat tiles, not full width */
+.pr-stats{grid-template-columns:repeat(2,minmax(0,262px));margin-bottom:26px}
+
+/* card title above a card */
+.pr-cardtitle{font-family:var(--gl-font-head);font-size:15px;font-weight:600;letter-spacing:-.01em;
+  color:var(--gl-ink);margin:0 0 12px 2px}
+.pr-gap{margin-bottom:26px}
+
+/* --- protected players table ------------------------------------------- */
+.pr-tbl{min-width:900px}
+.pr-why{font-size:14px;color:var(--gl-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pr-blocks{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.pr-until{font-size:14px;color:var(--gl-ink-2);white-space:nowrap}
+.pr-forever{font-weight:700;color:var(--gl-ink)}
+
+/* --- blocked attempts ---------------------------------------------------- */
+.pr-att{border-radius:24px;padding:6px 22px}
+.pr-att-row{display:grid;grid-template-columns:88px minmax(0,1fr) 100px 150px;gap:16px;align-items:center;
+  min-height:58px;padding:8px 0}
+.pr-att-row + .pr-att-row{border-top:1px solid var(--f-line,rgba(255,255,255,.08))}
+.pr-att-text{font-size:14px;color:var(--gl-ink-2);line-height:1.45;min-width:0}
+.pr-att-when{font-size:13px;color:var(--gl-ink-3);white-space:nowrap}
+.pr-att-row .x-right{justify-self:end}
+/* red outline pill, no fill */
+.pr-blocked{background:transparent;color:#ff9d9d;border-color:rgba(var(--gl-danger-rgb),.50)}
+@media (max-width:1100px){
+  .pr-att-row{grid-template-columns:88px minmax(0,1fr) auto auto;gap:12px}
+}
+
+/* --- quiet info line ----------------------------------------------------- */
+.pr-note{font-size:13px;color:var(--gl-ink-3);margin:18px 2px 0;line-height:1.6}
+
+/* --- protect modal (inside P.openModal's .modal) --------------------------- */
+.modal .pr-label{font-size:14px;font-weight:700;color:var(--gl-ink);display:block;margin:18px 0 8px}
+.modal .pr-label:first-child{margin-top:4px}
+.modal .pr-toggles + .pr-label{margin-top:22px}
+.modal .gl-search .gl-input,.modal .pr-label + .gl-input{height:42px;font-size:14px;width:100%}
+.pr-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 0}
+.pr-toggle-row + .pr-toggle-row{border-top:1px solid rgba(255,255,255,.06)}
+.pr-tname{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:600;color:var(--gl-ink-2)}
+.pr-always{font-size:12px;font-weight:600;color:var(--gl-ink-3)}
+.pr-locked .gl-switch{opacity:.6;pointer-events:none}
+.modal .x-chips{margin-bottom:18px}

@@ -1,0 +1,219 @@
+/* =========================================================================
+   SUPERVISOR DASHBOARD (oversight / command centre) — classes prefixed .s-
+   Gold rgba(245,197,66,…) is reserved for the Supervisor label and critical
+   markers only. Everything else uses the normal flat palette.
+   ========================================================================= */
+:root{
+  --s-gap:18px;
+  --s-gold:245,197,66;
+  --s-bar:var(--gl-accent);          /* normal bar fill  */
+  --s-bar-flag:var(--gl-warn);       /* flagged bar fill */
+}
+
+/* ---- layout ------------------------------------------------------------ */
+.s-row{display:grid;gap:var(--s-gap);margin-bottom:var(--s-gap)}
+.s-row-wide{grid-template-columns:minmax(0,1.9fr) minmax(0,1fr)}
+.s-row-two{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}
+.s-row-two.s-top{align-items:start}
+.s-col{display:flex;flex-direction:column;gap:var(--s-gap);min-width:0}
+@media (max-width:1080px){
+  .s-row-wide,.s-row-two{grid-template-columns:minmax(0,1fr)}
+}
+
+.s-card{border-radius:var(--r-lg);padding:18px 20px 16px;display:flex;flex-direction:column;min-width:0}
+.s-card-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;min-height:22px}
+.s-card-head h3{font-family:var(--gl-font-head);font-weight:600;font-size:15px;letter-spacing:-.01em}
+.s-card-head .ghost-link{margin-left:auto}
+
+/* ---- 1 · page head ----------------------------------------------------- */
+.s-title{display:flex;align-items:center;gap:11px}
+.s-chips{display:flex;gap:6px}
+.s-chips .chip{height:28px;padding:0 12px;font-size:12px}
+
+/* ---- shared dots ------------------------------------------------------- */
+.s-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.s-dot.is-danger{background:var(--gl-danger)}
+.s-dot.is-warn{background:var(--gl-warn)}
+.s-dot.is-ok{background:var(--gl-ok)}
+.s-dot.is-muted{background:var(--gl-ink-4)}
+.s-dot.is-gold{background:rgb(var(--s-gold))}
+.s-gold-dot{width:8px;height:8px;border-radius:50%;flex:none;background:rgb(var(--s-gold))}
+.s-live{width:8px;height:8px;border-radius:50%;background:var(--gl-ok);flex:none;display:inline-block}
+.s-live.is-warn{background:var(--gl-warn)}
+
+/* ---- 2 · critical right now -------------------------------------------- */
+.s-crit{margin-bottom:var(--s-gap);border-left:2px solid rgba(var(--s-gold),.55)}
+.s-crit-list{display:flex;flex-direction:column;gap:8px}
+.s-crit-row{display:flex;align-items:center;gap:12px;background:var(--f-raised);
+  border-radius:var(--r-md);padding:12px 16px}
+.s-crit-txt{font-size:14px;color:var(--gl-ink-2);flex:1;min-width:0}
+.s-crit-txt b{color:var(--gl-ink);font-weight:700}
+.s-crit-row .gl-btn{flex:none}
+
+/* ---- 3 · stat tiles ---------------------------------------------------- */
+.s-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-gap);margin-bottom:var(--s-gap)}
+@media (min-width:1360px){.s-stats{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media (max-width:760px){.s-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.s-stat{display:flex;flex-direction:column;padding:16px 18px 14px;min-height:104px}
+.s-stat .stat-label{font-size:10.5px;font-weight:700;letter-spacing:.07em;color:var(--gl-ink-3);
+  margin-bottom:6px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-big{font-size:32px;line-height:1.05;display:flex;align-items:center;gap:9px;margin-bottom:5px}
+.s-stat .stat-sub{font-size:12px;color:var(--gl-ink-3);margin-top:auto;line-height:1.35}
+
+/* ---- 4a · staff oversight table ---------------------------------------- */
+.s-tbl{--s-cols:minmax(140px,1.5fr) 92px 52px 40px 62px 52px 66px 52px;display:flex;flex-direction:column}
+.s-th,.s-tr{display:grid;grid-template-columns:var(--s-cols);align-items:center;gap:10px}
+.s-th{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--gl-ink-4);padding:0 10px 9px;border-bottom:1px solid var(--f-line)}
+.s-tr{padding:9px 10px;border-radius:var(--r-sm);min-height:42px}
+.s-tr + .s-tr{box-shadow:inset 0 1px 0 0 var(--f-line)}
+.s-tr:hover{background:var(--f-raised)}
+.s-th .r,.s-tr .r{text-align:right}
+.s-who{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--gl-ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-who .avatar{flex:none}
+.s-n{font-size:13px;font-weight:700;color:var(--gl-ink-2);font-variant-numeric:tabular-nums}
+.s-n.is-bad{color:var(--gl-warn)}
+.s-t{font-size:12px;color:var(--gl-ink-3);white-space:nowrap}
+.s-flag{display:inline-flex;align-items:center;height:20px;padding:0 9px;border-radius:var(--r-pill);
+  font-size:10.5px;font-weight:700;color:var(--gl-warn);background:rgba(var(--gl-warn-rgb),.13);
+  border:1px solid rgba(var(--gl-warn-rgb),.34)}
+.s-tr.is-flag{background:rgba(var(--gl-warn-rgb),.045)}
+.s-note{font-size:12px;color:var(--gl-ink-3);margin-top:12px}
+
+/* ---- 4b · bans per staff (horizontal bars) ----------------------------- */
+.s-bars{display:flex;flex-direction:column;gap:6px;flex:1;justify-content:flex-start;padding:6px 0}
+.s-bar{display:grid;grid-template-columns:78px minmax(0,1fr) 22px;align-items:center;gap:11px;padding:6px 0}
+.s-bar-name{font-size:12.5px;color:var(--gl-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-bar-track{height:10px;border-radius:3px;background:var(--f-raised);overflow:hidden}
+.s-bar-track i{display:block;height:100%;border-radius:0 4px 4px 0;background:var(--s-bar)}
+.s-bar.is-flag .s-bar-track i{background:var(--s-bar-flag)}
+.s-bar.is-flag .s-bar-name{color:var(--gl-ink);font-weight:700}
+.s-bar-num{font-size:12.5px;font-weight:700;color:var(--gl-ink-2);text-align:right;
+  font-variant-numeric:tabular-nums}
+
+.s-legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px}
+.s-bars + .s-legend{margin-top:auto;padding-top:14px}
+.s-lg{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--gl-ink-3)}
+.s-sw{width:9px;height:9px;border-radius:3px;flex:none}
+.s-sw.is-normal{background:var(--s-bar)}
+.s-sw.is-flag{background:var(--s-bar-flag)}
+.s-sw.is-ok{background:var(--gl-ok)}
+.s-sw.is-bad{background:var(--gl-danger)}
+.s-sw.is-muted{background:var(--gl-ink-4)}
+
+/* ---- 5a · big punishments ---------------------------------------------- */
+.s-punish{display:flex;flex-direction:column;gap:9px}
+.s-pu{display:grid;grid-template-columns:auto minmax(0,1fr) auto;row-gap:6px;align-items:center;gap:12px;
+  background:var(--f-raised);border-radius:var(--r-md);padding:13px 14px}
+.s-pu-txt{font-size:13px;color:var(--gl-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-pu-txt b{color:var(--gl-ink);font-weight:700}
+.s-proof{font-size:11.5px;font-weight:700;white-space:nowrap}
+.s-proof.is-ok{color:var(--gl-ok)}
+.s-proof.is-bad{color:var(--gl-warn)}
+.s-pu-btns{display:flex;gap:7px;flex:none}
+
+/* ---- 5b · staff & role changes ----------------------------------------- */
+.s-chg{display:flex;flex-direction:column;gap:2px}
+.s-ch{display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:center;gap:11px;padding:9px 2px}
+.s-ch + .s-ch{box-shadow:inset 0 1px 0 0 var(--f-line)}
+.s-ch-txt{font-size:13px;color:var(--gl-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-ch-txt b{color:var(--gl-ink);font-weight:700}
+.s-ch-txt em{font-style:normal;color:var(--gl-ink-3)}
+.s-ch-time{font-size:12px;color:var(--gl-ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.s-blocked{border-left:2px solid rgba(var(--s-gold),.55)}
+.s-blocked-btn{align-self:flex-start;margin-top:14px}
+
+/* ---- 6 · servers & queue ------------------------------------------------ */
+.s-srv-list{display:flex;flex-direction:column;gap:10px;flex:1}
+.s-srv{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;
+  column-gap:18px;row-gap:8px;background:var(--f-raised);border-radius:var(--r-md);padding:14px 16px;
+  flex:1;align-content:center}
+.s-srv-name{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:700;color:var(--gl-ink)}
+.s-srv-num{font-size:14px;font-weight:700;color:var(--gl-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.s-srv-num em{font-style:normal;font-size:12px;font-weight:600;color:var(--gl-ink-3);margin-left:3px}
+.s-srv-ping{grid-column:1/-1;font-size:12px;font-weight:600}
+.s-srv-ping.is-ok{color:var(--gl-ok)}
+.s-srv-ping.is-warn{color:var(--gl-warn)}
+.s-srv-q{grid-column:1/-1;font-size:12px;color:var(--gl-ink-3)}
+.s-srv-q b{color:var(--gl-ink-2);font-weight:700}
+.s-srv-q b.is-bad{color:var(--gl-danger)}
+
+/* ---- 6b · approvals stacked bar ----------------------------------------- */
+.s-appr{display:flex;flex-direction:column;flex:1;justify-content:center}
+.s-appr-total{font-size:32px;line-height:1.05;font-family:var(--gl-font-head);font-weight:600;
+  color:var(--gl-ink);margin-bottom:14px}
+.s-appr-total em{font-style:normal;font-family:var(--gl-font-body);font-size:13px;font-weight:600;
+  color:var(--gl-ink-3);margin-left:5px}
+.s-appr-bar{display:flex;gap:2px;height:14px;margin-bottom:2px}
+.s-appr-bar i{display:block;height:100%;border-radius:2px}
+.s-appr-bar i:first-child{border-radius:4px 2px 2px 4px}
+.s-appr-bar i:last-child{border-radius:2px 4px 4px 2px}
+.s-appr-bar i.is-ok{background:var(--gl-ok)}
+.s-appr-bar i.is-bad{background:var(--gl-danger)}
+.s-appr-bar i.is-muted{background:var(--gl-ink-4)}
+.s-appr-btn{align-self:flex-start;margin-top:16px}
+
+/* ---- 7 · live feed ------------------------------------------------------ */
+.s-feed{margin-bottom:var(--s-gap)}
+.s-feed-list{display:flex;flex-direction:column;gap:2px}
+.s-fr{display:grid;grid-template-columns:96px minmax(0,1fr) auto minmax(0,auto) 76px;align-items:center;gap:14px;
+  padding:10px 8px;border-radius:var(--r-sm)}
+.s-fr + .s-fr{box-shadow:inset 0 1px 0 0 var(--f-line)}
+.s-fr:hover{background:var(--f-raised)}
+.s-fr-txt{font-size:13px;color:var(--gl-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-fr-txt b{color:var(--gl-ink);font-weight:700}
+.s-fr-time{font-size:12px;color:var(--gl-ink-3);text-align:right;white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+.s-kind{display:inline-flex;align-items:center;justify-content:center;height:21px;padding:0 9px;
+  border-radius:var(--r-pill);font-size:10.5px;font-weight:700;white-space:nowrap;
+  color:rgb(var(--tint));background:rgba(var(--tint),.13);border:1px solid rgba(var(--tint),.28)}
+.s-kind.is-punish{--tint:255,107,107}
+.s-kind.is-login{--tint:143,211,255}
+.s-kind.is-role{--tint:167,139,250}
+.s-kind.is-protect{--tint:110,231,168}
+.s-kind.is-note{--tint:190,190,205}
+.s-kind.is-fail{--tint:255,196,107}
+
+/* ---- live-data additions (W6) --------------------------------------------- */
+.page-head .s-title + .sub{margin-top:4px}
+.s-calm{font-size:13px;color:var(--gl-ink-3);padding:6px 2px}
+.s-live.is-ok{background:var(--gl-ok)}
+.s-live.is-danger{background:var(--gl-danger)}
+.s-live.is-off{background:var(--gl-ink-4)}
+.s-srv-tag{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:var(--r-pill);
+  font-size:10.5px;font-weight:600;color:var(--gl-ink-3);background:var(--f-raised);border:1px solid var(--f-line-2);
+  white-space:nowrap;flex:none}
+/* staff table scrolls instead of overflowing */
+.s-card .tbl-scroll{margin:0 -6px;padding:0 6px}
+.s-tbl{min-width:640px}
+.s-th span{white-space:nowrap}
+.s-who-txt{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.s-who-name{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.s-who small{font-size:10.5px;font-weight:600;color:var(--gl-ink-4);white-space:nowrap}
+/* big punishments: status pill column + wrap on narrow */
+.s-pu-meta{grid-column:2/-1;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.s-pu-when{font-size:12px;color:var(--gl-ink-3);white-space:nowrap}
+.s-pu .status{white-space:nowrap}
+.s-crit-txt em,.s-fr-txt em{font-style:normal;color:var(--gl-ink-3)}
+.s-pu-btns:empty{display:none}
+/* servers & queue: mini stacked bar per server */
+.s-srv-ping.is-danger{color:var(--gl-danger)}
+.s-srv-bar{grid-column:1/-1;display:flex;align-items:center;gap:12px;min-width:0}
+.s-srv-bar .s-appr-mini{flex:1;height:8px;margin:0}
+.s-srv-bar-nums{font-size:11.5px;color:var(--gl-ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.s-appr-bar i.is-empty{background:var(--f-raised)}
+.s-appr .s-calm{margin-top:12px}
+/* feed: kind · text · server · status · time */
+.s-fr-kind{display:flex;min-width:0}
+.s-fr-kind .type-pill,.s-fr-kind .s-kind{max-width:100%}
+.s-fr-st{display:flex;justify-content:flex-end;min-width:0;grid-column:4}
+.s-fr .s-srv-tag{justify-self:start;grid-column:3}
+.s-fr .s-fr-time{grid-column:5}
+@media (max-width:1180px){
+  .s-fr{grid-template-columns:96px minmax(0,1fr) minmax(0,auto) 76px}
+  .s-fr .s-srv-tag{display:none}
+  .s-fr-st{grid-column:3}
+  .s-fr .s-fr-time{grid-column:4}
+}
+.s-srv-bar-lbl{font-size:11.5px;font-weight:600;color:var(--gl-ink-3);white-space:nowrap}

@@ -1,0 +1,136 @@
+/* =========================================================================
+   infractions.css — "Punish a player" (p-), the punish confirm modal (p-)
+   and the Players screen + player side sheet (pl-).
+   ========================================================================= */
+
+/* ---- Punish a player: two calm steps ----------------------------------- */
+.p-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:1120px){.p-grid{grid-template-columns:1fr}}
+.p-col{display:flex;flex-direction:column;gap:18px;min-width:0}
+.p-card{padding:24px 26px;border-radius:24px;min-width:0}
+
+.p-step{display:flex;align-items:center;gap:11px;margin:0 0 16px}
+.p-num{width:26px;height:26px;flex:none;border-radius:999px;display:grid;place-items:center;
+  font-size:13px;font-weight:700;color:var(--gl-ink-2);background:var(--f-raised);border:1px solid var(--f-line-2)}
+.p-step h3{font-family:var(--gl-font-head);font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}
+.p-step .p-tpl-add{margin-left:auto}
+
+/* step 1 — search + picked player */
+.p-search .gl-input{height:48px;font-size:15px;padding-left:42px}
+.p-search .gl-search-icon{font-size:18px}
+.p-who{display:flex;align-items:center;gap:14px;margin-top:14px;padding:14px 16px;
+  border-radius:16px;background:var(--f-raised);border:1px solid var(--f-line-2)}
+.p-who .p-name{font-family:var(--gl-font-head);font-size:18px;font-weight:600;letter-spacing:-.01em;color:var(--gl-ink);display:block}
+.p-who .p-on{font-size:13px;color:var(--gl-ink-3);display:block;margin-top:1px}
+.p-who .p-mid{flex:1;min-width:0}
+.p-who-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.p-who-right .ghost-link{border:0;background:transparent;font-family:inherit}
+.p-sugg{display:flex;flex-direction:column;margin-top:10px;border:1px solid var(--f-line);border-radius:16px;overflow:hidden}
+.p-sugg-row{display:flex;align-items:center;gap:11px;width:100%;min-height:44px;padding:7px 14px;border:0;
+  background:transparent;color:var(--gl-ink);font:inherit;text-align:left;cursor:pointer}
+.p-sugg-row + .p-sugg-row{border-top:1px solid var(--f-line)}
+.p-sugg-row:hover{background:var(--f-raised)}
+.p-sugg-name{font-size:14px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.p-sugg-meta{font-size:12px;color:var(--gl-ink-3);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.p-sugg-meta.is-on{color:var(--gl-ok)}
+.p-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none;display:inline-block}
+
+/* step 2 — offences (chips carry the type colour as a dot / active tint) */
+.p-reasons{display:flex;flex-wrap:wrap;gap:8px}
+.p-reasons .chip{height:34px;padding:0 15px 0 12px;font-size:13px;font-weight:600}
+.p-tchip{--tint:var(--t-warn)}
+.p-tchip.ban{--tint:var(--t-ban)}.p-tchip.wipeban{--tint:var(--t-wipeban)}.p-tchip.mute{--tint:var(--t-mute)}
+.p-tchip.warn{--tint:var(--t-warn)}.p-tchip.kick{--tint:var(--t-kick)}.p-tchip.unban{--tint:var(--t-unban)}
+.p-tchip .p-dot{color:rgb(var(--tint))}
+.p-tchip.is-active,.p-tchip.is-active:hover{color:#fff;background:rgba(var(--tint),.16);border-color:rgba(var(--tint),.55)}
+
+/* selected offence: ladder */
+.p-tpl{margin-top:16px;padding:16px 18px;border-radius:16px;background:var(--f-raised);border:1px solid var(--f-line-2)}
+.p-tpl-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.p-tpl-top b{font-size:14px;font-weight:700;color:var(--gl-ink)}
+.p-tpl-by{font-size:12px;color:var(--gl-ink-3)}
+.p-tpl-rm{margin-left:auto}
+.p-ladder{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.p-rung{--tint:var(--t-warn);display:inline-flex;align-items:center;height:36px;padding:0 15px;border-radius:12px;
+  font:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;
+  color:rgb(var(--tint));background:rgba(var(--tint),.11);border:1px solid rgba(var(--tint),.34)}
+.p-rung.ban{--tint:var(--t-ban)}.p-rung.wipeban{--tint:var(--t-wipeban)}.p-rung.mute{--tint:var(--t-mute)}
+.p-rung.warn{--tint:var(--t-warn)}.p-rung.kick{--tint:var(--t-kick)}.p-rung.unban{--tint:var(--t-unban)}
+.p-rung:hover{background:rgba(var(--tint),.20)}
+.p-rung.is-next{color:#0b0b0f;background:rgb(var(--tint));border-color:rgb(var(--tint));box-shadow:0 0 0 3px rgba(var(--tint),.25)}
+.p-tpl-note{font-size:12px;color:var(--gl-warn);margin-top:12px;line-height:1.5}
+.p-tpl .hint-line{line-height:1.55}
+
+/* manual actions */
+.p-go{width:100%;height:52px;margin-top:18px;border-radius:14px;
+  font-size:15px;font-weight:700;letter-spacing:-.01em;
+  background:var(--gl-danger)!important;border:1px solid var(--gl-danger)!important;color:#12070a!important}
+.p-go:hover{filter:brightness(1.08)!important}
+.p-go.p-off{background:var(--f-raised)!important;border-color:var(--f-line-2)!important;color:var(--gl-ink-3)!important;filter:none!important;cursor:not-allowed}
+.p-alts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:16px}
+.p-alts .p-or{font-size:13px;color:var(--gl-ink-3);margin-right:2px}
+.p-alt{--tint:var(--t-warn);display:inline-flex;align-items:center;height:30px;padding:0 14px;border-radius:999px;
+  font:inherit;font-size:13px;font-weight:600;color:var(--gl-ink-2);cursor:pointer;
+  background:transparent;border:1px solid var(--f-line-2)}
+.p-alt.ban{--tint:var(--t-ban)}.p-alt.wipeban{--tint:var(--t-wipeban)}.p-alt.mute{--tint:var(--t-mute)}
+.p-alt.warn{--tint:var(--t-warn)}.p-alt.kick{--tint:var(--t-kick)}.p-alt.unban{--tint:var(--t-unban)}
+.p-alt:hover{background:rgba(var(--tint),.12);border-color:rgba(var(--tint),.40);color:rgb(var(--tint))}
+.p-alt.p-off{color:var(--gl-ink-4);cursor:not-allowed}
+.p-alt.p-off:hover{background:transparent;border-color:var(--f-line-2);color:var(--gl-ink-4)}
+
+/* custom template form */
+.p-tform{display:flex;flex-direction:column;gap:10px;margin:0 0 18px;padding:16px 18px;border-radius:16px;
+  background:var(--f-raised);border:1px solid var(--f-line-2)}
+.p-tform .field-label{margin:0}
+.p-tform .hint-line{margin:0}
+.p-tform-types .chip{height:30px}
+.p-tform-btns{display:flex;gap:8px;justify-content:flex-end}
+
+/* right — record */
+.p-record{min-width:0}
+.p-hist-head{font-family:var(--gl-font-head);font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0 0 6px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.p-empty{padding:40px 18px}
+.p-hist{display:flex;flex-direction:column}
+.p-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;min-height:56px;padding:8px 0}
+.p-row + .p-row{border-top:1px solid var(--f-line)}
+.p-what{font-size:14px;color:var(--gl-ink);line-height:1.55;min-width:0;overflow-wrap:anywhere}
+.p-what .type-pill{margin-right:8px;vertical-align:1px}
+.p-what .p-dim{color:var(--gl-ink-3)}
+.p-err{display:block;font-size:12px;color:var(--gl-danger);margin-top:2px}
+.p-proof{display:inline;margin-left:6px}
+.p-more{display:inline-block;margin-top:14px;font-size:13px;font-weight:600;color:var(--gl-accent);cursor:pointer}
+.p-more:hover{text-decoration:underline}
+
+/* ---- punish confirm modal --------------------------------------------- */
+.p-ttype{--tint:var(--t-warn);color:rgb(var(--tint))}
+.p-ttype.ban{--tint:var(--t-ban)}.p-ttype.wipeban{--tint:var(--t-wipeban)}.p-ttype.mute{--tint:var(--t-mute)}
+.p-ttype.warn{--tint:var(--t-warn)}.p-ttype.kick{--tint:var(--t-kick)}.p-ttype.unban{--tint:var(--t-unban)}
+.p-protected{margin-top:14px}
+.p-protected .protected-pill{height:26px;font-size:12px}
+.modal .p-protected .note-line{margin-top:10px;color:#F5C542;border-color:rgba(245,197,66,.28);background:rgba(245,197,66,.07)}
+.modal .file-chip{max-width:100%}
+.modal .file-chip button:hover{background:rgba(255,255,255,.22)}
+.modal .proof-row{margin-bottom:8px}
+
+/* ---- Players table (pl-) ------------------------------------------------ */
+.pl-tbl{--x-cols:minmax(220px,1.8fr) 160px 130px 200px;min-width:760px}
+.pl-st{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+/* ---- player side sheet ------------------------------------------------- */
+.pl-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 14px}
+.pl-kv{display:flex;align-items:baseline;gap:12px;font-size:13px;color:var(--gl-ink-2);padding:6px 0;border-top:1px solid var(--f-line);min-width:0}
+.pl-k{flex:none;width:72px;font-weight:600;color:var(--gl-ink-3)}
+.pl-mono{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--gl-ink-3);overflow-wrap:anywhere}
+.pl-sec{font-size:14px;font-weight:700;color:var(--gl-ink);margin:20px 0 10px;display:flex;align-items:center;gap:8px}
+.pl-sec .hint{font-weight:500;color:var(--gl-ink-4);font-size:11px}
+.pl-notes{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.pl-note{padding:10px 13px;border-radius:12px;background:var(--f-raised);border:1px solid var(--f-line-2)}
+.pl-note p{font-size:13px;color:var(--gl-ink-2);line-height:1.5;overflow-wrap:anywhere}
+.pl-note-by{display:block;font-size:11px;color:var(--gl-ink-4);margin-top:5px}
+.pl-empty{padding:12px 0;text-align:left}
+.pl-quick{gap:8px}
+.pl-link{display:inline-block;margin:14px 0 20px;font-size:13px;font-weight:600;color:var(--gl-accent);cursor:pointer}
+.pl-link:hover{text-decoration:underline}
+.modal-side .p-row{min-height:48px}
+.modal-side .p-what{font-size:13px}
