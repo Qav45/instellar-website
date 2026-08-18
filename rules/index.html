@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rules | Instellar</title>
+<meta name="description" content="The rules that apply to all players on Instellar at all times, plus the Instellar Terms of Service.">
+<link rel="icon" type="image/png" href="../assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Poppins:wght@600&display=swap" rel="stylesheet">
+<style>
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: #000000; font-family: 'Manrope', sans-serif; color: #f4f4f7; }
+  a { color: inherit; text-decoration: none; }
+  * { scrollbar-width: none; -ms-overflow-style: none; box-sizing: border-box; }
+  *::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+
+  .shell { min-height: 100vh; padding: 16px; display: flex; gap: 16px; }
+  .sb { flex-shrink: 0; width: 76px; background: #0b0b0f; border-radius: 24px; padding: 20px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .sb a { display: flex; align-items: center; gap: 12px; padding: 4px; border-radius: 999px; }
+  .sb a:hover { background: #15151c; }
+  .sb a span { width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; border: 1px solid #232330; background: #15151c; display: flex; align-items: center; justify-content: center; }
+  .sheet { flex: 1; background: #0b0b0f; border-radius: 24px; display: flex; flex-direction: column; overflow: hidden; }
+  .head { display: flex; align-items: center; justify-content: center; padding: 34px 24px; border-bottom: 1px solid #1c1c23; }
+  .head a { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 15px; letter-spacing: 0.35em; text-transform: uppercase; }
+  .head a:hover { opacity: .7; }
+  .main { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 26px; padding: 48px clamp(16px, 4vw, 32px) 72px; }
+  h1 { margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: clamp(30px, 8vw, 46px); letter-spacing: -0.01em; text-align: center; animation: fadeUp .7s .05s ease backwards; }
+  .sub { margin: -14px 0 0; color: #9c9ca8; font-size: 15px; line-height: 1.5; text-align: center; max-width: 560px; animation: fadeUp .7s .12s ease backwards; }
+  .sub b { color: #f4f4f7; font-weight: 800; }
+
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; animation: fadeUp .7s .18s ease backwards; }
+  .tab { border: 1px solid #2a2a36; background: #15151c; color: #9c9ca8; font: inherit; font-weight: 700; font-size: 14px; padding: 11px 22px; border-radius: 999px; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+  .tab:hover { color: #f4f4f7; }
+  .tab[aria-selected="true"] { background: #f4f4f7; border-color: #f4f4f7; color: #111116; }
+
+  .panel { width: min(820px, 100%); display: none; flex-direction: column; gap: 12px; animation: fadeUp .5s ease backwards; }
+  .panel.show { display: flex; }
+
+  .rule { background: #15151c; border: 1px solid #232330; border-radius: 20px; padding: 20px 22px; display: flex; gap: 16px; align-items: flex-start; }
+  .rule .ic { flex: none; width: 44px; height: 44px; border-radius: 14px; background: #101016; border: 1px solid #232330; display: flex; align-items: center; justify-content: center; font-size: 20px; line-height: 1; }
+  .rule .body { min-width: 0; }
+  .rule .n { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #9c9ca8; }
+  .rule h2 { margin: 3px 0 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 18px; line-height: 1.3; }
+  .rule p { margin: 8px 0 0; font-size: 14px; line-height: 1.65; color: #c9c9d4; overflow-wrap: anywhere; }
+  .rule p.note { color: #9c9ca8; font-style: italic; }
+  .rule b { color: #f4f4f7; font-weight: 800; font-style: normal; }
+  .pen { display: inline-block; margin-top: 12px; font-size: 12px; font-weight: 700; color: #EF6461; background: rgba(239,100,97,.13); border-radius: 999px; padding: 5px 12px; }
+  .pen b { color: #EF6461; }
+
+  .card { width: min(820px, 100%); background: #15151c; border: 1px solid #232330; border-radius: 20px; padding: 24px 26px; }
+  .card h2 { margin: 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 18px; }
+  .card p { margin: 10px 0 0; font-size: 14px; line-height: 1.7; color: #c9c9d4; }
+  .card ul { margin: 10px 0 0; padding-left: 20px; }
+  .card li { font-size: 14px; line-height: 1.8; color: #c9c9d4; overflow-wrap: anywhere; }
+  .card b { color: #f4f4f7; font-weight: 800; }
+  .card a { color: #f4f4f7; font-weight: 700; border-bottom: 1px solid #3a3a48; }
+  .card a:hover { border-bottom-color: #f4f4f7; }
+
+  .soon { width: min(820px, 100%); background: #15151c; border: 1px solid #232330; border-radius: 20px; padding: 44px 26px; text-align: center; }
+  .soon .big { font-size: 34px; line-height: 1; }
+  .soon h2 { margin: 14px 0 0; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 20px; }
+  .soon p { margin: 8px 0 0; font-size: 14px; line-height: 1.6; color: #9c9ca8; }
+
+  .foot { font-size: 12px; color: #9c9ca8; text-align: center; line-height: 1.7; max-width: 520px; }
+  .foot a { color: #f4f4f7; font-weight: 700; }
+  @media (max-width: 700px) {
+    .shell { flex-direction: column; padding: 10px; gap: 10px; }
+    .sb { width: 100%; flex-direction: row; padding: 8px 12px; }
+    .rule { padding: 18px; gap: 13px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="sb">
+    <a href="../index.html" title="Home"><span><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5.5 9v11h13V9"></path></svg></span></a>
+    <a href="../apply/index.html" title="Applications &amp; appeals"><span><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 2.5v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10v-5L12 3z"></path><path d="M9.2 12l2 2 3.6-3.8"></path></svg></span></a>
+    <a href="../punishment/index.html" title="Punishment lookup"><span><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.6-3.6"></path></svg></span></a>
+  </div>
+  <div class="sheet">
+    <div class="head"><a href="../index.html" title="Back to home">Instellar</a></div>
+    <div class="main">
+      <h1>Rules</h1>
+      <p class="sub">These rules apply to <b>all players at all times</b>. Breaking any of them results in punishment at staff discretion. Play fair, have fun.</p>
+
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" aria-controls="p-instellar" id="t-instellar">Instellar</button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="p-instellar2" id="t-instellar2">Instellar 2</button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="p-tos" id="t-tos">Instellar ToS</button>
+      </div>
+
+      <div class="panel show" id="p-instellar" role="tabpanel" aria-labelledby="t-instellar">
+        <div class="rule"><div class="ic">&#128737;&#65039;</div><div class="body">
+          <div class="n">Rule #1</div><h2>New Player Protection</h2>
+          <p>Don't kill players with <b>under 15 min</b> of playtime.</p>
+          <p class="note">Exception: if they steal from you, or return to reclaim their own dropped loot.</p>
+        </div></div>
+        <div class="rule"><div class="ic">&#9876;&#65039;</div><div class="body">
+          <div class="n">Rule #2</div><h2>No Spawn Killing</h2>
+          <p>Wait <b>20 seconds</b> before re-engaging a player who just respawned.</p>
+          <p class="note">Void if they attack you first.</p>
+        </div></div>
+        <div class="rule"><div class="ic">&#127991;&#65039;</div><div class="body">
+          <div class="n">Rule #3</div><h2>No Begging for Ranks</h2>
+          <p>Do not ask for ranks, OP, or free items.</p>
+          <span class="pen">Repeated requests = kick or warning</span>
+        </div></div>
+        <div class="rule"><div class="ic">&#128153;</div><div class="body">
+          <div class="n">Rule #4</div><h2>Respect Everyone</h2>
+          <p>No slurs, hate speech, or harassment. Applies to chat <b>and</b> Simple Voice Chat.</p>
+          <span class="pen">Punished by severity</span>
+        </div></div>
+        <div class="rule"><div class="ic">&#128683;</div><div class="body">
+          <div class="n">Rule #5</div><h2>No Cheating</h2>
+          <p>Hacks, X-ray, killaura, freecam, etc. Exploiting bugs is also prohibited.</p>
+          <span class="pen"><b>30 days</b> to permanent ban</span>
+        </div></div>
+        <div class="rule"><div class="ic">&#127959;&#65039;</div><div class="body">
+          <div class="n">Rule #6</div><h2>No Inappropriate Building</h2>
+          <p>No 18+ builds or lag machines.</p>
+          <span class="pen">Lag machines = <b>server nuking charge</b></span>
+        </div></div>
+        <div class="rule"><div class="ic">&#128172;</div><div class="body">
+          <div class="n">Rule #7</div><h2>Keep Chat PG-13</h2>
+          <p>No NSFW content, excessive swearing, or chat spam at any time.</p>
+        </div></div>
+        <div class="rule"><div class="ic">&#129517;</div><div class="body">
+          <div class="n">Rule #8</div><h2>No Advertising</h2>
+          <p>Don't post other server IPs in public chat.</p>
+          <span class="pen">Up to <b>5-day ban</b></span>
+        </div></div>
+        <div class="rule"><div class="ic">&#129666;</div><div class="body">
+          <div class="n">Rule #9</div><h2>No Elytra or Trident in Combat</h2>
+          <p>No flying, riptide boosts, <b>elytra-macing</b>, or <b>elytra-spearing</b> while in active combat.</p>
+          <span class="pen">Warning to <b>10-day ban</b></span>
+        </div></div>
+        <div class="rule"><div class="ic">&#128722;</div><div class="body">
+          <div class="n">Rule #10</div><h2>No Spawn Pushing</h2>
+          <p>Don't force players into spawn via boats, minecarts, or physical pushing.</p>
+          <span class="pen">Up to <b>15-day ban</b></span>
+        </div></div>
+        <div class="rule"><div class="ic">&#9939;&#65039;</div><div class="body">
+          <div class="n">Rule #11</div><h2>No Loopholing</h2>
+          <p>Rules apply by <b>intent</b>, not just wording. Abusing loopholes = rulebreaking.</p>
+        </div></div>
+        <div class="rule"><div class="ic">&#9200;</div><div class="body">
+          <div class="n">Rule #12</div><h2>No Combat Logging</h2>
+          <p>Don't disconnect or use <b>/home</b> to escape combat.</p>
+          <span class="pen">Warning to <b>1-day ban</b></span>
+        </div></div>
+        <div class="rule"><div class="ic">&#127907;</div><div class="body">
+          <div class="n">Rule #13</div><h2>No TPA Trapping</h2>
+          <p>Don't use <b>/tpa</b> or <b>/tpahere</b> to lure and trap other players.</p>
+          <span class="pen">Up to <b>7-day ban</b></span>
+        </div></div>
+        <div class="rule"><div class="ic">&#128683;</div><div class="body">
+          <div class="n">Rule #14</div><h2>No Crystal PvP</h2>
+          <p>End Crystal use in combat is <b>BANNED</b>. No exceptions whatsoever.</p>
+          <span class="pen">Warning to <b>permanent ban</b></span>
+        </div></div>
+        <div class="rule"><div class="ic">&#128296;</div><div class="body">
+          <div class="n">Rule #15</div><h2>No Spear Spamming</h2>
+          <p>Do not spam the spear.</p>
+        </div></div>
+        <div class="rule"><div class="ic">&#129718;</div><div class="body">
+          <div class="n">Rule #16</div><h2>No Slow Falling</h2>
+          <p>Using Slow Falling to escape combat or gain an unfair advantage is <b>BANNED</b>.</p>
+          <span class="pen">Warning to <b>10-day ban</b></span>
+        </div></div>
+        <div class="rule"><div class="ic">&#129725;</div><div class="body">
+          <div class="n">Rule #17</div><h2>No Elytraing Immediately After Combat</h2>
+          <p>Do not use an Elytra to fly away immediately after combat ends. If you fight, you must leave the area normally before taking flight.</p>
+          <span class="pen">Warning to <b>10-day ban</b></span>
+        </div></div>
+        <div class="rule"><div class="ic">&#129514;</div><div class="body">
+          <div class="n">Rule #18</div><h2>No Stasis Chambers</h2>
+          <p>Stasis chambers are <b>BANNED</b>. Do not build, use, or rely on them to escape danger, combat, traps, or punishment.</p>
+          <span class="pen">Warning to <b>permanent ban</b></span>
+        </div></div>
+        <div class="rule"><div class="ic">&#127962;&#65039;</div><div class="body">
+          <div class="n">Rule #19</div><h2>No Griefing Bases</h2>
+          <p>Do not grief, destroy, or vandalize other players' bases or builds.</p>
+          <span class="pen">Warning to <b>permanent ban</b></span>
+        </div></div>
+      </div>
+
+      <div class="panel" id="p-instellar2" role="tabpanel" aria-labelledby="t-instellar2">
+        <div class="soon">
+          <div class="big">&#128679;</div>
+          <h2>Instellar 2</h2>
+          <p>This server hasn't been released yet. Stay tuned!</p>
+        </div>
+      </div>
+
+      <div class="panel" id="p-tos" role="tabpanel" aria-labelledby="t-tos">
+        <div class="card">
+          <h2>&#128203; Instellar ToS</h2>
+          <p>By playing on Instellar, you agree to the following:</p>
+          <ul>
+            <li>We reserve the right to <b>ban or remove</b> any player at any time, for any reason.</li>
+            <li>Staff have <b>final say</b> on all rule interpretations and punishments. Disputes go in a ticket, not public chat.</li>
+            <li>You are <b>responsible for your account</b>. Shared accounts are not exempt from punishment.</li>
+            <li>All <b>store purchases are final</b>. Chargebacks result in a <b>permanent ban</b>.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h2>&#128737;&#65039; GamerSafer / Minehut ToS</h2>
+          <p>The following external Terms of Service also apply to all players:</p>
+          <ul>
+            <li><a href="https://support.minehut.com/hc/en-us/articles/27075816947731" target="_blank" rel="noopener">Minehut Rules</a></li>
+            <li><a href="https://www.gamersafer.com/tos" target="_blank" rel="noopener">GamerSafer ToS</a></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h2>&#127760; MineKeep ToS</h2>
+          <p>The MineKeep Network rules apply to all players on this server.</p>
+          <ul>
+            <li><a href="https://minekeep.net/rules.txt" target="_blank" rel="noopener">Full MineKeep rules</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <p class="foot">Breaking any of these rules will result in punishment at staff discretion. Check your record on the <a href="../punishment/index.html">punishment lookup</a>, or <a href="../apply/index.html">appeal a punishment here</a>.</p>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var tabs = [].slice.call(document.querySelectorAll('.tab'));
+  function select(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      document.getElementById(t.getAttribute('aria-controls')).className = on ? 'panel show' : 'panel';
+    });
+    if (history.replaceState) history.replaceState(null, '', '#' + tab.id.slice(2));
+  }
+  tabs.forEach(function (t) { t.addEventListener('click', function () { select(t); }); });
+  var initial = document.getElementById('t-' + location.hash.slice(1));
+  if (initial) select(initial);
+})();
+</script>
+</body>
+</html>
