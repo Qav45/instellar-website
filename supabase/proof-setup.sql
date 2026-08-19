@@ -10,6 +10,9 @@
 -- links are stored as-is. Both end up in mod_actions.proof so the
 -- audit log, the Approvals tab and player history can show them.
 --
+-- If an upload fails with a mime-type error, the bucket's type list is
+-- out of date: just run this file again, it overwrites the list.
+--
 -- The bucket is PUBLIC (anyone with the exact URL can open a file)
 -- so links work anywhere staff paste them. File paths are random,
 -- so they can't be guessed. Only staff can upload; only Admins and
@@ -22,9 +25,10 @@ alter table public.mod_actions add column if not exists proof text[];
 -- 2) Storage bucket for uploads (50 MB per file, media types only)
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('proof', 'proof', true, 52428800,
-  array['image/png','image/jpeg','image/gif','image/webp',
+  array['image/png','image/jpeg','image/gif','image/webp','image/avif','image/bmp',
+        'image/heic','image/heif',
         'video/mp4','video/webm','video/quicktime',
-        'audio/mpeg','audio/mp3','audio/mp4','audio/wav','audio/ogg','audio/webm'])
+        'audio/mpeg','audio/mp3','audio/mp4','audio/wav','audio/x-wav','audio/ogg','audio/webm'])
 on conflict (id) do update
   set public = excluded.public,
       file_size_limit = excluded.file_size_limit,

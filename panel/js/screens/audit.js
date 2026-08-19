@@ -15,7 +15,7 @@
   function actions() { return P.state.data.actions || []; }
   function has(v, q) { return String(v || '').toLowerCase().indexOf(q) > -1; }
   function what(a) {
-    return '<span class="x-what">' + P.typePill(a.type) + '<span class="a-what-txt" title="' + esc([a.reason, a.duration].filter(Boolean).join(' · ')) + '">' + esc(a.reason || '—')
+    return '<span class="x-what">' + P.typePill(a.type) + '<span class="a-what-txt" title="' + esc(['#' + a.id, a.reason, a.duration].filter(Boolean).join(' · ')) + '">' + esc(a.reason || '—')
       + (a.duration ? ' <span class="x-dim">· ' + esc(a.duration) + '</span>' : '') + '</span></span>';
   }
   function decideBtns(a) {
@@ -31,9 +31,11 @@
     if (s.param && u.paramSeen !== s.param) { u.q = s.param; u.paramSeen = s.param; }
     if (!s.param) u.paramSeen = null;
     var all = actions();
-    var q = String(u.q || '').trim().toLowerCase();
+    // '#774' is the id players see on the public punishment lookup
+    var q = String(u.q || '').trim().toLowerCase().replace(/^#/, '');
     var rows = all.filter(function (a) {
-      return (u.filter === 'All' || a.status === u.filter) && (!q || has(a.target, q) || has(a.by_name, q) || has(a.reason, q));
+      return (u.filter === 'All' || a.status === u.filter)
+        && (!q || has(a.target, q) || has(a.by_name, q) || has(a.reason, q) || String(a.id) === q);
     });
 
     var chips = FILTERS.map(function (f) {
@@ -63,7 +65,7 @@
     }).join('');
 
     root.innerHTML = '<div class="page-head x-head"><div><h2>History</h2><p class="sub x-sub">Every punishment on ' + esc(P.serverName(s.server)) + ', newest first.</p></div></div>'
-      + '<div class="filter-row x-filters"><div class="gl-search"><span class="gl-search-icon">⌕</span><input class="gl-input" type="search" placeholder="Type a player, staff name or reason…" data-field="q" value="' + esc(u.q) + '" aria-label="Search history"></div>'
+      + '<div class="filter-row x-filters"><div class="gl-search"><span class="gl-search-icon">⌕</span><input class="gl-input" type="search" placeholder="Type a player, staff name, reason or #id…" data-field="q" value="' + esc(u.q) + '" aria-label="Search history"></div>'
       + '<div class="x-chips">' + chips + '</div></div>'
       + '<div class="tbl-scroll"><div class="gl-glass x-tbl a-tbl">'
       + '<div class="table-head x-th"><span>When</span><span>Player</span><span>What</span><span>By</span><span>Proof</span><span>Status</span><span class="x-right">&nbsp;</span></div>'

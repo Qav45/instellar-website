@@ -279,6 +279,29 @@
       return { row: d, approval: full.status === 'Approval' };
     });
   };
+  // The types the 'proof' bucket accepts (keep in step with proof-setup.sql).
+  var EXT_MIME = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+    avif: 'image/avif', bmp: 'image/bmp', heic: 'image/heic', heif: 'image/heif',
+    mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+    mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', m4a: 'audio/mp4'
+  };
+  // Phones and screenshot tools sometimes hand over a file with no type at all,
+  // and Storage rejects those, so fall back to the extension.
+  P.proofType = function (f) {
+    if (f && f.type && f.type !== 'application/octet-stream') return f.type;
+    var e = ((String(f && f.name || '').match(/\.(\w+)$/) || [])[1] || '').toLowerCase();
+    return EXT_MIME[e] || '';
+  };
+  // Say what actually went wrong: the reason is nearly always the bucket, not the file.
+  function uploadError(msg, f) {
+    var m = String(msg || '');
+    if (/mime type|content type/i.test(m)) return 'The proof bucket does not accept ' + (P.proofType(f) || 'that file type') + '. Re-run supabase/proof-setup.sql, or attach a PNG or JPG.';
+    if (/bucket not found/i.test(m)) return 'The proof bucket is missing. Run supabase/proof-setup.sql in Supabase.';
+    if (/row-level security|violates|unauthorized|not authorized|jwt/i.test(m)) return 'Storage would not accept the upload from your account. Re-run supabase/proof-setup.sql, then sign out and back in.';
+    if (/maximum allowed size|payload too large|entity too large/i.test(m)) return f.name + ' is too big for the proof bucket (50 MB).';
+    return m;
+  }
   // Uploads proof files to the public 'proof' bucket. Returns { urls } or { error }.
   api.uploadProof = function (files) {
     var urls = [], i = 0;
@@ -288,8 +311,8 @@
       var rand = Array.prototype.map.call(crypto.getRandomValues(new Uint8Array(8)), function (b) { return b.toString(16).padStart(2, '0'); }).join('');
       var safe = f.name.replace(/[^\w.\-]+/g, '_').slice(-80);
       var path = S.server + '/' + Date.now() + '-' + rand + '-' + safe;
-      return api.sb().storage.from('proof').upload(path, f, { contentType: f.type || undefined, upsert: false }).then(function (r) {
-        if (r.error) return { error: r.error.message };
+      return api.sb().storage.from('proof').upload(path, f, { contentType: P.proofType(f) || undefined, upsert: false }).then(function (r) {
+        if (r.error) return { error: uploadError(r.error.message, f) };
         urls.push(api.sb().storage.from('proof').getPublicUrl(path).data.publicUrl);
         return next();
       });

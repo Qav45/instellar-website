@@ -8,7 +8,8 @@
   'use strict';
   var P = window.P;
   var esc = P.esc;
-  var FILE_RE = /^(image\/|video\/(mp4|webm|quicktime)|audio\/)/;
+  // Exactly what the 'proof' bucket accepts, so nothing is rejected after the upload starts.
+  var FILE_RE = /^(image\/(png|jpeg|gif|webp|avif|bmp|heic|heif)|video\/(mp4|webm|quicktime)|audio\/(mpeg|mp4|wav|x-wav|ogg|webm))$/;
   var MAX_FILES = 5, MAX_BYTES = 50 * 1024 * 1024;
 
   P.openPunish = function (o) {
@@ -43,7 +44,7 @@
       }
       h += '<div class="field-label">Proof <span class="hint">optional · screenshot, mp4, mp3 or a link</span></div>'
         + '<div class="proof-row"><button type="button" class="gl-btn gl-btn-sm" data-action="pickFile"' + (st.busy || st.files.length >= MAX_FILES ? ' disabled' : '') + '>+ Attach file</button>'
-        + '<input type="file" id="punish-files" data-field="proofFiles" multiple accept="image/*,video/mp4,video/webm,video/quicktime,audio/*" hidden>'
+        + '<input type="file" id="punish-files" data-field="proofFiles" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.avif,.bmp,.heic,.heif,.mp4,.m4v,.webm,.mov,.mp3,.wav,.ogg,.m4a,image/*,video/*,audio/*" hidden>'
         + st.files.map(function (f, i) {
           return '<span class="file-chip">' + esc(f.name) + ' · ' + esc(P.fmtSize(f.size))
             + '<button type="button" data-action="rmFile" data-i="' + i + '" aria-label="Remove ' + esc(f.name) + '"' + (st.busy ? ' disabled' : '') + '>×</button></span>';
@@ -124,8 +125,8 @@
         else if (f === 'proofFiles') {
           var picked = Array.prototype.slice.call(el.files || []);
           el.value = '';
-          var bad = picked.filter(function (x) { return !FILE_RE.test(x.type); })[0];
-          if (bad) { P.toast('fail', bad.name + ' is not a screenshot, mp4 or mp3.'); return; }
+          var bad = picked.filter(function (x) { return !FILE_RE.test(P.proofType(x)); })[0];
+          if (bad) { P.toast('fail', bad.name + ' is not a supported file. Use PNG, JPG, GIF, WEBP, AVIF, HEIC, MP4, WEBM, MOV, MP3, WAV or OGG.'); return; }
           var big = picked.filter(function (x) { return x.size > MAX_BYTES; })[0];
           if (big) { P.toast('fail', big.name + ' is over 50 MB.'); return; }
           var room = MAX_FILES - st.files.length;

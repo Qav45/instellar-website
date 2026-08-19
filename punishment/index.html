@@ -54,6 +54,10 @@
   .tag { flex: none; font-size: 12px; font-weight: 800; border-radius: 99px; padding: 4px 11px; margin-top: 1px; }
   .tag.Warn { color: #4C9AF0; background: rgba(76,154,240,.13); }
   .tag.Ban { color: #EF6461; background: rgba(239,100,97,.13); }
+  .tag.Lifted { color: #6ee7a8; background: rgba(110,231,168,.13); }
+  .row.lifted .r { color: #9c9ca8; text-decoration: line-through; text-decoration-color: #4a4a58; }
+  .row .id { font-family: ui-monospace, monospace; font-size: 12px; color: #9c9ca8; background: #15151c; border: 1px solid #232330; border-radius: 8px; padding: 2px 7px; }
+  .row .top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .row .r { font-size: 14px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
   .row .m { font-size: 12px; color: #9c9ca8; margin-top: 3px; }
   .msg { display: none; border-radius: 14px; padding: 12px 16px; font-size: 14px; line-height: 1.5; }
@@ -81,7 +85,7 @@
     <div class="head"><a href="../index.html" title="Back to home">Instellar</a></div>
     <div class="main">
       <h1>Punishment lookup</h1>
-      <p class="sub">Type your Minecraft username to see your warnings and bans on Instellar, and the reason for each.</p>
+      <p class="sub">Type your Minecraft username to see your warnings and bans on Instellar, and the reason for each. A ban that was later lifted by an unban shows as <b style="color:#f4f4f7;font-weight:800">Lifted</b> and no longer counts.</p>
       <div class="card">
         <form id="f" autocomplete="off">
           <input id="name" name="name" placeholder="Minecraft username" maxlength="32" spellcheck="false" required>
@@ -93,13 +97,13 @@
           <div class="who">Record for <b id="who"></b></div>
           <div class="stats">
             <div class="stat warn"><div class="n" id="warns">0</div><div class="l">Warnings</div></div>
-            <div class="stat ban"><div class="n" id="bans">0</div><div class="l">Bans</div></div>
+            <div class="stat ban"><div class="n" id="bans">0</div><div class="l" id="banlabel">Bans</div></div>
           </div>
           <div class="per" id="per"></div>
           <div class="list" id="list"></div>
         </div>
       </div>
-      <p class="foot">Only warnings and bans are shown. If you think a punishment was a mistake, you can <a href="../apply/index.html" style="color:#f4f4f7;font-weight:700">appeal it here</a>.</p>
+      <p class="foot">Only warnings and bans are shown. Each one has an ID (#123): quote it if you appeal. If you think a punishment was a mistake, you can <a href="../apply/index.html" style="color:#f4f4f7;font-weight:700">appeal it here</a>.</p>
     </div>
   </div>
 </div>
@@ -136,14 +140,22 @@
       $('who').textContent = d.name || name;
       $('warns').textContent = d.warns;
       $('bans').textContent = d.bans;
+      $('banlabel').textContent = d.lifted ? 'Bans · ' + d.lifted + ' lifted' : 'Bans';
       var per = (d.servers || []).map(function (s) {
         return (SERVER_NAMES[s.server] || s.server) + ': ' + plural(s.warns, 'warning') + ', ' + plural(s.bans, 'ban');
       });
       $('per').textContent = per.length ? per.join(' · ') : 'Clean record: no warnings or bans.';
       $('list').innerHTML = (d.entries || []).map(function (e) {
         var wiped = e.type === 'Wipeban';
-        var meta = [SERVER_NAMES[e.server] || e.server, wiped ? 'Permanent' : e.duration, wiped ? 'account wiped' : null, when(e.at)].filter(Boolean).join(' · ');
-        return '<div class="row"><span class="tag ' + (wiped ? 'Ban' : esc(e.type)) + '">' + (wiped ? 'Ban' : esc(e.type)) + '</span><div><div class="r">' + esc(e.reason) + '</div><div class="m">' + esc(meta) + '</div></div></div>';
+        var lifted = !!e.lifted_at;
+        var label = lifted ? 'Lifted' : wiped ? 'Ban' : e.type;
+        var meta = [SERVER_NAMES[e.server] || e.server, wiped ? 'Permanent' : e.duration, wiped ? 'account wiped' : null, when(e.at),
+                    lifted ? 'unbanned ' + when(e.lifted_at) : null].filter(Boolean).join(' · ');
+        return '<div class="row' + (lifted ? ' lifted' : '') + '">'
+          + '<span class="tag ' + esc(label) + '">' + esc(label) + '</span>'
+          + '<div><div class="top"><span class="r">' + esc(e.reason) + '</span>'
+          + (e.id ? '<span class="id" title="Quote this ID when you appeal">#' + esc(e.id) + '</span>' : '')
+          + '</div><div class="m">' + esc(meta) + '</div></div></div>';
       }).join('');
       $('list').style.display = (d.entries && d.entries.length) ? '' : 'none';
       res.className = 'result show';
