@@ -256,14 +256,13 @@
   }
 
   // Decide whether the current frame is a threat, from face landmarks + person
-  // boxes. Returns {hide, people, close, reason}. `personBoxes` may be empty
-  // when body detection is off/unavailable.
+  // boxes. Returns {hide, reason}. `personBoxes` may be empty when body detection
+  // is off/unavailable. 'any' hides on anyone visible; 'extra' only on a SECOND
+  // person (you're person #1, so leaning in yourself never triggers).
   function assess(faceList, personBoxes) {
-    const faces = faceList.length;
-    const persons = personBoxes.length;
     // Best estimate of how many humans are present — a body counts even when the
     // face is turned away and undetectable.
-    const people = Math.max(faces, persons);
+    const people = Math.max(faceList.length, personBoxes.length);
 
     // Close = any face OR any body box wide enough to be leaning in.
     let close = false;
@@ -273,21 +272,21 @@
       for (const b of personBoxes) { if ((b.width / vw) >= CONFIG.closeWidth) { close = true; break; } }
     }
 
-    let hide = false, reason = "";
-    if (CONFIG.mode === 'any') {
-      // Camera watches the space in front of the screen: anyone visible hides it.
-      if (people >= 1) { hide = true; reason = close ? "someone close" : (people + (people === 1 ? " person in view" : " people in view")); }
-    } else {
-      // 'extra': you're person #1 in frame, so only a SECOND person hides it.
-      // A single (even close) person is just you, so leaning in never triggers.
-      if (people >= 2) { hide = true; reason = close ? "someone leaning in" : (people + " people in view"); }
-    }
-    return { hide, people, close, reason };
+    const need = CONFIG.mode === 'any' ? 1 : 2;
+    if (people < need) return { hide: false, reason: "" };
+    const reason = close
+      ? (CONFIG.mode === 'any' ? "someone close" : "someone leaning in")
+      : (people + (people === 1 ? " person in view" : " people in view"));
+    return { hide: true, reason: reason };
   }
 
-  function setStatus(a) {
-    if (covered) {
-      statusTx.textContent = "Hidden — " + a.reason;
+  // Single render path for the status pill (normal + #debug readout).
+  function renderStatus(reason, faces, persons) {
+    if (DEBUG) {
+      statusTx.textContent = "faces:" + faces + " people:" + persons +
+        (covered ? " • HIDE" : (restoreLeft ? " • clear " + restoreLeft + "s" : " • clear"));
+    } else if (covered) {
+      statusTx.textContent = "Hidden — " + reason;
     } else if (restoreLeft > 0) {
       statusTx.textContent = "Clear — restoring in " + restoreLeft + "s";
     } else {
@@ -296,77 +295,63 @@
     statusEl.classList.toggle("warn", covered || restoreLeft > 0);
   }
 
-  // Reveal the protected content even if the camera can't be used, so the owner
-  // (who knew the secret) is never locked out.
-  function revealUnprotected() {
+  // Arm the guard and show the protected content. Used both on success and as
+  // the fail-open path (camera/model unavailable) so the owner — who knew the
+  // secret — is never locked out; the guard loop only runs when it can see.
+  function reveal() {
     armed = true;
     real.hidden = false;
     gInput.value = "";
     setCover(false);
   }
 
-  // The unlock trigger: start the webcam, load the model, reveal content, run the guard.
+  // GPU delegate first, CPU fallback so the guard still runs without WebGL2.
+  function withFallback(make) {
+    return make("GPU").catch(function (e) {
+      console.warn("[cool-things] GPU delegate failed, using CPU:", e);
+      return make("CPU");
+    });
+  }
+
+  // The unlock trigger: start the webcam, load the models, reveal content, run the guard.
   async function unlock() {
+    // Start the WASM runtime loading immediately — it's independent of the camera,
+    // so it overlaps the (often slow) permission prompt instead of stacking after it.
+    const filesetPromise = FilesetResolver.forVisionTasks("./vendor/wasm").catch(function (e) {
+      console.warn("[cool-things] vision runtime failed to load:", e); return null;
+    });
+
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 } });
     } catch (e) {
       console.warn("[cool-things] camera unavailable:", e);
-      revealUnprotected();   // fail-open
+      reveal();   // fail-open
       return;
     }
 
     video.srcObject = stream;
     await video.play();
+    const camTrack = stream.getVideoTracks()[0] || null;
 
-    // If the camera gets cut off later — another app grabs it, the OS revokes
-    // it, or the tab is being cast/screen-shared and the feed is muted — fail
-    // OPEN: reveal the content instead of sitting on the cover.
-    for (const track of stream.getVideoTracks()) {
-      track.addEventListener("ended", revealUnprotected);
-      track.addEventListener("mute", revealUnprotected);
-    }
+    const fileset = await filesetPromise;
+    if (!fileset) { reveal(); return; }   // fail-open
 
-    let fileset;
-    try {
-      fileset = await FilesetResolver.forVisionTasks("./vendor/wasm");
-    } catch (e) {
-      console.warn("[cool-things] vision runtime failed to load:", e);
-      revealUnprotected();   // fail-open
-      return;
-    }
-
-    // Try the GPU delegate first, fall back to CPU so the guard still runs on
-    // machines/browsers without WebGL2 GPU support (rather than failing open).
-    async function withFallback(make) {
-      try { return await make("GPU"); }
-      catch (e) { console.warn("[cool-things] GPU delegate failed, using CPU:", e); return await make("CPU"); }
-    }
-
-    let landmarker;
-    try {
-      landmarker = await withFallback(function (delegate) {
-        return FaceLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: "./vendor/face_landmarker.task", delegate: delegate },
-          runningMode: "VIDEO",
-          numFaces: CONFIG.maxFaces,
-          minFaceDetectionConfidence: CONFIG.minConfidence,
-          minFacePresenceConfidence: CONFIG.minConfidence,
-          minTrackingConfidence: CONFIG.minConfidence,
-        });
+    // Build both detectors concurrently — they only depend on the fileset. The
+    // face model is required (fail open on error); the body model is optional
+    // and finds whole people even when a face is turned away.
+    const facePromise = withFallback(function (delegate) {
+      return FaceLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: "./vendor/face_landmarker.task", delegate: delegate },
+        runningMode: "VIDEO",
+        numFaces: CONFIG.maxFaces,
+        minFaceDetectionConfidence: CONFIG.minConfidence,
+        minFacePresenceConfidence: CONFIG.minConfidence,
+        minTrackingConfidence: CONFIG.minConfidence,
       });
-    } catch (e) {
-      console.warn("[cool-things] face model load failed:", e);
-      revealUnprotected();   // fail-open
-      return;
-    }
-
-    // Optional body detector: finds whole people (the "person" class) even when
-    // their face isn't visible. If it can't load, fall back to faces-only.
-    let detector = null;
-    if (CONFIG.detectBodies) {
-      try {
-        detector = await withFallback(function (delegate) {
+    });
+    const bodyPromise = CONFIG.detectBodies
+      ? withFallback(function (delegate) {
           return ObjectDetector.createFromOptions(fileset, {
             baseOptions: { modelAssetPath: "./vendor/efficientdet_lite0.tflite", delegate: delegate },
             runningMode: "VIDEO",
@@ -374,17 +359,20 @@
             categoryAllowlist: ["person"],
             maxResults: 5,
           });
-        });
-      } catch (e) {
-        console.warn("[cool-things] body detector unavailable, using faces only:", e);
-      }
-    }
+        }).catch(function (e) { console.warn("[cool-things] body detector unavailable, using faces only:", e); return null; })
+      : Promise.resolve(null);
 
-    // Armed: wipe the passphrase, reveal content + status pill, start the loop.
-    armed = true;
-    real.hidden = false;
-    gInput.value = "";
-    setCover(false);
+    let landmarker;
+    try {
+      landmarker = await facePromise;
+    } catch (e) {
+      console.warn("[cool-things] face model load failed:", e);
+      reveal();   // fail-open
+      return;
+    }
+    const detector = await bodyPromise;
+
+    reveal();   // arm: wipe passphrase, show content + status pill, start the loop
 
     let lastTs = -1, tick = 0;
     let lastFaces = [], lastPersons = [];   // freshest result of each detector
@@ -396,8 +384,7 @@
       // Feed not actually delivering frames (blocked, paused, ended, muted, or
       // being cast away)? Fail OPEN — never keep the content hidden when we
       // can't really see. Also resets everything so nothing creeps.
-      const track = (video.srcObject && video.srcObject.getVideoTracks) ? video.srcObject.getVideoTracks()[0] : null;
-      const blind = video.paused || video.ended || video.readyState < 2 || (track && (track.muted || track.readyState === "ended"));
+      const blind = video.paused || video.ended || video.readyState < 2 || (camTrack && (camTrack.muted || camTrack.readyState === "ended"));
       if (blind) {
         if (covered) setCover(false);
         safeSince = 0; restoreLeft = 0; samples.length = 0;
@@ -439,19 +426,13 @@
           safeSince = 0;
           restoreLeft = 0;
           setCover(true);
-          setStatus({ reason: threat.reason });
         } else {
           if (!safeSince) safeSince = now;
           const elapsed = now - safeSince;
           restoreLeft = Math.max(0, Math.ceil((CONFIG.restoreMs - elapsed) / 1000));
           if (covered && elapsed >= CONFIG.restoreMs) { setCover(false); restoreLeft = 0; }
-          setStatus({ reason: "" });
         }
-
-        if (DEBUG) {
-          statusTx.textContent = "faces:" + lastFaces.length + " people:" + lastPersons.length +
-            (threat ? " • HIDE" : (restoreLeft ? " • clear " + restoreLeft + "s" : " • clear"));
-        }
+        renderStatus(threat ? threat.reason : "", lastFaces.length, lastPersons.length);
       }
       requestAnimationFrame(loop);
     }
