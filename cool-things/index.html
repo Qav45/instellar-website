@@ -7,6 +7,7 @@
 <meta name="robots" content="noindex">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* beat display:flex etc. so .hidden toggles actually hide */
   :root { --bg:#0b0d12; --fg:#e7e9ee; --muted:#8a90a0; --accent:#6ea8fe; --panel:#151922; --line:#232838; }
   html, body { height: 100%; }
   body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
