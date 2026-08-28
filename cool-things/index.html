@@ -44,25 +44,39 @@
   #status .dot { width:8px; height:8px; border-radius:50%; background:#3ddc84; box-shadow:0 0 8px #3ddc84; }
   #status.warn .dot { background:#ffb020; box-shadow:0 0 8px #ffb020; }
 
-  /* ---- The FAKE "boring work" cover ---- */
+  /* ---- The FAKE cover: an innocuous Google-style search page ---- */
   #cover {
-    position: fixed; inset: 0; z-index: 60; background: #f4f5f7; color: #1f2430;
-    font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+    position: fixed; inset: 0; z-index: 60; background: #fff; color: #202124;
+    font-family: arial, sans-serif;
     opacity: 0; visibility: hidden; transition: opacity .12s ease;
+    display: flex; flex-direction: column;
   }
   #cover.show { opacity: 1; visibility: visible; }
-  .wtop { display:flex; align-items:center; gap:14px; padding:10px 16px; background:#fff; border-bottom:1px solid #dfe1e6; }
-  .wtop .wlogo { width:22px; height:22px; border-radius:5px; background:#217346; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:13px; }
-  .wtop .wtitle { font-size:14px; font-weight:600; color:#3c4149; }
-  .wtabs { display:flex; gap:2px; padding:6px 16px 0; background:#f4f5f7; border-bottom:1px solid #dfe1e6; font-size:13px; }
-  .wtabs div { padding:8px 14px; color:#5f6673; }
-  .wtabs .on { background:#fff; border:1px solid #dfe1e6; border-bottom-color:#fff; border-radius:6px 6px 0 0; color:#217346; font-weight:600; }
-  .grid { width:100%; border-collapse:collapse; font-size:13px; background:#fff; }
-  .grid th, .grid td { border:1px solid #e3e5e9; padding:6px 10px; text-align:left; }
-  .grid th { background:#f0f2f5; color:#5f6673; font-weight:600; position:sticky; top:0; }
-  .grid td.num { text-align:right; font-variant-numeric: tabular-nums; }
-  .grid tr:nth-child(even) td { background:#fafbfc; }
-  .wfoot { position:fixed; bottom:0; left:0; right:0; background:#217346; color:#fff; font-size:12px; padding:5px 16px; display:flex; justify-content:space-between; }
+  .gtop { display:flex; justify-content:flex-end; align-items:center; gap:15px; padding:12px 18px; font-size:13px; color:#3c4043; }
+  .gtop a { color:#3c4043; text-decoration:none; }
+  .gtop .gapp { width:24px; height:24px; opacity:.75; }
+  .gtop .gacct { width:32px; height:32px; border-radius:50%; background:#1a73e8; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:600; }
+  .gmain { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; padding-top:min(20vh,180px); }
+  .glogo { font-size:90px; font-weight:500; letter-spacing:-6px; margin-bottom:26px; user-select:none; }
+  .glogo .b1{color:#4285f4} .glogo .r{color:#ea4335} .glogo .y{color:#fbbc05} .glogo .b2{color:#4285f4} .glogo .g{color:#34a853}
+  .gsearch { width:min(584px,92vw); position:relative; }
+  .gsearch input {
+    width:100%; height:46px; border:1px solid #dfe1e5; border-radius:24px; padding:0 48px 0 48px;
+    font-size:16px; outline:none; box-shadow:0 1px 6px rgba(32,33,36,.1); color:#202124;
+  }
+  .gsearch input:hover, .gsearch input:focus { box-shadow:0 1px 8px rgba(32,33,36,.18); border-color:#dfe1e5; }
+  .gsearch .gicon { position:absolute; top:50%; transform:translateY(-50%); }
+  .gsearch .gmag { left:16px; width:20px; height:20px; }
+  .gbtns { display:flex; gap:12px; margin-top:28px; }
+  .gbtns button {
+    background:#f8f9fa; border:1px solid #f8f9fa; color:#3c4043; font-size:14px;
+    padding:0 16px; height:36px; border-radius:4px; cursor:pointer; font-family:arial,sans-serif;
+  }
+  .gbtns button:hover { border-color:#dadce0; box-shadow:0 1px 1px rgba(0,0,0,.1); }
+  .gfoot { background:#f2f2f2; color:#70757a; font-size:14px; }
+  .gfoot .grow { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:14px 22px; }
+  .gfoot a { color:#70757a; text-decoration:none; }
+  .gfoot .g1 { border-bottom:1px solid #dadce0; }
 </style>
 </head>
 <body>
@@ -72,9 +86,9 @@
   <div style="width:44px;height:44px;border-radius:12px;background:#151922;border:1px solid #232838;display:flex;align-items:center;justify-content:center;font-size:22px;">&#128064;</div>
   <h1>Cool Things &mdash; Shoulder&#8209;Surf Guard</h1>
   <p>Turn on your camera. While you work alone, your content stays visible. The instant a
-     <strong>second face</strong> appears looking at the screen, this page swaps to a boring
-     spreadsheet &mdash; and swaps back when they leave. Everything runs on your device; no video
-     leaves your computer.</p>
+     <strong>second face</strong> appears looking at the screen, this page swaps to an innocent
+     Google search page &mdash; and swaps back when they leave. Everything runs on your device; no
+     video leaves your computer.</p>
   <button id="armBtn">Enable camera &amp; arm</button>
   <div class="err" id="armErr"></div>
   <p style="font-size:12px;opacity:.7;">Triggers on a second face in frame &mdash; the camera can&rsquo;t recognize <em>who</em> you are, only how many faces it sees.</p>
@@ -105,40 +119,39 @@
   </div>
 </div>
 
-<!-- ============ FAKE "BORING WORK" COVER ============ -->
+<!-- ============ FAKE COVER: innocuous Google-style search page ============ -->
+<!-- The search box is a REAL server-side search: submitting it navigates the
+     browser to google.com/search (a GET to Google's servers). No client-side
+     JS does the searching. -->
 <div id="cover" aria-hidden="true">
-  <div class="wtop"><div class="wlogo">X</div><div class="wtitle">Q3_Regional_Expenses_FINAL_v7.xlsx &mdash; Read Only</div></div>
-  <div class="wtabs"><div class="on">Summary</div><div>Q1</div><div>Q2</div><div>Q3</div><div>Notes</div></div>
-  <div style="overflow:auto; height:calc(100vh - 110px);">
-    <table class="grid">
-      <thead><tr><th style="width:60px;">Row</th><th>Cost Center</th><th>Category</th><th class="num">Budget</th><th class="num">Actual</th><th class="num">Variance</th></tr></thead>
-      <tbody id="wbody"></tbody>
-    </table>
+  <div class="gtop">
+    <a href="https://mail.google.com" target="_blank" rel="noopener">Gmail</a>
+    <a href="https://images.google.com" target="_blank" rel="noopener">Images</a>
+    <svg class="gapp" viewBox="0 0 24 24" fill="#5f6368"><circle cx="5" cy="5" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg>
+    <div class="gacct">A</div>
   </div>
-  <div class="wfoot"><span>Ready</span><span>Sum=482,930 &nbsp; Avg=9,844 &nbsp; Count=49</span></div>
+  <div class="gmain">
+    <div class="glogo"><span class="b1">G</span><span class="r">o</span><span class="y">o</span><span class="b2">g</span><span class="g">l</span><span class="r">e</span></div>
+    <form id="gform" class="gsearch" action="https://www.google.com/search" method="GET" role="search">
+      <svg class="gicon gmag" viewBox="0 0 24 24" fill="#9aa0a6"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
+      <input type="text" name="q" aria-label="Search" autocomplete="off" spellcheck="false">
+    </form>
+    <div class="gbtns">
+      <button type="submit" form="gform">Google Search</button>
+      <button type="button" onclick="location.href='https://www.google.com/doodles'">I'm Feeling Lucky</button>
+    </div>
+  </div>
+  <div class="gfoot">
+    <div class="grow g1"><span>United States</span></div>
+    <div class="grow">
+      <span><a href="https://about.google">About</a> &nbsp; <a href="https://ads.google.com">Advertising</a> &nbsp; <a href="https://www.google.com/business">Business</a></span>
+      <span><a href="https://policies.google.com/privacy">Privacy</a> &nbsp; <a href="https://policies.google.com/terms">Terms</a> &nbsp; <a href="https://www.google.com/preferences">Settings</a></span>
+    </div>
+  </div>
 </div>
 
 <!-- hidden capture element -->
 <video id="cam" playsinline muted style="position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px;"></video>
-
-<script>
-  // Fill the fake spreadsheet with dull rows so the cover looks lived-in.
-  (function () {
-    const centers = ["North","South","East","West","Central","EMEA","APAC","LATAM"];
-    const cats = ["Travel","Software","Facilities","Marketing","Contractors","Utilities","Training","Supplies"];
-    const b = document.getElementById("wbody");
-    let html = "";
-    for (let i = 1; i <= 48; i++) {
-      const bud = 2000 + ((i * 733) % 9000);
-      const act = bud + (((i * 271) % 1800) - 900);
-      const varc = act - bud;
-      html += "<tr><td>" + i + "</td><td>" + centers[i % centers.length] + "</td><td>" + cats[i % cats.length] + "</td>"
-            + "<td class=\"num\">" + bud.toLocaleString() + "</td><td class=\"num\">" + act.toLocaleString() + "</td>"
-            + "<td class=\"num\" style=\"color:" + (varc < 0 ? "#217346" : "#c0392b") + "\">" + varc.toLocaleString() + "</td></tr>";
-    }
-    b.innerHTML = html;
-  })();
-</script>
 
 <script type="module">
   import { FaceLandmarker, FilesetResolver } from "./vendor/vision_bundle.mjs";
