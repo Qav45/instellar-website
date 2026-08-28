@@ -198,7 +198,10 @@
     // (safe) continuously for this long.
     restoreMs: 5000,
 
-    maxFaces: 8,          // how many faces the model tracks at once (crowd-safe)
+    // How many faces to track. We only need to notice a SECOND face, so keeping
+    // this small makes each detection pass faster and the scan more responsive.
+    // (More faces than this still trigger — they just aren't counted.)
+    maxFaces: 3,
 
     // Detection sensitivity. Lower = scans more aggressively, catching faces
     // that are partial, turned to the side, or farther away (MediaPipe's own
@@ -245,13 +248,19 @@
   // Decide whether the current frame is a threat. Returns {hide, faces, close, reason}.
   function assess(faceList) {
     const faces = faceList.length;
+    // Is any face large in frame (leaning in)? Used to refine the reason.
     let close = false;
     for (const lm of faceList) { if (faceWidth(lm) >= CONFIG.closeWidth) { close = true; break; } }
 
     let hide = false, reason = "";
-    if (close)                              { hide = true; reason = "someone close"; }
-    else if (CONFIG.mode === 'any'  && faces >= 1) { hide = true; reason = faces + (faces === 1 ? " face in view" : " faces in view"); }
-    else if (CONFIG.mode === 'extra' && faces >= 2) { hide = true; reason = faces + " faces in view"; }
+    if (CONFIG.mode === 'any') {
+      // Camera watches the space in front of the screen: anyone visible hides it.
+      if (faces >= 1) { hide = true; reason = close ? "someone close" : (faces + (faces === 1 ? " face in view" : " faces in view")); }
+    } else {
+      // 'extra': you sit in frame as face #1, so only a SECOND person hides it.
+      // A single face — even a close one — is just you leaning in, never a threat.
+      if (faces >= 2) { hide = true; reason = close ? "someone leaning in" : (faces + " faces in view"); }
+    }
     return { hide, faces, close, reason };
   }
 
