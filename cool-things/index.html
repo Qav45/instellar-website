@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cool Things</title>
+<meta name="robots" content="noindex">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --bg:#0b0d12; --fg:#e7e9ee; --muted:#8a90a0; --accent:#6ea8fe; --panel:#151922; --line:#232838; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+  /* ---- Arm / status chip (only thing shown before camera is granted) ---- */
+  #arm {
+    position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 18px; background: radial-gradient(1200px 600px at 50% -10%, #1a2030, var(--bg));
+    text-align: center; padding: 24px;
+  }
+  #arm h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+  #arm p { color: var(--muted); max-width: 460px; line-height: 1.55; font-size: 14px; }
+  #arm button {
+    margin-top: 6px; background: var(--accent); color: #06122b; border: 0; font-weight: 700;
+    padding: 12px 22px; border-radius: 10px; font-size: 15px; cursor: pointer;
+  }
+  #arm button:active { transform: translateY(1px); }
+  #arm .err { color: #ff8a80; font-size: 13px; max-width: 460px; }
+
+  /* ---- The REAL (secret) content ---- */
+  #real { padding: 40px 28px; max-width: 860px; margin: 0 auto; }
+  #real .tag { display:inline-block; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); border:1px solid var(--line); padding:4px 10px; border-radius:999px; }
+  #real h2 { font-size: 30px; margin: 16px 0 8px; letter-spacing:-.02em; }
+  #real .sub { color: var(--muted); margin-bottom: 26px; }
+  #real .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin-bottom: 16px; }
+  #real .card h3 { font-size: 15px; margin-bottom: 10px; }
+  #real .row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px dashed var(--line); font-size:14px; }
+  #real .row:last-child { border-bottom:0; }
+  #real .row span:last-child { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+  /* status pill top-right while armed */
+  #status { position: fixed; top: 12px; right: 12px; z-index: 45; font-size: 12px; color: var(--muted);
+            background: rgba(21,25,34,.85); border:1px solid var(--line); padding:6px 11px; border-radius: 999px;
+            display:flex; align-items:center; gap:7px; backdrop-filter: blur(6px); }
+  #status .dot { width:8px; height:8px; border-radius:50%; background:#3ddc84; box-shadow:0 0 8px #3ddc84; }
+  #status.warn .dot { background:#ffb020; box-shadow:0 0 8px #ffb020; }
+
+  /* ---- The FAKE "boring work" cover ---- */
+  #cover {
+    position: fixed; inset: 0; z-index: 60; background: #f4f5f7; color: #1f2430;
+    font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+    opacity: 0; visibility: hidden; transition: opacity .12s ease;
+  }
+  #cover.show { opacity: 1; visibility: visible; }
+  .wtop { display:flex; align-items:center; gap:14px; padding:10px 16px; background:#fff; border-bottom:1px solid #dfe1e6; }
+  .wtop .wlogo { width:22px; height:22px; border-radius:5px; background:#217346; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:13px; }
+  .wtop .wtitle { font-size:14px; font-weight:600; color:#3c4149; }
+  .wtabs { display:flex; gap:2px; padding:6px 16px 0; background:#f4f5f7; border-bottom:1px solid #dfe1e6; font-size:13px; }
+  .wtabs div { padding:8px 14px; color:#5f6673; }
+  .wtabs .on { background:#fff; border:1px solid #dfe1e6; border-bottom-color:#fff; border-radius:6px 6px 0 0; color:#217346; font-weight:600; }
+  .grid { width:100%; border-collapse:collapse; font-size:13px; background:#fff; }
+  .grid th, .grid td { border:1px solid #e3e5e9; padding:6px 10px; text-align:left; }
+  .grid th { background:#f0f2f5; color:#5f6673; font-weight:600; position:sticky; top:0; }
+  .grid td.num { text-align:right; font-variant-numeric: tabular-nums; }
+  .grid tr:nth-child(even) td { background:#fafbfc; }
+  .wfoot { position:fixed; bottom:0; left:0; right:0; background:#217346; color:#fff; font-size:12px; padding:5px 16px; display:flex; justify-content:space-between; }
+</style>
+</head>
+<body>
+
+<!-- ============ ARM SCREEN ============ -->
+<div id="arm">
+  <div style="width:44px;height:44px;border-radius:12px;background:#151922;border:1px solid #232838;display:flex;align-items:center;justify-content:center;font-size:22px;">&#128064;</div>
+  <h1>Cool Things &mdash; Shoulder&#8209;Surf Guard</h1>
+  <p>Turn on your camera. While you work alone, your content stays visible. The instant a
+     <strong>second face</strong> appears looking at the screen, this page swaps to a boring
+     spreadsheet &mdash; and swaps back when they leave. Everything runs on your device; no video
+     leaves your computer.</p>
+  <button id="armBtn">Enable camera &amp; arm</button>
+  <div class="err" id="armErr"></div>
+  <p style="font-size:12px;opacity:.7;">Triggers on a second face in frame &mdash; the camera can&rsquo;t recognize <em>who</em> you are, only how many faces it sees.</p>
+</div>
+
+<!-- ============ STATUS PILL ============ -->
+<div id="status" hidden><span class="dot"></span><span id="statusText">Watching &mdash; 1 face</span></div>
+
+<!-- ============ REAL (SECRET) CONTENT ============ -->
+<!-- Replace everything inside #real with the content you actually want to protect. -->
+<div id="real" hidden>
+  <span class="tag">Confidential &middot; internal</span>
+  <h2>Project Aurora &mdash; launch checklist</h2>
+  <div class="sub">Anyone reading over your shoulder should NOT be seeing this.</div>
+
+  <div class="card">
+    <h3>Access keys (demo placeholder)</h3>
+    <div class="row"><span>Deploy token</span><span>sk_live_9f2&bull;&bull;&bull;&bull;&bull;a71c</span></div>
+    <div class="row"><span>Admin recovery code</span><span>PLUM-42-VELVET</span></div>
+    <div class="row"><span>Payroll sheet</span><span>drive/Q3-final</span></div>
+  </div>
+
+  <div class="card">
+    <h3>Notes</h3>
+    <div class="row"><span>Salaries finalized</span><span>yes</span></div>
+    <div class="row"><span>Board deck shared</span><span>Thursday</span></div>
+    <div class="row"><span>Surprise for the team</span><span>&#127829;</span></div>
+  </div>
+</div>
+
+<!-- ============ FAKE "BORING WORK" COVER ============ -->
+<div id="cover" aria-hidden="true">
+  <div class="wtop"><div class="wlogo">X</div><div class="wtitle">Q3_Regional_Expenses_FINAL_v7.xlsx &mdash; Read Only</div></div>
+  <div class="wtabs"><div class="on">Summary</div><div>Q1</div><div>Q2</div><div>Q3</div><div>Notes</div></div>
+  <div style="overflow:auto; height:calc(100vh - 110px);">
+    <table class="grid">
+      <thead><tr><th style="width:60px;">Row</th><th>Cost Center</th><th>Category</th><th class="num">Budget</th><th class="num">Actual</th><th class="num">Variance</th></tr></thead>
+      <tbody id="wbody"></tbody>
+    </table>
+  </div>
+  <div class="wfoot"><span>Ready</span><span>Sum=482,930 &nbsp; Avg=9,844 &nbsp; Count=49</span></div>
+</div>
+
+<!-- hidden capture element -->
+<video id="cam" playsinline muted style="position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px;"></video>
+
+<script>
+  // Fill the fake spreadsheet with dull rows so the cover looks lived-in.
+  (function () {
+    const centers = ["North","South","East","West","Central","EMEA","APAC","LATAM"];
+    const cats = ["Travel","Software","Facilities","Marketing","Contractors","Utilities","Training","Supplies"];
+    const b = document.getElementById("wbody");
+    let html = "";
+    for (let i = 1; i <= 48; i++) {
+      const bud = 2000 + ((i * 733) % 9000);
+      const act = bud + (((i * 271) % 1800) - 900);
+      const varc = act - bud;
+      html += "<tr><td>" + i + "</td><td>" + centers[i % centers.length] + "</td><td>" + cats[i % cats.length] + "</td>"
+            + "<td class=\"num\">" + bud.toLocaleString() + "</td><td class=\"num\">" + act.toLocaleString() + "</td>"
+            + "<td class=\"num\" style=\"color:" + (varc < 0 ? "#217346" : "#c0392b") + "\">" + varc.toLocaleString() + "</td></tr>";
+    }
+    b.innerHTML = html;
+  })();
+</script>
+
+<script type="module">
+  import { FaceLandmarker, FilesetResolver } from "./vendor/vision_bundle.mjs";
+
+  const armBox   = document.getElementById("arm");
+  const armBtn   = document.getElementById("armBtn");
+  const armErr   = document.getElementById("armErr");
+  const real     = document.getElementById("real");
+  const cover    = document.getElementById("cover");
+  const statusEl = document.getElementById("status");
+  const statusTx = document.getElementById("statusText");
+  const video    = document.getElementById("cam");
+
+  // Hysteresis: cover after faces>=2 held briefly; uncover after faces<=1 held a bit longer.
+  const COVER_MS = 200;
+  const UNCOVER_MS = 400;
+  let covered = false;
+  let manySince = 0;   // when we first saw >=2 faces (0 = not currently)
+  let oneSince  = 0;   // when we first dropped to <=1 face
+
+  function setCover(on) {
+    if (on === covered) return;
+    covered = on;
+    cover.classList.toggle("show", on);
+    cover.setAttribute("aria-hidden", on ? "false" : "true");
+  }
+
+  function setStatus(faces) {
+    statusTx.textContent = faces >= 2
+      ? "Covered — " + faces + " faces"
+      : "Watching — " + faces + " face" + (faces === 1 ? "" : "s");
+    statusEl.classList.toggle("warn", faces >= 2);
+  }
+
+  async function arm() {
+    armBtn.disabled = true;
+    armErr.textContent = "";
+    armBtn.textContent = "Starting camera…";
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 } });
+    } catch (e) {
+      armBtn.disabled = false;
+      armBtn.textContent = "Enable camera & arm";
+      armErr.textContent = "Camera blocked or unavailable (" + (e.name || e.message) + "). Your content is shown unprotected.";
+      // Fail-open: reveal the real content even without a camera.
+      armBox.hidden = true; real.hidden = false;
+      return;
+    }
+
+    video.srcObject = stream;
+    await video.play();
+
+    armBtn.textContent = "Loading model…";
+    let landmarker;
+    try {
+      const fileset = await FilesetResolver.forVisionTasks("./vendor/wasm");
+      landmarker = await FaceLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: "./vendor/face_landmarker.task", delegate: "GPU" },
+        runningMode: "VIDEO",
+        numFaces: 2,
+      });
+    } catch (e) {
+      armBtn.disabled = false;
+      armBtn.textContent = "Enable camera & arm";
+      armErr.textContent = "Failed to load face model: " + (e.message || e);
+      return;
+    }
+
+    // Armed: hide arm screen, show real content + status pill, start the loop.
+    armBox.hidden = true;
+    real.hidden = false;
+    statusEl.hidden = false;
+
+    let lastTs = -1;
+    function loop() {
+      const now = performance.now();
+      // detectForVideo needs a fresh frame + strictly increasing timestamp
+      if (video.currentTime !== lastTs) {
+        lastTs = video.currentTime;
+        let faces = 0;
+        try {
+          const res = landmarker.detectForVideo(video, now);
+          faces = res.faceLandmarks ? res.faceLandmarks.length : 0;
+        } catch (_) { /* transient frame error: keep last state */ }
+
+        if (faces >= 2) {
+          oneSince = 0;
+          if (!manySince) manySince = now;
+          if (!covered && now - manySince >= COVER_MS) setCover(true);
+        } else {
+          manySince = 0;
+          if (!oneSince) oneSince = now;
+          if (covered && now - oneSince >= UNCOVER_MS) setCover(false);
+        }
+        setStatus(faces);
+      }
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  armBtn.addEventListener("click", arm);
+</script>
+</body>
+</html>
