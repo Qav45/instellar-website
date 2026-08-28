@@ -365,7 +365,8 @@
     gInput.value = "";
     setCover(false);
 
-    let lastTs = -1;
+    let lastTs = -1, tick = 0;
+    let lastFaces = [], lastPersons = [];   // freshest result of each detector
     const samples = [];   // rolling {t, hide, reason} over the last detectWindowMs
 
     function loop() {
@@ -379,6 +380,7 @@
       if (blind) {
         if (covered) setCover(false);
         safeSince = 0; restoreLeft = 0; samples.length = 0;
+        lastFaces = []; lastPersons = [];
         requestAnimationFrame(loop);
         return;
       }
@@ -386,20 +388,23 @@
       // detectForVideo needs a fresh frame + strictly increasing timestamp
       if (video.currentTime !== lastTs) {
         lastTs = video.currentTime;
-        let list = [], persons = [];
-        try {
-          const res = landmarker.detectForVideo(video, now);
-          list = res.faceLandmarks || [];
-        } catch (_) { /* transient frame error: keep last state */ }
-        if (detector) {
+
+        // Run ONE detector per frame (alternating) to keep CPU down; assess uses
+        // the freshest cached result of each. With no body detector, run faces
+        // every frame. The 700ms window keeps both signals effectively live.
+        if (!detector || (tick % 2) === 0) {
+          try { lastFaces = landmarker.detectForVideo(video, now).faceLandmarks || []; }
+          catch (_) { /* keep last faces */ }
+        } else {
           try {
             const od = detector.detectForVideo(video, now);
-            persons = (od.detections || []).map(function (d) { return d.boundingBox; });
-          } catch (_) { /* keep last state */ }
+            lastPersons = (od.detections || []).map(function (d) { return d.boundingBox; });
+          } catch (_) { /* keep last persons */ }
         }
+        tick++;
 
         // Record this frame and drop anything older than the smoothing window.
-        const a = assess(list, persons);
+        const a = assess(lastFaces, lastPersons);
         samples.push({ t: now, hide: a.hide, reason: a.reason });
         while (samples.length && now - samples[0].t > CONFIG.detectWindowMs) samples.shift();
 
