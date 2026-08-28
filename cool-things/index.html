@@ -65,8 +65,12 @@
   .gsearch.sm { width:min(560px,70vw); }
   .gsearch.sm input { height:40px; }
   #gcseResults { padding: 8px 24px 40px; max-width: 760px; }
-  #gsetup { padding:24px; color:#5f6673; font-size:14px; }
+  #gsetup, #gfallback { padding:24px; color:#5f6673; font-size:14px; }
   #gsetup code { background:#eef0f3; padding:1px 5px; border-radius:4px; }
+  #gfallback a { color:#1a0dab; }
+  /* tighten Google's injected results a touch so they read cleanly on our page */
+  #gcseResults .gsc-control-cse { padding:0 !important; border:0 !important; font-family:arial,sans-serif !important; background:#fff !important; }
+  #gcseResults .gsc-results-wrapper-overlay, #gcseResults .gsc-modal-background-image { display:none !important; }
   .gfoot { background:#f2f2f2; color:#70757a; font-size:14px; }
   .gfoot .grow { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:14px 22px; }
   .gfoot a { color:#70757a; text-decoration:none; }
@@ -143,6 +147,7 @@
     </div>
     <!-- Google Programmable Search renders the actual results in here. -->
     <div id="gcseResults"></div>
+    <div id="gfallback" hidden></div>
     <div id="gsetup" hidden>Set your Google Programmable Search Engine ID in <code>CONFIG.searchEngineId</code> to show live results here.</div>
   </div>
 
@@ -357,18 +362,25 @@
   const gform2   = document.getElementById("gform2");
   const gInput2  = gform2.querySelector('input[name="q"]');
   const gsetup   = document.getElementById("gsetup");
+  const gfallback = document.getElementById("gfallback");
   const glucky   = document.getElementById("glucky");
 
   let cseStarted = false;   // script injected?
   let cseReady   = false;   // element rendered and executable?
   let pendingQuery = null;  // query typed before the widget finished loading
+  let fallbackTimer = 0;
 
   // cse.js reads this on load: don't auto-scan the page; call us back when ready.
   window.__gcse = {
     parsetags: "explicit",
     callback: function () {
       try {
-        google.search.cse.element.render({ div: "gcseResults", tag: "searchresults-only", gname: "cse" });
+        google.search.cse.element.render({
+          div: "gcseResults", tag: "searchresults-only", gname: "cse",
+          // Open results in a NEW TAB so a click never leaves the disguise page,
+          // and keep per-session history for the back/forward arrows.
+          attributes: { linkTarget: "_blank", enableHistory: "true" }
+        });
         cseReady = true;
         if (pendingQuery != null) { runQuery(pendingQuery); pendingQuery = null; }
       } catch (err) {
@@ -383,14 +395,32 @@
     const s = document.createElement("script");
     s.async = true;
     s.src = "https://cse.google.com/cse.js?cx=" + encodeURIComponent(CONFIG.searchEngineId);
-    s.onerror = function () { gsetup.hidden = false; gsetup.textContent = "Couldn't reach Google search."; };
+    s.onerror = function () { showFallback(pendingQuery || (gInput.value || "").trim()); };
     document.head.appendChild(s);
   }
 
   function runQuery(query) {
     const api = window.google && google.search && google.search.cse && google.search.cse.element;
     const el = api && google.search.cse.element.getElement("cse");
-    if (el) el.execute(query);
+    if (!el) { showFallback(query); return; }
+    el.execute(query);
+    // Safety net: if nothing has rendered shortly after, offer a real Google link
+    // (opens in a new tab) so the page never just sits there looking broken.
+    clearTimeout(fallbackTimer);
+    gfallback.hidden = true;
+    fallbackTimer = setTimeout(function () {
+      const rendered = document.querySelector("#gcseResults .gsc-webResult, #gcseResults .gsc-result, #gcseResults .gs-no-results-result");
+      if (!rendered) showFallback(query);
+    }, 3500);
+  }
+
+  function showFallback(query) {
+    if (!query) return;
+    gfallback.hidden = false;
+    gfallback.innerHTML =
+      'Results are taking a moment. ' +
+      '<a href="https://www.google.com/search?q=' + encodeURIComponent(query) +
+      '" target="_blank" rel="noopener">Open this search on Google ↗</a>';
   }
 
   // Show the in-page results view and search (Google's servers do the work).
@@ -399,6 +429,7 @@
     gInput2.value = query;
     ghome.hidden = true;
     gresults.hidden = false;
+    gfallback.hidden = true;
     if (!CONFIG.searchEngineId) { gsetup.hidden = false; return; }
     loadCSE();
     if (cseReady) runQuery(query); else pendingQuery = query;
