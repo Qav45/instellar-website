@@ -230,6 +230,10 @@
   const gform    = document.getElementById("gform");
   const gInput   = gform.querySelector('input[name="q"]');
 
+  // Add #debug (or ?debug) to the URL to keep the status pill visible and show
+  // live face/people counts — handy for confirming detection works.
+  const DEBUG = /debug/.test(location.hash) || /debug/.test(location.search);
+
   let covered = true;    // the Google front is shown on load
   let armed   = false;   // guard running yet?
   let safeSince = 0;     // when the frame first became safe (0 = not currently safe)
@@ -240,7 +244,7 @@
     covered = on;
     cover.classList.toggle("show", on);
     cover.setAttribute("aria-hidden", on ? "false" : "true");
-    statusEl.hidden = on;   // hide the pill from onlookers whenever we're covered
+    statusEl.hidden = on && !DEBUG;   // hide the pill from onlookers when covered (kept in debug)
   }
 
   // Width of a face's bounding box as a fraction of the frame (landmarks are
@@ -323,36 +327,53 @@
       track.addEventListener("mute", revealUnprotected);
     }
 
+    let fileset;
+    try {
+      fileset = await FilesetResolver.forVisionTasks("./vendor/wasm");
+    } catch (e) {
+      console.warn("[cool-things] vision runtime failed to load:", e);
+      revealUnprotected();   // fail-open
+      return;
+    }
+
+    // Try the GPU delegate first, fall back to CPU so the guard still runs on
+    // machines/browsers without WebGL2 GPU support (rather than failing open).
+    async function withFallback(make) {
+      try { return await make("GPU"); }
+      catch (e) { console.warn("[cool-things] GPU delegate failed, using CPU:", e); return await make("CPU"); }
+    }
+
     let landmarker;
     try {
-      const fileset = await FilesetResolver.forVisionTasks("./vendor/wasm");
-      landmarker = await FaceLandmarker.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: "./vendor/face_landmarker.task", delegate: "GPU" },
-        runningMode: "VIDEO",
-        numFaces: CONFIG.maxFaces,
-        minFaceDetectionConfidence: CONFIG.minConfidence,
-        minFacePresenceConfidence: CONFIG.minConfidence,
-        minTrackingConfidence: CONFIG.minConfidence,
+      landmarker = await withFallback(function (delegate) {
+        return FaceLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: "./vendor/face_landmarker.task", delegate: delegate },
+          runningMode: "VIDEO",
+          numFaces: CONFIG.maxFaces,
+          minFaceDetectionConfidence: CONFIG.minConfidence,
+          minFacePresenceConfidence: CONFIG.minConfidence,
+          minTrackingConfidence: CONFIG.minConfidence,
+        });
       });
     } catch (e) {
-      console.warn("[cool-things] model load failed:", e);
+      console.warn("[cool-things] face model load failed:", e);
       revealUnprotected();   // fail-open
       return;
     }
 
     // Optional body detector: finds whole people (the "person" class) even when
-    // their face isn't visible. If it fails to load, we simply fall back to
-    // faces-only rather than blocking.
+    // their face isn't visible. If it can't load, fall back to faces-only.
     let detector = null;
     if (CONFIG.detectBodies) {
       try {
-        const fs2 = await FilesetResolver.forVisionTasks("./vendor/wasm");
-        detector = await ObjectDetector.createFromOptions(fs2, {
-          baseOptions: { modelAssetPath: "./vendor/efficientdet_lite0.tflite", delegate: "GPU" },
-          runningMode: "VIDEO",
-          scoreThreshold: CONFIG.personScore,
-          categoryAllowlist: ["person"],
-          maxResults: 5,
+        detector = await withFallback(function (delegate) {
+          return ObjectDetector.createFromOptions(fileset, {
+            baseOptions: { modelAssetPath: "./vendor/efficientdet_lite0.tflite", delegate: delegate },
+            runningMode: "VIDEO",
+            scoreThreshold: CONFIG.personScore,
+            categoryAllowlist: ["person"],
+            maxResults: 5,
+          });
         });
       } catch (e) {
         console.warn("[cool-things] body detector unavailable, using faces only:", e);
@@ -425,6 +446,11 @@
           restoreLeft = Math.max(0, Math.ceil((CONFIG.restoreMs - elapsed) / 1000));
           if (covered && elapsed >= CONFIG.restoreMs) { setCover(false); restoreLeft = 0; }
           setStatus({ reason: "" });
+        }
+
+        if (DEBUG) {
+          statusTx.textContent = "faces:" + lastFaces.length + " people:" + lastPersons.length +
+            (threat ? " • HIDE" : (restoreLeft ? " • clear " + restoreLeft + "s" : " • clear"));
         }
       }
       requestAnimationFrame(loop);
