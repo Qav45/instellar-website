@@ -198,7 +198,19 @@
     // (safe) continuously for this long.
     restoreMs: 5000,
 
-    maxFaces: 5,          // how many faces the model tracks at once
+    maxFaces: 8,          // how many faces the model tracks at once (crowd-safe)
+
+    // Detection sensitivity. Lower = scans more aggressively, catching faces
+    // that are partial, turned to the side, or farther away (MediaPipe's own
+    // default is 0.5). Trade-off: occasional false triggers, which only cost a
+    // brief cover, so we lean sensitive.
+    minConfidence: 0.3,
+
+    // Smoothing window: a face glimpsed ANYWHERE in the last this-many ms still
+    // counts as present, so someone who flickers in and out of detection (a
+    // peeker leaning past a doorway, a face the model briefly loses) keeps the
+    // page hidden instead of blinking uncovered.
+    detectWindowMs: 700,
   };
 
   const real     = document.getElementById("real");
@@ -292,6 +304,9 @@
         baseOptions: { modelAssetPath: "./vendor/face_landmarker.task", delegate: "GPU" },
         runningMode: "VIDEO",
         numFaces: CONFIG.maxFaces,
+        minFaceDetectionConfidence: CONFIG.minConfidence,
+        minFacePresenceConfidence: CONFIG.minConfidence,
+        minTrackingConfidence: CONFIG.minConfidence,
       });
     } catch (e) {
       console.warn("[cool-things] model load failed:", e);
@@ -306,17 +321,19 @@
     setCover(false);
 
     let lastTs = -1;
+    const samples = [];   // rolling {t, hide, reason} over the last detectWindowMs
+
     function loop() {
       const now = performance.now();
 
       // Feed not actually delivering frames (blocked, paused, ended, muted, or
       // being cast away)? Fail OPEN — never keep the content hidden when we
-      // can't really see. Also resets the countdown so it doesn't creep.
+      // can't really see. Also resets everything so nothing creeps.
       const track = (video.srcObject && video.srcObject.getVideoTracks) ? video.srcObject.getVideoTracks()[0] : null;
       const blind = video.paused || video.ended || video.readyState < 2 || (track && (track.muted || track.readyState === "ended"));
       if (blind) {
         if (covered) setCover(false);
-        safeSince = 0; restoreLeft = 0;
+        safeSince = 0; restoreLeft = 0; samples.length = 0;
         requestAnimationFrame(loop);
         return;
       }
@@ -330,22 +347,29 @@
           list = res.faceLandmarks || [];
         } catch (_) { /* transient frame error: keep last state */ }
 
+        // Record this frame and drop anything older than the smoothing window.
         const a = assess(list);
+        samples.push({ t: now, hide: a.hide, reason: a.reason });
+        while (samples.length && now - samples[0].t > CONFIG.detectWindowMs) samples.shift();
 
-        if (a.hide) {
-          // Any threat: hide INSTANTLY and reset the restore countdown.
+        // A threat glimpsed anywhere in the window keeps us hidden, so a face
+        // the model flickers on/off doesn't blink the page uncovered. Only when
+        // the WHOLE window is clear do we start the restore countdown.
+        let threat = null;
+        for (let i = samples.length - 1; i >= 0; i--) { if (samples[i].hide) { threat = samples[i]; break; } }
+
+        if (threat) {
           safeSince = 0;
           restoreLeft = 0;
           setCover(true);
+          setStatus({ reason: threat.reason });
         } else {
-          // Frame is safe. Start / continue the countdown; only restore once
-          // it has stayed clear for the full restoreMs.
           if (!safeSince) safeSince = now;
           const elapsed = now - safeSince;
           restoreLeft = Math.max(0, Math.ceil((CONFIG.restoreMs - elapsed) / 1000));
           if (covered && elapsed >= CONFIG.restoreMs) { setCover(false); restoreLeft = 0; }
+          setStatus({ reason: "" });
         }
-        setStatus(a);
       }
       requestAnimationFrame(loop);
     }
