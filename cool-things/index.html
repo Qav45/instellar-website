@@ -48,7 +48,7 @@
   #cover {
     position: fixed; inset: 0; z-index: 60; background: #fff; color: #202124;
     font-family: arial, sans-serif;
-    opacity: 0; visibility: hidden; transition: opacity .12s ease;
+    opacity: 0; visibility: hidden;   /* no transition — insta-swap */
     display: flex; flex-direction: column;
   }
   #cover.show { opacity: 1; visibility: visible; }
@@ -85,17 +85,18 @@
 <div id="arm">
   <div style="width:44px;height:44px;border-radius:12px;background:#151922;border:1px solid #232838;display:flex;align-items:center;justify-content:center;font-size:22px;">&#128064;</div>
   <h1>Cool Things &mdash; Shoulder&#8209;Surf Guard</h1>
-  <p>Turn on your camera. While you work alone, your content stays visible. The instant a
-     <strong>second face</strong> appears looking at the screen, this page swaps to an innocent
-     Google search page &mdash; and swaps back when they leave. Everything runs on your device; no
-     video leaves your computer.</p>
+  <p>Turn on your camera to arm the guard. The instant <strong>any face</strong> appears in
+     view &mdash; or someone leans in close &mdash; the page <strong>instantly</strong> swaps to an
+     innocent Google search page. It swaps back only after the camera has been
+     <strong>clear for 5 seconds</strong>. Everything runs on your device; no video leaves your
+     computer.</p>
   <button id="armBtn">Enable camera &amp; arm</button>
   <div class="err" id="armErr"></div>
-  <p style="font-size:12px;opacity:.7;">Triggers on a second face in frame &mdash; the camera can&rsquo;t recognize <em>who</em> you are, only how many faces it sees.</p>
+  <p style="font-size:12px;opacity:.7;">Point the camera at whoever could see your screen. It reacts to <em>any</em> face and to how close a face is &mdash; it can&rsquo;t recognize <em>who</em> anyone is.</p>
 </div>
 
 <!-- ============ STATUS PILL ============ -->
-<div id="status" hidden><span class="dot"></span><span id="statusText">Watching &mdash; 1 face</span></div>
+<div id="status" hidden><span class="dot"></span><span id="statusText">Watching &mdash; clear</span></div>
 
 <!-- ============ REAL (SECRET) CONTENT ============ -->
 <!-- Replace everything inside #real with the content you actually want to protect. -->
@@ -156,6 +157,29 @@
 <script type="module">
   import { FaceLandmarker, FilesetResolver } from "./vendor/vision_bundle.mjs";
 
+  /* ======================================================================
+     Anti-surf guard — self-contained. To drop into any page: include a
+     hidden <video id="cam">, an overlay #cover, the protected content in
+     #real, and this module. Tune everything via CONFIG below.
+     ====================================================================== */
+  const CONFIG = {
+    // What makes the guard hide the page:
+    //   'any'   → ANY face visible hides it (webcam watches the space; anyone
+    //             who can see the screen triggers it). This is the default.
+    //   'extra' → only a 2nd+ face hides it (you sit in frame as face #1).
+    mode: 'any',
+
+    // A face this wide (fraction of frame width) counts as "close / leaning in"
+    // and hides the page on its own — even in 'extra' mode, and shown as the reason.
+    closeWidth: 0.42,
+
+    // Timing. Hide is INSTANT; restore waits until the frame has been clear
+    // (safe) continuously for this long.
+    restoreMs: 5000,
+
+    maxFaces: 5,          // how many faces the model tracks at once
+  };
+
   const armBox   = document.getElementById("arm");
   const armBtn   = document.getElementById("armBtn");
   const armErr   = document.getElementById("armErr");
@@ -165,12 +189,9 @@
   const statusTx = document.getElementById("statusText");
   const video    = document.getElementById("cam");
 
-  // Hysteresis: cover after faces>=2 held briefly; uncover after faces<=1 held a bit longer.
-  const COVER_MS = 200;
-  const UNCOVER_MS = 400;
   let covered = false;
-  let manySince = 0;   // when we first saw >=2 faces (0 = not currently)
-  let oneSince  = 0;   // when we first dropped to <=1 face
+  let safeSince = 0;     // when the frame first became safe (0 = not currently safe)
+  let restoreLeft = 0;   // seconds remaining on the countdown (for the status pill)
 
   function setCover(on) {
     if (on === covered) return;
@@ -179,11 +200,36 @@
     cover.setAttribute("aria-hidden", on ? "false" : "true");
   }
 
-  function setStatus(faces) {
-    statusTx.textContent = faces >= 2
-      ? "Covered — " + faces + " faces"
-      : "Watching — " + faces + " face" + (faces === 1 ? "" : "s");
-    statusEl.classList.toggle("warn", faces >= 2);
+  // Width of a face's bounding box as a fraction of the frame (landmarks are
+  // already normalised 0..1), used as a proximity proxy — bigger = closer.
+  function faceWidth(landmarks) {
+    let min = 1, max = 0;
+    for (const p of landmarks) { if (p.x < min) min = p.x; if (p.x > max) max = p.x; }
+    return max - min;
+  }
+
+  // Decide whether the current frame is a threat. Returns {hide, faces, close, reason}.
+  function assess(faceList) {
+    const faces = faceList.length;
+    let close = false;
+    for (const lm of faceList) { if (faceWidth(lm) >= CONFIG.closeWidth) { close = true; break; } }
+
+    let hide = false, reason = "";
+    if (close)                              { hide = true; reason = "someone close"; }
+    else if (CONFIG.mode === 'any'  && faces >= 1) { hide = true; reason = faces + (faces === 1 ? " face in view" : " faces in view"); }
+    else if (CONFIG.mode === 'extra' && faces >= 2) { hide = true; reason = faces + " faces in view"; }
+    return { hide, faces, close, reason };
+  }
+
+  function setStatus(a) {
+    if (covered) {
+      statusTx.textContent = "Hidden — " + a.reason;
+    } else if (restoreLeft > 0) {
+      statusTx.textContent = "Clear — restoring in " + restoreLeft + "s";
+    } else {
+      statusTx.textContent = "Watching — clear";
+    }
+    statusEl.classList.toggle("warn", covered || restoreLeft > 0);
   }
 
   async function arm() {
@@ -212,7 +258,7 @@
       landmarker = await FaceLandmarker.createFromOptions(fileset, {
         baseOptions: { modelAssetPath: "./vendor/face_landmarker.task", delegate: "GPU" },
         runningMode: "VIDEO",
-        numFaces: 2,
+        numFaces: CONFIG.maxFaces,
       });
     } catch (e) {
       armBtn.disabled = false;
@@ -232,22 +278,28 @@
       // detectForVideo needs a fresh frame + strictly increasing timestamp
       if (video.currentTime !== lastTs) {
         lastTs = video.currentTime;
-        let faces = 0;
+        let list = [];
         try {
           const res = landmarker.detectForVideo(video, now);
-          faces = res.faceLandmarks ? res.faceLandmarks.length : 0;
+          list = res.faceLandmarks || [];
         } catch (_) { /* transient frame error: keep last state */ }
 
-        if (faces >= 2) {
-          oneSince = 0;
-          if (!manySince) manySince = now;
-          if (!covered && now - manySince >= COVER_MS) setCover(true);
+        const a = assess(list);
+
+        if (a.hide) {
+          // Any threat: hide INSTANTLY and reset the restore countdown.
+          safeSince = 0;
+          restoreLeft = 0;
+          setCover(true);
         } else {
-          manySince = 0;
-          if (!oneSince) oneSince = now;
-          if (covered && now - oneSince >= UNCOVER_MS) setCover(false);
+          // Frame is safe. Start / continue the countdown; only restore once
+          // it has stayed clear for the full restoreMs.
+          if (!safeSince) safeSince = now;
+          const elapsed = now - safeSince;
+          restoreLeft = Math.max(0, Math.ceil((CONFIG.restoreMs - elapsed) / 1000));
+          if (covered && elapsed >= CONFIG.restoreMs) { setCover(false); restoreLeft = 0; }
         }
-        setStatus(faces);
+        setStatus(a);
       }
       requestAnimationFrame(loop);
     }
