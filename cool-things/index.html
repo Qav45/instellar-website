@@ -164,7 +164,7 @@
 <video id="cam" playsinline muted style="position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px;"></video>
 
 <script type="module">
-  import { FaceLandmarker, FilesetResolver } from "./vendor/vision_bundle.mjs";
+  import { FaceLandmarker, ObjectDetector, FilesetResolver } from "./vendor/vision_bundle.mjs";
 
   /* ======================================================================
      Anti-surf guard — self-contained. To drop into any page: include a
@@ -190,9 +190,15 @@
     //   'extra' → only a 2nd+ face hides it (you sit in frame as face #1).
     mode: 'extra',
 
-    // A face this wide (fraction of frame width) counts as "close / leaning in"
-    // and hides the page on its own — even in 'extra' mode, and shown as the reason.
+    // A face/person this wide (fraction of frame width) counts as "close /
+    // leaning in" and refines the reason shown.
     closeWidth: 0.42,
+
+    // Also detect whole PEOPLE (bodies), not just faces, so someone turned away
+    // from the camera — back or side of their head — is still caught. Set false
+    // to run faces only (a bit lighter).
+    detectBodies: true,
+    personScore: 0.4,     // body-detector confidence (lower = more sensitive)
 
     // Timing. Hide is INSTANT; restore waits until the frame has been clear
     // (safe) continuously for this long.
@@ -245,23 +251,34 @@
     return max - min;
   }
 
-  // Decide whether the current frame is a threat. Returns {hide, faces, close, reason}.
-  function assess(faceList) {
+  // Decide whether the current frame is a threat, from face landmarks + person
+  // boxes. Returns {hide, people, close, reason}. `personBoxes` may be empty
+  // when body detection is off/unavailable.
+  function assess(faceList, personBoxes) {
     const faces = faceList.length;
-    // Is any face large in frame (leaning in)? Used to refine the reason.
+    const persons = personBoxes.length;
+    // Best estimate of how many humans are present — a body counts even when the
+    // face is turned away and undetectable.
+    const people = Math.max(faces, persons);
+
+    // Close = any face OR any body box wide enough to be leaning in.
     let close = false;
     for (const lm of faceList) { if (faceWidth(lm) >= CONFIG.closeWidth) { close = true; break; } }
+    if (!close) {
+      const vw = video.videoWidth || 640;
+      for (const b of personBoxes) { if ((b.width / vw) >= CONFIG.closeWidth) { close = true; break; } }
+    }
 
     let hide = false, reason = "";
     if (CONFIG.mode === 'any') {
       // Camera watches the space in front of the screen: anyone visible hides it.
-      if (faces >= 1) { hide = true; reason = close ? "someone close" : (faces + (faces === 1 ? " face in view" : " faces in view")); }
+      if (people >= 1) { hide = true; reason = close ? "someone close" : (people + (people === 1 ? " person in view" : " people in view")); }
     } else {
-      // 'extra': you sit in frame as face #1, so only a SECOND person hides it.
-      // A single face — even a close one — is just you leaning in, never a threat.
-      if (faces >= 2) { hide = true; reason = close ? "someone leaning in" : (faces + " faces in view"); }
+      // 'extra': you're person #1 in frame, so only a SECOND person hides it.
+      // A single (even close) person is just you, so leaning in never triggers.
+      if (people >= 2) { hide = true; reason = close ? "someone leaning in" : (people + " people in view"); }
     }
-    return { hide, faces, close, reason };
+    return { hide, people, close, reason };
   }
 
   function setStatus(a) {
@@ -323,6 +340,25 @@
       return;
     }
 
+    // Optional body detector: finds whole people (the "person" class) even when
+    // their face isn't visible. If it fails to load, we simply fall back to
+    // faces-only rather than blocking.
+    let detector = null;
+    if (CONFIG.detectBodies) {
+      try {
+        const fs2 = await FilesetResolver.forVisionTasks("./vendor/wasm");
+        detector = await ObjectDetector.createFromOptions(fs2, {
+          baseOptions: { modelAssetPath: "./vendor/efficientdet_lite0.tflite", delegate: "GPU" },
+          runningMode: "VIDEO",
+          scoreThreshold: CONFIG.personScore,
+          categoryAllowlist: ["person"],
+          maxResults: 5,
+        });
+      } catch (e) {
+        console.warn("[cool-things] body detector unavailable, using faces only:", e);
+      }
+    }
+
     // Armed: wipe the passphrase, reveal content + status pill, start the loop.
     armed = true;
     real.hidden = false;
@@ -350,14 +386,20 @@
       // detectForVideo needs a fresh frame + strictly increasing timestamp
       if (video.currentTime !== lastTs) {
         lastTs = video.currentTime;
-        let list = [];
+        let list = [], persons = [];
         try {
           const res = landmarker.detectForVideo(video, now);
           list = res.faceLandmarks || [];
         } catch (_) { /* transient frame error: keep last state */ }
+        if (detector) {
+          try {
+            const od = detector.detectForVideo(video, now);
+            persons = (od.detections || []).map(function (d) { return d.boundingBox; });
+          } catch (_) { /* keep last state */ }
+        }
 
         // Record this frame and drop anything older than the smoothing window.
-        const a = assess(list);
+        const a = assess(list, persons);
         samples.push({ t: now, hide: a.hide, reason: a.reason });
         while (samples.length && now - samples[0].t > CONFIG.detectWindowMs) samples.shift();
 
