@@ -266,6 +266,14 @@
     video.srcObject = stream;
     await video.play();
 
+    // If the camera gets cut off later — another app grabs it, the OS revokes
+    // it, or the tab is being cast/screen-shared and the feed is muted — fail
+    // OPEN: reveal the content instead of sitting on the cover.
+    for (const track of stream.getVideoTracks()) {
+      track.addEventListener("ended", revealUnprotected);
+      track.addEventListener("mute", revealUnprotected);
+    }
+
     let landmarker;
     try {
       const fileset = await FilesetResolver.forVisionTasks("./vendor/wasm");
@@ -289,6 +297,19 @@
     let lastTs = -1;
     function loop() {
       const now = performance.now();
+
+      // Feed not actually delivering frames (blocked, paused, ended, muted, or
+      // being cast away)? Fail OPEN — never keep the content hidden when we
+      // can't really see. Also resets the countdown so it doesn't creep.
+      const track = (video.srcObject && video.srcObject.getVideoTracks) ? video.srcObject.getVideoTracks()[0] : null;
+      const blind = video.paused || video.ended || video.readyState < 2 || (track && (track.muted || track.readyState === "ended"));
+      if (blind) {
+        if (covered) setCover(false);
+        safeSince = 0; restoreLeft = 0;
+        requestAnimationFrame(loop);
+        return;
+      }
+
       // detectForVideo needs a fresh frame + strictly increasing timestamp
       if (video.currentTime !== lastTs) {
         lastTs = video.currentTime;
