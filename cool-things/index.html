@@ -64,13 +64,19 @@
   .glogo.sm { font-size:26px; letter-spacing:-2px; margin:0; cursor:pointer; }
   .gsearch.sm { width:min(560px,70vw); }
   .gsearch.sm input { height:40px; }
-  #gcseResults { padding: 8px 24px 40px; max-width: 760px; }
+  #gcseResults { padding: 12px 24px 40px; max-width: 760px; }
   #gsetup, #gfallback { padding:24px; color:#5f6673; font-size:14px; }
   #gsetup code { background:#eef0f3; padding:1px 5px; border-radius:4px; }
   #gfallback a { color:#1a0dab; }
-  /* tighten Google's injected results a touch so they read cleanly on our page */
-  #gcseResults .gsc-control-cse { padding:0 !important; border:0 !important; font-family:arial,sans-serif !important; background:#fff !important; }
-  #gcseResults .gsc-results-wrapper-overlay, #gcseResults .gsc-modal-background-image { display:none !important; }
+  /* our own Google-style results, rendered from the JSON API */
+  .res-meta { color:#70757a; font-size:14px; margin:6px 0 18px; }
+  .res { margin-bottom:26px; max-width:600px; }
+  .res-url { color:#202124; font-size:14px; line-height:1.3; }
+  .res-url .host { color:#4d5156; }
+  .res-title { color:#1a0dab; font-size:20px; line-height:1.3; margin-top:2px; text-decoration:none; display:inline-block; }
+  .res-title:hover { text-decoration:underline; }
+  .res-snippet { color:#4d5156; font-size:14px; line-height:1.58; margin-top:3px; }
+  .res-none { color:#4d5156; font-size:14px; padding:8px 0; }
   .gfoot { background:#f2f2f2; color:#70757a; font-size:14px; }
   .gfoot .grow { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:14px 22px; }
   .gfoot a { color:#70757a; text-decoration:none; }
@@ -113,8 +119,8 @@
      secret passphrase into this box arms the guard; any other query searches on
      Google's servers and shows the results INLINE (no redirect to google.com).
      It also doubles as the cover the guard flips back to when a second person
-     appears. Inline results are powered by a Google Programmable Search Engine —
-     set your Search Engine ID in CONFIG.searchEngineId below. -->
+     appears. Inline results come from Google's Custom Search JSON API — set
+     CONFIG.searchApiKey and CONFIG.searchEngineId below. -->
 <div id="cover" class="show" aria-hidden="false">
   <div class="gtop">
     <a href="https://mail.google.com" target="_blank" rel="noopener">Gmail</a>
@@ -148,7 +154,7 @@
     <!-- Google Programmable Search renders the actual results in here. -->
     <div id="gcseResults"></div>
     <div id="gfallback" hidden></div>
-    <div id="gsetup" hidden>Set your Google Programmable Search Engine ID in <code>CONFIG.searchEngineId</code> to show live results here.</div>
+    <div id="gsetup" hidden>Set your Google <code>CONFIG.searchApiKey</code> and <code>CONFIG.searchEngineId</code> to show live results here.</div>
   </div>
 
   <div class="gfoot">
@@ -177,12 +183,19 @@
     // CHANGE THIS to your own word.
     secret: 'instellar',
 
-    // Google Programmable Search Engine ID (cx) used to show REAL Google
-    // results inline on the fake page — no redirect to google.com. Create one
-    // free at https://programmablesearchengine.google.com (set it to "Search
-    // the entire web"), then paste its Search Engine ID here. Left empty, the
-    // page shows a setup note instead of results.
+    // Inline Google search (results shown on the fake page, no redirect). We call
+    // Google's Custom Search JSON API from the browser, then render the results
+    // ourselves. Two values are needed:
+    //   searchEngineId (cx) — from https://programmablesearchengine.google.com
+    //     (create one, set it to "Search the entire web").
+    //   searchApiKey (key)  — from https://console.cloud.google.com: enable the
+    //     "Custom Search API", then Credentials → Create API key. RESTRICT the key
+    //     to HTTP referrer https://instellar.net/* (Application restrictions →
+    //     Websites) so it can't be reused elsewhere. Free tier: ~100 queries/day.
+    // The key sits in this public page by design (static host); the referrer
+    // restriction + daily cap bound abuse. Left empty, a setup note is shown.
     searchEngineId: '95460305a59bc4f8a',
+    searchApiKey: '',
 
     // What makes the guard hide the page:
     //   'any'   → ANY face visible hides it (webcam watches the space; anyone
@@ -441,86 +454,96 @@
   }
 
   /* ---------- Inline Google search (results shown in-page, no redirect) ----------
-     Uses a Google Programmable Search Engine in "explicit render" mode so we
-     control exactly when/where results appear and can run a query the moment
-     the widget is ready — no polling race. Google's servers do the searching;
-     we only display the results. */
+     The browser calls Google's Custom Search JSON API; Google's servers do the
+     searching and return JSON, which we render ourselves into a clean, Google-style
+     results list. Nothing redirects to google.com. */
   const ghome    = document.getElementById("ghome");
   const gresults = document.getElementById("gresults");
+  const gcseResults = document.getElementById("gcseResults");
   const gform2   = document.getElementById("gform2");
   const gInput2  = gform2.querySelector('input[name="q"]');
   const gsetup   = document.getElementById("gsetup");
   const gfallback = document.getElementById("gfallback");
   const glucky   = document.getElementById("glucky");
 
-  let cseStarted = false;   // script injected?
-  let cseReady   = false;   // element rendered and executable?
-  let pendingQuery = null;  // query typed before the widget finished loading
-  let fallbackTimer = 0;
+  let searchSeq = 0;   // guards against a slow response overwriting a newer search
 
-  // cse.js reads this on load: don't auto-scan the page; call us back when ready.
-  window.__gcse = {
-    parsetags: "explicit",
-    callback: function () {
-      try {
-        google.search.cse.element.render({
-          div: "gcseResults", tag: "searchresults-only", gname: "cse",
-          // Open results in a NEW TAB so a click never leaves the disguise page,
-          // and keep per-session history for the back/forward arrows.
-          attributes: { linkTarget: "_blank", enableHistory: "true" }
-        });
-        cseReady = true;
-        if (pendingQuery != null) { runQuery(pendingQuery); pendingQuery = null; }
-      } catch (err) {
-        console.warn("[cool-things] search widget failed to render:", err);
-      }
-    }
-  };
-
-  function loadCSE() {
-    if (cseStarted || !CONFIG.searchEngineId) return;
-    cseStarted = true;
-    const s = document.createElement("script");
-    s.async = true;
-    s.src = "https://cse.google.com/cse.js?cx=" + encodeURIComponent(CONFIG.searchEngineId);
-    s.onerror = function () { showFallback(pendingQuery || (gInput.value || "").trim()); };
-    document.head.appendChild(s);
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
-  function runQuery(query) {
-    const api = window.google && google.search && google.search.cse && google.search.cse.element;
-    const el = api && google.search.cse.element.getElement("cse");
-    if (!el) { showFallback(query); return; }
-    el.execute(query);
-    // Safety net: if nothing has rendered shortly after, offer a real Google link
-    // (opens in a new tab) so the page never just sits there looking broken.
-    clearTimeout(fallbackTimer);
-    gfallback.hidden = true;
-    fallbackTimer = setTimeout(function () {
-      const rendered = document.querySelector("#gcseResults .gsc-webResult, #gcseResults .gsc-result, #gcseResults .gs-no-results-result");
-      if (!rendered) showFallback(query);
-    }, 3500);
-  }
-
+  // Fallback: results didn't load — offer a real Google link (opens in a new tab)
+  // so the page never just sits there looking broken.
   function showFallback(query) {
     if (!query) return;
     gfallback.hidden = false;
     gfallback.innerHTML =
-      'Results are taking a moment. ' +
+      'Couldn\'t load results here. ' +
       '<a href="https://www.google.com/search?q=' + encodeURIComponent(query) +
       '" target="_blank" rel="noopener">Open this search on Google ↗</a>';
   }
 
-  // Show the in-page results view and search (Google's servers do the work).
+  // Build our own results markup from the API's JSON items.
+  function renderResults(data, query) {
+    const items = (data && data.items) || [];
+    if (!items.length) {
+      gcseResults.innerHTML = '<div class="res-none">No results found for <b>' + esc(query) + '</b>.</div>';
+      return;
+    }
+    const info = data.searchInformation || {};
+    let html = "";
+    if (info.formattedTotalResults) {
+      html += '<div class="res-meta">About ' + esc(info.formattedTotalResults) +
+              ' results (' + esc(info.formattedSearchTime || "0") + ' seconds)</div>';
+    }
+    for (const it of items) {
+      // Links open in a NEW TAB so a click never leaves the disguise page.
+      html +=
+        '<div class="res">' +
+          '<div class="res-url"><span class="host">' + esc(it.displayLink || "") + '</span></div>' +
+          '<a class="res-title" href="' + esc(it.link) + '" target="_blank" rel="noopener">' + esc(it.title) + '</a>' +
+          '<div class="res-snippet">' + esc(it.snippet || "") + '</div>' +
+        '</div>';
+    }
+    gcseResults.innerHTML = html;
+  }
+
+  // Call the JSON API and display the results (Google's servers do the work).
+  async function search(query) {
+    const seq = ++searchSeq;
+    gfallback.hidden = true;
+    gcseResults.innerHTML = '<div class="res-meta">Searching…</div>';
+    const url = "https://www.googleapis.com/customsearch/v1?key=" +
+      encodeURIComponent(CONFIG.searchApiKey) + "&cx=" +
+      encodeURIComponent(CONFIG.searchEngineId) + "&num=10&q=" +
+      encodeURIComponent(query);
+    try {
+      const res = await fetch(url);
+      if (seq !== searchSeq) return;          // a newer search superseded this one
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      if (seq !== searchSeq) return;
+      renderResults(data, query);
+    } catch (err) {
+      if (seq !== searchSeq) return;
+      console.warn("[cool-things] search failed:", err);
+      gcseResults.innerHTML = "";
+      showFallback(query);
+    }
+  }
+
+  // Show the in-page results view and run the search.
   function showResults(query) {
     gInput.value = query;    // keep both boxes in sync
     gInput2.value = query;
     ghome.hidden = true;
     gresults.hidden = false;
     gfallback.hidden = true;
-    if (!CONFIG.searchEngineId) { gsetup.hidden = false; return; }
-    loadCSE();
-    if (cseReady) runQuery(query); else pendingQuery = query;
+    if (!CONFIG.searchApiKey || !CONFIG.searchEngineId) { gcseResults.innerHTML = ""; gsetup.hidden = false; return; }
+    gsetup.hidden = true;
+    search(query);
   }
 
   function backHome() {
@@ -544,9 +567,6 @@
     const raw = (gInput.value || "").trim();
     if (raw) showResults(raw); else gInput.focus();
   });
-
-  // Warm up the search widget in the background so the first search is instant.
-  if (CONFIG.searchEngineId) loadCSE();
 </script>
 </body>
 </html>
