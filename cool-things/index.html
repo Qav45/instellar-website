@@ -11,21 +11,6 @@
   html, body { height: 100%; }
   body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
-  /* ---- Arm / status chip (only thing shown before camera is granted) ---- */
-  #arm {
-    position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
-    flex-direction: column; gap: 18px; background: radial-gradient(1200px 600px at 50% -10%, #1a2030, var(--bg));
-    text-align: center; padding: 24px;
-  }
-  #arm h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
-  #arm p { color: var(--muted); max-width: 460px; line-height: 1.55; font-size: 14px; }
-  #arm button {
-    margin-top: 6px; background: var(--accent); color: #06122b; border: 0; font-weight: 700;
-    padding: 12px 22px; border-radius: 10px; font-size: 15px; cursor: pointer;
-  }
-  #arm button:active { transform: translateY(1px); }
-  #arm .err { color: #ff8a80; font-size: 13px; max-width: 460px; }
-
   /* ---- The REAL (secret) content ---- */
   #real { padding: 40px 28px; max-width: 860px; margin: 0 auto; }
   #real .tag { display:inline-block; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); border:1px solid var(--line); padding:4px 10px; border-radius:999px; }
@@ -36,14 +21,6 @@
   #real .row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px dashed var(--line); font-size:14px; }
   #real .row:last-child { border-bottom:0; }
   #real .row span:last-child { color: var(--accent); font-variant-numeric: tabular-nums; }
-  #real .realsearch { position:relative; margin: 0 0 22px; max-width: 520px; }
-  #real .realsearch svg { position:absolute; left:16px; top:50%; transform:translateY(-50%); width:18px; height:18px; }
-  #real .realsearch input {
-    width:100%; height:44px; padding:0 16px 0 44px; font-size:15px; color:var(--fg);
-    background:var(--panel); border:1px solid var(--line); border-radius:24px; outline:none;
-  }
-  #real .realsearch input::placeholder { color:var(--muted); }
-  #real .realsearch input:focus { border-color:var(--accent); }
 
   /* status pill top-right while armed */
   #status { position: fixed; top: 12px; right: 12px; z-index: 45; font-size: 12px; color: var(--muted);
@@ -87,7 +64,7 @@
   .glogo.sm { font-size:26px; letter-spacing:-2px; margin:0; cursor:pointer; }
   .gsearch.sm { width:min(560px,70vw); }
   .gsearch.sm input { height:40px; }
-  .gcse-searchresults-only { padding: 8px 24px 40px; max-width: 700px; }
+  #gcseResults { padding: 8px 24px 40px; max-width: 760px; }
   #gsetup { padding:24px; color:#5f6673; font-size:14px; }
   #gsetup code { background:#eef0f3; padding:1px 5px; border-radius:4px; }
   .gfoot { background:#f2f2f2; color:#70757a; font-size:14px; }
@@ -111,12 +88,6 @@
   <span class="tag">Confidential &middot; internal</span>
   <h2>Project Aurora &mdash; launch checklist</h2>
   <div class="sub">Anyone reading over your shoulder should NOT be seeing this.</div>
-
-  <!-- Real, server-side search: submits a GET to google.com/search (no client-side searching). -->
-  <form class="realsearch" action="https://www.google.com/search" method="GET" role="search">
-    <svg viewBox="0 0 24 24" fill="#8a90a0"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
-    <input type="text" name="q" placeholder="Search the web…" aria-label="Search" autocomplete="off">
-  </form>
 
   <div class="card">
     <h3>Access keys (demo placeholder)</h3>
@@ -153,11 +124,11 @@
     <div class="glogo"><span class="b1">G</span><span class="r">o</span><span class="y">o</span><span class="b2">g</span><span class="g">l</span><span class="r">e</span></div>
     <form id="gform" class="gsearch" action="https://www.google.com/search" method="GET" role="search">
       <svg class="gicon gmag" viewBox="0 0 24 24" fill="#9aa0a6"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
-      <input type="text" name="q" aria-label="Search" autocomplete="off" spellcheck="false">
+      <input type="text" name="q" aria-label="Search" autocomplete="off" spellcheck="false" autofocus>
     </form>
     <div class="gbtns">
       <button type="submit" form="gform">Google Search</button>
-      <button type="button" onclick="location.href='https://www.google.com/doodles'">I'm Feeling Lucky</button>
+      <button type="button" id="glucky">I'm Feeling Lucky</button>
     </div>
   </div>
 
@@ -171,7 +142,7 @@
       </form>
     </div>
     <!-- Google Programmable Search renders the actual results in here. -->
-    <div class="gcse-searchresults-only" data-gname="cse" data-queryParameterName="q"></div>
+    <div id="gcseResults"></div>
     <div id="gsetup" hidden>Set your Google Programmable Search Engine ID in <code>CONFIG.searchEngineId</code> to show live results here.</div>
   </div>
 
@@ -376,45 +347,67 @@
     requestAnimationFrame(loop);
   }
 
-  /* ---------- Inline Google search (results shown in-page, no redirect) ---------- */
+  /* ---------- Inline Google search (results shown in-page, no redirect) ----------
+     Uses a Google Programmable Search Engine in "explicit render" mode so we
+     control exactly when/where results appear and can run a query the moment
+     the widget is ready — no polling race. Google's servers do the searching;
+     we only display the results. */
   const ghome    = document.getElementById("ghome");
   const gresults = document.getElementById("gresults");
   const gform2   = document.getElementById("gform2");
   const gInput2  = gform2.querySelector('input[name="q"]');
   const gsetup   = document.getElementById("gsetup");
+  const glucky   = document.getElementById("glucky");
 
-  // Load Google's Programmable Search script once, if an engine ID is set.
-  let cseLoaded = false;
+  let cseStarted = false;   // script injected?
+  let cseReady   = false;   // element rendered and executable?
+  let pendingQuery = null;  // query typed before the widget finished loading
+
+  // cse.js reads this on load: don't auto-scan the page; call us back when ready.
+  window.__gcse = {
+    parsetags: "explicit",
+    callback: function () {
+      try {
+        google.search.cse.element.render({ div: "gcseResults", tag: "searchresults-only", gname: "cse" });
+        cseReady = true;
+        if (pendingQuery != null) { runQuery(pendingQuery); pendingQuery = null; }
+      } catch (err) {
+        console.warn("[cool-things] search widget failed to render:", err);
+      }
+    }
+  };
+
   function loadCSE() {
-    if (cseLoaded || !CONFIG.searchEngineId) return;
-    cseLoaded = true;
+    if (cseStarted || !CONFIG.searchEngineId) return;
+    cseStarted = true;
     const s = document.createElement("script");
     s.async = true;
     s.src = "https://cse.google.com/cse.js?cx=" + encodeURIComponent(CONFIG.searchEngineId);
+    s.onerror = function () { gsetup.hidden = false; gsetup.textContent = "Couldn't reach Google search."; };
     document.head.appendChild(s);
   }
 
-  // Ask the rendered CSE element to run a query; retry briefly until it's ready.
-  function execCSE(query, tries) {
-    tries = tries || 0;
+  function runQuery(query) {
     const api = window.google && google.search && google.search.cse && google.search.cse.element;
     const el = api && google.search.cse.element.getElement("cse");
-    if (el) { el.execute(query); return; }
-    if (tries < 40) setTimeout(function () { execCSE(query, tries + 1); }, 100);
+    if (el) el.execute(query);
   }
 
-  // Show the in-page results view for a query (Google's servers do the search).
+  // Show the in-page results view and search (Google's servers do the work).
   function showResults(query) {
+    gInput.value = query;    // keep both boxes in sync
     gInput2.value = query;
     ghome.hidden = true;
     gresults.hidden = false;
-    if (CONFIG.searchEngineId) { loadCSE(); execCSE(query); }
-    else { gsetup.hidden = false; }   // no engine configured yet
+    if (!CONFIG.searchEngineId) { gsetup.hidden = false; return; }
+    loadCSE();
+    if (cseReady) runQuery(query); else pendingQuery = query;
   }
 
   function backHome() {
     gresults.hidden = true;
     ghome.hidden = false;
+    gInput.focus();
   }
   document.getElementById("ghomebtn").addEventListener("click", backHome);
 
@@ -422,16 +415,19 @@
   // query renders results inline instead of redirecting to google.com.
   function onSearch(e, input) {
     const raw = (input.value || "").trim();
-    if (!armed && raw.toLowerCase() === CONFIG.secret) {
-      e.preventDefault();
-      unlock();
-      return;
-    }
     e.preventDefault();          // never redirect to google.com
+    if (!armed && raw.toLowerCase() === CONFIG.secret) { unlock(); return; }
     if (raw) showResults(raw);
   }
   gform.addEventListener("submit", function (e) { onSearch(e, gInput); });
   gform2.addEventListener("submit", function (e) { onSearch(e, gInput2); });
+  glucky.addEventListener("click", function () {
+    const raw = (gInput.value || "").trim();
+    if (raw) showResults(raw); else gInput.focus();
+  });
+
+  // Warm up the search widget in the background so the first search is instant.
+  if (CONFIG.searchEngineId) loadCSE();
 </script>
 </body>
 </html>
