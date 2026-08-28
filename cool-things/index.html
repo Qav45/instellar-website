@@ -284,7 +284,7 @@
   function renderStatus(reason, faces, persons) {
     if (DEBUG) {
       statusTx.textContent = "faces:" + faces + " people:" + persons +
-        (covered ? " • HIDE" : (restoreLeft ? " • clear " + restoreLeft + "s" : " • clear"));
+        (reason ? " • HIDE" : (restoreLeft ? " • clear " + restoreLeft + "s" : " • clear"));
     } else if (covered) {
       statusTx.textContent = "Hidden — " + reason;
     } else if (restoreLeft > 0) {
@@ -367,6 +367,7 @@
       landmarker = await facePromise;
     } catch (e) {
       console.warn("[cool-things] face model load failed:", e);
+      bodyPromise.then(function (d) { if (d) d.close(); });   // don't leak the body detector we built in parallel
       reveal();   // fail-open
       return;
     }
