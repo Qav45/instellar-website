@@ -36,6 +36,14 @@
   #real .row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px dashed var(--line); font-size:14px; }
   #real .row:last-child { border-bottom:0; }
   #real .row span:last-child { color: var(--accent); font-variant-numeric: tabular-nums; }
+  #real .realsearch { position:relative; margin: 0 0 22px; max-width: 520px; }
+  #real .realsearch svg { position:absolute; left:16px; top:50%; transform:translateY(-50%); width:18px; height:18px; }
+  #real .realsearch input {
+    width:100%; height:44px; padding:0 16px 0 44px; font-size:15px; color:var(--fg);
+    background:var(--panel); border:1px solid var(--line); border-radius:24px; outline:none;
+  }
+  #real .realsearch input::placeholder { color:var(--muted); }
+  #real .realsearch input:focus { border-color:var(--accent); }
 
   /* status pill top-right while armed */
   #status { position: fixed; top: 12px; right: 12px; z-index: 45; font-size: 12px; color: var(--muted);
@@ -85,14 +93,14 @@
 <div id="arm">
   <div style="width:44px;height:44px;border-radius:12px;background:#151922;border:1px solid #232838;display:flex;align-items:center;justify-content:center;font-size:22px;">&#128064;</div>
   <h1>Cool Things &mdash; Shoulder&#8209;Surf Guard</h1>
-  <p>Turn on your camera to arm the guard. The instant <strong>any face</strong> appears in
-     view &mdash; or someone leans in close &mdash; the page <strong>instantly</strong> swaps to an
-     innocent Google search page. It swaps back only after the camera has been
-     <strong>clear for 5 seconds</strong>. Everything runs on your device; no video leaves your
-     computer.</p>
+  <p>Turn on your camera to arm the guard. You can sit in frame yourself &mdash; the instant a
+     <strong>second person</strong> appears, or someone leans in close, the page
+     <strong>instantly</strong> swaps to an innocent Google search page. It swaps back only after
+     the camera has been <strong>clear for 5 seconds</strong>. Everything runs on your device; no
+     video leaves your computer.</p>
   <button id="armBtn">Enable camera &amp; arm</button>
   <div class="err" id="armErr"></div>
-  <p style="font-size:12px;opacity:.7;">Point the camera at whoever could see your screen. It reacts to <em>any</em> face and to how close a face is &mdash; it can&rsquo;t recognize <em>who</em> anyone is.</p>
+  <p style="font-size:12px;opacity:.7;">Reacts to a <em>second</em> face and to how close a face is &mdash; it can&rsquo;t recognize <em>who</em> anyone is.</p>
 </div>
 
 <!-- ============ STATUS PILL ============ -->
@@ -104,6 +112,12 @@
   <span class="tag">Confidential &middot; internal</span>
   <h2>Project Aurora &mdash; launch checklist</h2>
   <div class="sub">Anyone reading over your shoulder should NOT be seeing this.</div>
+
+  <!-- Real, server-side search: submits a GET to google.com/search (no client-side searching). -->
+  <form class="realsearch" action="https://www.google.com/search" method="GET" role="search">
+    <svg viewBox="0 0 24 24" fill="#8a90a0"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
+    <input type="text" name="q" placeholder="Search the web…" aria-label="Search" autocomplete="off">
+  </form>
 
   <div class="card">
     <h3>Access keys (demo placeholder)</h3>
@@ -167,7 +181,7 @@
     //   'any'   → ANY face visible hides it (webcam watches the space; anyone
     //             who can see the screen triggers it). This is the default.
     //   'extra' → only a 2nd+ face hides it (you sit in frame as face #1).
-    mode: 'any',
+    mode: 'extra',
 
     // A face this wide (fraction of frame width) counts as "close / leaning in"
     // and hides the page on its own — even in 'extra' mode, and shown as the reason.
