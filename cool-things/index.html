@@ -81,6 +81,15 @@
     padding:0 16px; height:36px; border-radius:4px; cursor:pointer; font-family:arial,sans-serif;
   }
   .gbtns button:hover { border-color:#dadce0; box-shadow:0 1px 1px rgba(0,0,0,.1); }
+  /* results view */
+  #gresults { flex:1; overflow:auto; }
+  .grbar { display:flex; align-items:center; gap:20px; padding:14px 24px; border-bottom:1px solid #ebebeb; }
+  .glogo.sm { font-size:26px; letter-spacing:-2px; margin:0; cursor:pointer; }
+  .gsearch.sm { width:min(560px,70vw); }
+  .gsearch.sm input { height:40px; }
+  .gcse-searchresults-only { padding: 8px 24px 40px; max-width: 700px; }
+  #gsetup { padding:24px; color:#5f6673; font-size:14px; }
+  #gsetup code { background:#eef0f3; padding:1px 5px; border-radius:4px; }
   .gfoot { background:#f2f2f2; color:#70757a; font-size:14px; }
   .gfoot .grow { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:14px 22px; }
   .gfoot a { color:#70757a; text-decoration:none; }
@@ -126,9 +135,11 @@
 
 <!-- ============ GOOGLE FRONT / COVER ============ -->
 <!-- Shown by default (class "show"): it's the disguise you land on. Typing the
-     secret passphrase into this box arms the guard; any other query is a REAL
-     server-side search (GET to google.com/search). It also doubles as the cover
-     the guard flips back to when a second person appears. -->
+     secret passphrase into this box arms the guard; any other query searches on
+     Google's servers and shows the results INLINE (no redirect to google.com).
+     It also doubles as the cover the guard flips back to when a second person
+     appears. Inline results are powered by a Google Programmable Search Engine —
+     set your Search Engine ID in CONFIG.searchEngineId below. -->
 <div id="cover" class="show" aria-hidden="false">
   <div class="gtop">
     <a href="https://mail.google.com" target="_blank" rel="noopener">Gmail</a>
@@ -136,7 +147,9 @@
     <svg class="gapp" viewBox="0 0 24 24" fill="#5f6368"><circle cx="5" cy="5" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg>
     <div class="gacct">A</div>
   </div>
-  <div class="gmain">
+
+  <!-- Home / hero -->
+  <div id="ghome" class="gmain">
     <div class="glogo"><span class="b1">G</span><span class="r">o</span><span class="y">o</span><span class="b2">g</span><span class="g">l</span><span class="r">e</span></div>
     <form id="gform" class="gsearch" action="https://www.google.com/search" method="GET" role="search">
       <svg class="gicon gmag" viewBox="0 0 24 24" fill="#9aa0a6"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
@@ -147,6 +160,21 @@
       <button type="button" onclick="location.href='https://www.google.com/doodles'">I'm Feeling Lucky</button>
     </div>
   </div>
+
+  <!-- Results view (inline; no redirect). Hidden until a search runs. -->
+  <div id="gresults" hidden>
+    <div class="grbar">
+      <div class="glogo sm" id="ghomebtn" title="Back"><span class="b1">G</span><span class="r">o</span><span class="y">o</span><span class="b2">g</span><span class="g">l</span><span class="r">e</span></div>
+      <form id="gform2" class="gsearch sm" action="https://www.google.com/search" method="GET" role="search">
+        <svg class="gicon gmag" viewBox="0 0 24 24" fill="#9aa0a6"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
+        <input type="text" name="q" aria-label="Search" autocomplete="off" spellcheck="false">
+      </form>
+    </div>
+    <!-- Google Programmable Search renders the actual results in here. -->
+    <div class="gcse-searchresults-only" data-gname="cse" data-queryParameterName="q"></div>
+    <div id="gsetup" hidden>Set your Google Programmable Search Engine ID in <code>CONFIG.searchEngineId</code> to show live results here.</div>
+  </div>
+
   <div class="gfoot">
     <div class="grow g1"><span>United States</span></div>
     <div class="grow">
@@ -172,6 +200,13 @@
     // arm the guard + start the webcam. Any OTHER query really searches Google.
     // CHANGE THIS to your own word.
     secret: 'instellar',
+
+    // Google Programmable Search Engine ID (cx) used to show REAL Google
+    // results inline on the fake page — no redirect to google.com. Create one
+    // free at https://programmablesearchengine.google.com (set it to "Search
+    // the entire web"), then paste its Search Engine ID here. Left empty, the
+    // page shows a setup note instead of results.
+    searchEngineId: '',
 
     // What makes the guard hide the page:
     //   'any'   → ANY face visible hides it (webcam watches the space; anyone
@@ -341,16 +376,62 @@
     requestAnimationFrame(loop);
   }
 
-  // Submitting the Google box is the trigger: the secret arms the guard;
-  // anything else is a normal server-side Google search.
-  gform.addEventListener("submit", function (e) {
-    const q = (gInput.value || "").trim().toLowerCase();
-    if (!armed && q === CONFIG.secret) {
+  /* ---------- Inline Google search (results shown in-page, no redirect) ---------- */
+  const ghome    = document.getElementById("ghome");
+  const gresults = document.getElementById("gresults");
+  const gform2   = document.getElementById("gform2");
+  const gInput2  = gform2.querySelector('input[name="q"]');
+  const gsetup   = document.getElementById("gsetup");
+
+  // Load Google's Programmable Search script once, if an engine ID is set.
+  let cseLoaded = false;
+  function loadCSE() {
+    if (cseLoaded || !CONFIG.searchEngineId) return;
+    cseLoaded = true;
+    const s = document.createElement("script");
+    s.async = true;
+    s.src = "https://cse.google.com/cse.js?cx=" + encodeURIComponent(CONFIG.searchEngineId);
+    document.head.appendChild(s);
+  }
+
+  // Ask the rendered CSE element to run a query; retry briefly until it's ready.
+  function execCSE(query, tries) {
+    tries = tries || 0;
+    const api = window.google && google.search && google.search.cse && google.search.cse.element;
+    const el = api && google.search.cse.element.getElement("cse");
+    if (el) { el.execute(query); return; }
+    if (tries < 40) setTimeout(function () { execCSE(query, tries + 1); }, 100);
+  }
+
+  // Show the in-page results view for a query (Google's servers do the search).
+  function showResults(query) {
+    gInput2.value = query;
+    ghome.hidden = true;
+    gresults.hidden = false;
+    if (CONFIG.searchEngineId) { loadCSE(); execCSE(query); }
+    else { gsetup.hidden = false; }   // no engine configured yet
+  }
+
+  function backHome() {
+    gresults.hidden = true;
+    ghome.hidden = false;
+  }
+  document.getElementById("ghomebtn").addEventListener("click", backHome);
+
+  // Both search boxes share one handler: the secret arms the guard; any other
+  // query renders results inline instead of redirecting to google.com.
+  function onSearch(e, input) {
+    const raw = (input.value || "").trim();
+    if (!armed && raw.toLowerCase() === CONFIG.secret) {
       e.preventDefault();
       unlock();
+      return;
     }
-    // else: let it navigate to google.com/search
-  });
+    e.preventDefault();          // never redirect to google.com
+    if (raw) showResults(raw);
+  }
+  gform.addEventListener("submit", function (e) { onSearch(e, gInput); });
+  gform2.addEventListener("submit", function (e) { onSearch(e, gInput2); });
 </script>
 </body>
 </html>
