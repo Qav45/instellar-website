@@ -66,7 +66,7 @@
   .gsearch.sm { width:min(560px,70vw); }
   .gsearch.sm input { height:40px; }
   #gcseResults { padding: 12px 24px 40px; max-width: 760px; flex:1 1 auto; overflow:auto; }
-  /* embedded proxied site — served by the Vercel proxy, shown inside our page */
+  /* embedded proxied site — served by our /api/proxy worker, shown inside our page */
   #gframe { flex:1 1 auto; width:100%; border:0; background:#fff; }
   #gsetup, #gfallback { padding:24px; color:#5f6673; font-size:14px; }
   #gsetup code { background:#eef0f3; padding:1px 5px; border-radius:4px; }
@@ -158,7 +158,7 @@
     <div id="gcseResults"></div>
     <div id="gfallback" hidden></div>
     <div id="gsetup" hidden>Set your Google <code>CONFIG.searchApiKey</code> and <code>CONFIG.searchEngineId</code> to show live results here.</div>
-    <!-- "I'm Feeling Lucky" on a URL embeds the proxied site here (fetched on the Vercel server). -->
+    <!-- "I'm Feeling Lucky" on a URL embeds the proxied site here (fetched server-side by /api/proxy). -->
     <iframe id="gframe" hidden title="Search result"></iframe>
   </div>
 
@@ -202,13 +202,13 @@
     searchEngineId: '95460305a59bc4f8a',
     searchApiKey: 'AIzaSyD1_uLaghiAergBkaM5gV7NX-7fTmhf8r8',
 
-    // Server-side web proxy. Deploy this repo to Vercel (it runs api/proxy.js)
-    // and paste the deployment origin here, e.g. 'https://your-app.vercel.app'.
-    // When set, typing a URL into the box and hitting "I'm Feeling Lucky" loads
-    // that site THROUGH the proxy — the page is fetched on Vercel's server, so
-    // the browser only ever contacts this Vercel domain, not the target host.
-    // Left empty, "I'm Feeling Lucky" just does a normal search.
-    proxyBase: 'https://ilovedudes.vercel.app',
+    // Server-side search + web proxy. Empty = same origin, i.e. the Cloudflare
+    // Worker in worker/ answering instellar.net/api/* (see worker/wrangler.toml).
+    // Typing a URL into the box and hitting "I'm Feeling Lucky" loads that site
+    // THROUGH the proxy — it's fetched on the server, so the browser only ever
+    // contacts instellar.net and never the target host.
+    // Set a full origin here only to point at a different backend.
+    proxyBase: '',
 
     // What makes the guard hide the page:
     //   'any'   → ANY face visible hides it (webcam watches the space; anyone
@@ -525,8 +525,8 @@
   }
 
   // Base for our server functions. Empty proxyBase → same-origin ("/api/..."),
-  // so once instellar.net is served by Vercel the browser only ever talks to
-  // instellar.net. A full origin (e.g. the vercel.app URL) is used verbatim.
+  // handled by the Cloudflare Worker on instellar.net/api/*, so the browser only
+  // ever talks to instellar.net. A full origin is used verbatim if set.
   const API = (CONFIG.proxyBase || "").replace(/\/+$/, "");
 
   // Call the search (on OUR server) and display the results. The server returns
@@ -564,7 +564,7 @@
     search(query);
   }
 
-  // Embed a proxied site inside the page: the Vercel server fetches it, the
+  // Embed a proxied site inside the page: the worker fetches it server-side, the
   // iframe just displays it — the browser's address bar stays on our site.
   function openProxied(rawUrl, target) {
     gInput.value = rawUrl; gInput2.value = rawUrl;
@@ -604,7 +604,7 @@
   }
 
   // "I'm Feeling Lucky": a URL loads that site through the server proxy, embedded
-  // right here in the page (fetched on Vercel, never client-side); anything else
+  // right here in the page (fetched server-side, never client-side); anything else
   // runs a normal search.
   glucky.addEventListener("click", function () {
     const raw = (gInput.value || "").trim();
