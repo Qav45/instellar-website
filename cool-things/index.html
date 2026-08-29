@@ -198,6 +198,14 @@
     searchEngineId: '95460305a59bc4f8a',
     searchApiKey: 'AIzaSyD1_uLaghiAergBkaM5gV7NX-7fTmhf8r8',
 
+    // Server-side web proxy. Deploy this repo to Vercel (it runs api/proxy.js)
+    // and paste the deployment origin here, e.g. 'https://your-app.vercel.app'.
+    // When set, typing a URL into the box and hitting "I'm Feeling Lucky" loads
+    // that site THROUGH the proxy — the page is fetched on Vercel's server, so
+    // the browser only ever contacts this Vercel domain, not the target host.
+    // Left empty, "I'm Feeling Lucky" just does a normal search.
+    proxyBase: '',
+
     // What makes the guard hide the page:
     //   'any'   → ANY face visible hides it (webcam watches the space; anyone
     //             who can see the screen triggers it).
@@ -564,9 +572,26 @@
   }
   gform.addEventListener("submit", function (e) { onSearch(e, gInput); });
   gform2.addEventListener("submit", function (e) { onSearch(e, gInput2); });
+
+  // Treat input as a URL if it has an http(s) scheme or looks like a bare domain
+  // (e.g. "example.com/path"); returns the normalised absolute URL or null.
+  function asUrl(s) {
+    if (/^https?:\/\//i.test(s)) return s;
+    if (/^[\w-]+(\.[\w-]+)+(\/.*)?$/.test(s) && /\.[a-z]{2,}(\/|$|:)/i.test(s)) return "https://" + s;
+    return null;
+  }
+
+  // "I'm Feeling Lucky": a URL loads that site through the server proxy (opens in
+  // a new tab so the disguise stays put); anything else runs a normal search.
   glucky.addEventListener("click", function () {
     const raw = (gInput.value || "").trim();
-    if (raw) showResults(raw); else gInput.focus();
+    if (!raw) { gInput.focus(); return; }
+    const url = asUrl(raw);
+    if (url && CONFIG.proxyBase) {
+      window.open(CONFIG.proxyBase.replace(/\/+$/, "") + "/api/proxy?url=" + encodeURIComponent(url), "_blank", "noopener");
+      return;
+    }
+    showResults(raw);
   });
 </script>
 </body>
