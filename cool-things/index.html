@@ -519,15 +519,19 @@
     gcseResults.innerHTML = html;
   }
 
-  // Call the JSON API and display the results (Google's servers do the work).
+  // Call the search and display the results. When a proxyBase is set the query
+  // runs on OUR Vercel server (/api/search); otherwise the browser calls Google
+  // directly as a fallback. Either way the response is Google's JSON.
   async function search(query) {
     const seq = ++searchSeq;
     gfallback.hidden = true;
     gcseResults.innerHTML = '<div class="res-meta">Searching…</div>';
-    const url = "https://www.googleapis.com/customsearch/v1?key=" +
-      encodeURIComponent(CONFIG.searchApiKey) + "&cx=" +
-      encodeURIComponent(CONFIG.searchEngineId) + "&num=10&q=" +
-      encodeURIComponent(query);
+    const url = CONFIG.proxyBase
+      ? CONFIG.proxyBase.replace(/\/+$/, "") + "/api/search?q=" + encodeURIComponent(query)
+      : "https://www.googleapis.com/customsearch/v1?key=" +
+        encodeURIComponent(CONFIG.searchApiKey) + "&cx=" +
+        encodeURIComponent(CONFIG.searchEngineId) + "&num=10&q=" +
+        encodeURIComponent(query);
     try {
       const res = await fetch(url);
       if (seq !== searchSeq) return;          // a newer search superseded this one
@@ -550,7 +554,8 @@
     ghome.hidden = true;
     gresults.hidden = false;
     gfallback.hidden = true;
-    if (!CONFIG.searchApiKey || !CONFIG.searchEngineId) { gcseResults.innerHTML = ""; gsetup.hidden = false; return; }
+    const ready = CONFIG.proxyBase || (CONFIG.searchApiKey && CONFIG.searchEngineId);
+    if (!ready) { gcseResults.innerHTML = ""; gsetup.hidden = false; return; }
     gsetup.hidden = true;
     search(query);
   }
