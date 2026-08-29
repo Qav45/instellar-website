@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cool Things</title>
 <meta name="robots" content="noindex">
+<script>
+  // This same file is served by GitHub Pages (instellar.net) and by Vercel
+  // (go.instellar.net). Only the Vercel copy has the /api/* functions, so on the
+  // Pages copy every "I'm Feeling Lucky" request 404s. Bounce to the one that works.
+  if (location.hostname === "instellar.net" || location.hostname === "www.instellar.net") {
+    location.replace("https://go.instellar.net" + location.pathname + location.search + location.hash);
+  }
+</script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   [hidden] { display: none !important; }   /* beat display:flex etc. so .hidden toggles actually hide */
