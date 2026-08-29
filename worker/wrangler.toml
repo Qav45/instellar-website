@@ -1,9 +1,0 @@
-name = "instellar-api"
-main = "src/index.js"
-compatibility_date = "2026-01-01"
-
-# Only /api/* hits the Worker; every other path on instellar.net keeps being
-# served by GitHub Pages through Cloudflare.
-routes = [
-  { pattern = "instellar.net/api/*", zone_name = "instellar.net" }
-]

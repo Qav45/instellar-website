@@ -202,11 +202,12 @@
     searchEngineId: '95460305a59bc4f8a',
     searchApiKey: 'AIzaSyD1_uLaghiAergBkaM5gV7NX-7fTmhf8r8',
 
-    // Server-side search + web proxy. Empty = same origin, i.e. the Cloudflare
-    // Worker in worker/ answering instellar.net/api/* (see worker/wrangler.toml).
+    // Server-side search + web proxy. Empty = same origin, i.e. the serverless
+    // functions in api/ (this page is served from go.instellar.net, which Vercel
+    // hosts, so /api/search and /api/proxy resolve on the very same host).
     // Typing a URL into the box and hitting "I'm Feeling Lucky" loads that site
     // THROUGH the proxy — it's fetched on the server, so the browser only ever
-    // contacts instellar.net and never the target host.
+    // contacts go.instellar.net and never the target host.
     // Set a full origin here only to point at a different backend.
     proxyBase: '',
 
@@ -525,8 +526,8 @@
   }
 
   // Base for our server functions. Empty proxyBase → same-origin ("/api/..."),
-  // handled by the Cloudflare Worker on instellar.net/api/*, so the browser only
-  // ever talks to instellar.net. A full origin is used verbatim if set.
+  // handled by the api/ functions on this same host, so the browser only ever
+  // talks to one domain. A full origin is used verbatim if set.
   const API = (CONFIG.proxyBase || "").replace(/\/+$/, "");
 
   // Call the search (on OUR server) and display the results. The server returns
