@@ -76,6 +76,13 @@ module.exports = async (req, res) => {
     });
     // inline + <style> css url()/@import
     html = rewriteCssUrls(html);
+    // Inject the runtime interceptor FIRST so it patches fetch/XHR/etc. before
+    // any of the page's own scripts run — this is what stops requests going
+    // straight to the target domain.
+    const inject = interceptor(base, url.href);
+    if (/<head[^>]*>/i.test(html))      html = html.replace(/<head[^>]*>/i, (m) => m + inject);
+    else if (/<html[^>]*>/i.test(html)) html = html.replace(/<html[^>]*>/i, (m) => m + inject);
+    else                                html = inject + html;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.status(upstream.status).send(html);
     return;
@@ -93,6 +100,38 @@ module.exports = async (req, res) => {
   res.setHeader("content-type", ct || "application/octet-stream");
   res.status(upstream.status).send(buf);
 };
+
+// Inline script injected into every proxied HTML page. It runs before the site's
+// own scripts and reroutes runtime requests (fetch, XHR, sendBeacon, dynamically
+// set src/href, newly inserted nodes) back through this proxy, so the browser
+// never connects to the target domain directly. WebSocket is blocked (can't be
+// proxied on serverless) rather than allowed to leak a direct connection.
+function interceptor(proxyBase, origin) {
+  const PROXY = JSON.stringify(proxyBase);      // "https://host/api/proxy?url="
+  const ORIGIN = JSON.stringify(origin);        // real URL of this page
+  return "<script>(function(){" +
+    "var PROXY=" + PROXY + ",ORIGIN=" + ORIGIN + ";" +
+    "function isP(u){return u.indexOf(PROXY)===0||u.indexOf('/api/proxy?url=')>-1;}" +
+    "function P(u){if(u==null)return u;u=String(u);" +
+      "if(!u||u[0]==='#'||/^(data:|blob:|javascript:|mailto:|tel:|about:)/i.test(u))return u;" +
+      "if(isP(u))return u;var a;try{a=new URL(u,ORIGIN).href;}catch(e){return u;}" +
+      "if(!/^https?:/i.test(a))return u;return PROXY+encodeURIComponent(a);}" +
+    "function U(v){try{var i=v.indexOf('url=');if(v.indexOf('/api/proxy?url=')>-1&&i>-1)return decodeURIComponent(v.slice(i+4));}catch(e){}return v;}" +
+    "var _f=window.fetch;if(_f)window.fetch=function(i,o){try{if(typeof i==='string')i=P(i);else if(i&&i.url)i=new Request(P(i.url),i);}catch(e){}return _f.call(this,i,o);};" +
+    "var _o=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){try{arguments[1]=P(u);}catch(e){}return _o.apply(this,arguments);};" +
+    "if(navigator.sendBeacon){var _b=navigator.sendBeacon.bind(navigator);navigator.sendBeacon=function(u,d){try{u=P(u);}catch(e){}return _b(u,d);};}" +
+    "var _sa=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){try{if(/^(src|href|action|poster)$/i.test(n))v=P(v);}catch(e){}return _sa.call(this,n,v);};" +
+    "function hook(pr,p){try{var d=Object.getOwnPropertyDescriptor(pr,p);if(!d||!d.set)return;" +
+      "Object.defineProperty(pr,p,{configurable:true,enumerable:d.enumerable," +
+      "get:function(){return U(d.get.call(this));},set:function(v){try{v=P(v);}catch(e){}d.set.call(this,v);}});}catch(e){}}" +
+    "hook(HTMLImageElement.prototype,'src');hook(HTMLScriptElement.prototype,'src');hook(HTMLLinkElement.prototype,'href');" +
+    "hook(HTMLIFrameElement.prototype,'src');hook(HTMLMediaElement.prototype,'src');hook(HTMLSourceElement.prototype,'src');" +
+    "try{new MutationObserver(function(ms){ms.forEach(function(m){(m.addedNodes||[]).forEach(function(n){if(n.nodeType!==1)return;" +
+      "['src','href','poster'].forEach(function(a){if(n.hasAttribute&&n.hasAttribute(a)){var v=n.getAttribute(a),x=P(v);if(x!==v)_sa.call(n,a,x);}});});});})" +
+      ".observe(document.documentElement,{childList:true,subtree:true});}catch(e){}" +
+    "try{window.WebSocket=function(){throw new Error('blocked by proxy');};}catch(e){}" +
+    "})();</scr" + "ipt>";
+}
 
 // Block localhost, private/link-local ranges and cloud metadata so the proxy
 // can't be pointed at internal infrastructure.
