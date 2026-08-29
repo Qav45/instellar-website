@@ -36,7 +36,9 @@ module.exports = async (req, res) => {
       },
     });
   } catch (e) {
-    res.status(502).send("Upstream fetch failed: " + e.message); return;
+    const cause = e && e.cause ? (e.cause.code || e.cause.message || e.cause) : "";
+    res.status(502).send("Upstream fetch failed: " + e.message + (cause ? " (" + cause + ")" : "") +
+      " — for " + url.href); return;
   }
 
   const ct = upstream.headers.get("content-type") || "";
