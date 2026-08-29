@@ -524,19 +524,18 @@
     gcseResults.innerHTML = html;
   }
 
-  // Call the search and display the results. When a proxyBase is set the query
-  // runs on OUR Vercel server (/api/search); otherwise the browser calls Google
-  // directly as a fallback. Either way the response is Google's JSON.
+  // Base for our server functions. Empty proxyBase → same-origin ("/api/..."),
+  // so once instellar.net is served by Vercel the browser only ever talks to
+  // instellar.net. A full origin (e.g. the vercel.app URL) is used verbatim.
+  const API = (CONFIG.proxyBase || "").replace(/\/+$/, "");
+
+  // Call the search (on OUR server) and display the results. The server returns
+  // Google's JSON verbatim.
   async function search(query) {
     const seq = ++searchSeq;
     gfallback.hidden = true;
     gcseResults.innerHTML = '<div class="res-meta">Searching…</div>';
-    const url = CONFIG.proxyBase
-      ? CONFIG.proxyBase.replace(/\/+$/, "") + "/api/search?q=" + encodeURIComponent(query)
-      : "https://www.googleapis.com/customsearch/v1?key=" +
-        encodeURIComponent(CONFIG.searchApiKey) + "&cx=" +
-        encodeURIComponent(CONFIG.searchEngineId) + "&num=10&q=" +
-        encodeURIComponent(query);
+    const url = API + "/api/search?q=" + encodeURIComponent(query);
     try {
       const res = await fetch(url);
       if (seq !== searchSeq) return;          // a newer search superseded this one
@@ -561,8 +560,6 @@
     gfallback.hidden = true;
     gframe.hidden = true; gframe.removeAttribute("src");   // leave any embedded page
     gcseResults.hidden = false;
-    const ready = CONFIG.proxyBase || (CONFIG.searchApiKey && CONFIG.searchEngineId);
-    if (!ready) { gcseResults.innerHTML = ""; gsetup.hidden = false; return; }
     gsetup.hidden = true;
     search(query);
   }
@@ -613,8 +610,8 @@
     const raw = (gInput.value || "").trim();
     if (!raw) { gInput.focus(); return; }
     const url = asUrl(raw);
-    if (url && CONFIG.proxyBase) {
-      openProxied(raw, CONFIG.proxyBase.replace(/\/+$/, "") + "/api/proxy?url=" + encodeURIComponent(url));
+    if (url) {
+      openProxied(raw, API + "/api/proxy?url=" + encodeURIComponent(url));
       return;
     }
     showResults(raw);
