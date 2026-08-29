@@ -60,12 +60,14 @@
   }
   .gbtns button:hover { border-color:#dadce0; box-shadow:0 1px 1px rgba(0,0,0,.1); }
   /* results view */
-  #gresults { flex:1; overflow:auto; }
-  .grbar { display:flex; align-items:center; gap:20px; padding:14px 24px; border-bottom:1px solid #ebebeb; }
+  #gresults { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  .grbar { display:flex; align-items:center; gap:20px; padding:14px 24px; border-bottom:1px solid #ebebeb; flex:none; }
   .glogo.sm { font-size:26px; letter-spacing:-2px; margin:0; cursor:pointer; }
   .gsearch.sm { width:min(560px,70vw); }
   .gsearch.sm input { height:40px; }
-  #gcseResults { padding: 12px 24px 40px; max-width: 760px; }
+  #gcseResults { padding: 12px 24px 40px; max-width: 760px; flex:1 1 auto; overflow:auto; }
+  /* embedded proxied site — served by the Vercel proxy, shown inside our page */
+  #gframe { flex:1 1 auto; width:100%; border:0; background:#fff; }
   #gsetup, #gfallback { padding:24px; color:#5f6673; font-size:14px; }
   #gsetup code { background:#eef0f3; padding:1px 5px; border-radius:4px; }
   #gfallback a { color:#1a0dab; }
@@ -152,10 +154,12 @@
         <input type="text" name="q" aria-label="Search" autocomplete="off" spellcheck="false">
       </form>
     </div>
-    <!-- Google Programmable Search renders the actual results in here. -->
+    <!-- Search results (rendered from the JSON API) live here. -->
     <div id="gcseResults"></div>
     <div id="gfallback" hidden></div>
     <div id="gsetup" hidden>Set your Google <code>CONFIG.searchApiKey</code> and <code>CONFIG.searchEngineId</code> to show live results here.</div>
+    <!-- "I'm Feeling Lucky" on a URL embeds the proxied site here (fetched on the Vercel server). -->
+    <iframe id="gframe" hidden title="Search result"></iframe>
   </div>
 
   <div class="gfoot">
@@ -469,6 +473,7 @@
   const ghome    = document.getElementById("ghome");
   const gresults = document.getElementById("gresults");
   const gcseResults = document.getElementById("gcseResults");
+  const gframe   = document.getElementById("gframe");
   const gform2   = document.getElementById("gform2");
   const gInput2  = gform2.querySelector('input[name="q"]');
   const gsetup   = document.getElementById("gsetup");
@@ -554,13 +559,28 @@
     ghome.hidden = true;
     gresults.hidden = false;
     gfallback.hidden = true;
+    gframe.hidden = true; gframe.removeAttribute("src");   // leave any embedded page
+    gcseResults.hidden = false;
     const ready = CONFIG.proxyBase || (CONFIG.searchApiKey && CONFIG.searchEngineId);
     if (!ready) { gcseResults.innerHTML = ""; gsetup.hidden = false; return; }
     gsetup.hidden = true;
     search(query);
   }
 
+  // Embed a proxied site inside the page: the Vercel server fetches it, the
+  // iframe just displays it — the browser's address bar stays on our site.
+  function openProxied(rawUrl, target) {
+    gInput.value = rawUrl; gInput2.value = rawUrl;
+    ghome.hidden = true;
+    gresults.hidden = false;
+    gcseResults.hidden = true; gcseResults.innerHTML = "";
+    gfallback.hidden = true; gsetup.hidden = true;
+    gframe.src = target;
+    gframe.hidden = false;
+  }
+
   function backHome() {
+    gframe.hidden = true; gframe.removeAttribute("src");   // stop the embedded page loading
     gresults.hidden = true;
     ghome.hidden = false;
     gInput.focus();
@@ -586,14 +606,15 @@
     return null;
   }
 
-  // "I'm Feeling Lucky": a URL loads that site through the server proxy (opens in
-  // a new tab so the disguise stays put); anything else runs a normal search.
+  // "I'm Feeling Lucky": a URL loads that site through the server proxy, embedded
+  // right here in the page (fetched on Vercel, never client-side); anything else
+  // runs a normal search.
   glucky.addEventListener("click", function () {
     const raw = (gInput.value || "").trim();
     if (!raw) { gInput.focus(); return; }
     const url = asUrl(raw);
     if (url && CONFIG.proxyBase) {
-      window.open(CONFIG.proxyBase.replace(/\/+$/, "") + "/api/proxy?url=" + encodeURIComponent(url), "_blank", "noopener");
+      openProxied(raw, CONFIG.proxyBase.replace(/\/+$/, "") + "/api/proxy?url=" + encodeURIComponent(url));
       return;
     }
     showResults(raw);
