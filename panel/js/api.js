@@ -98,6 +98,7 @@
         var payload = msg && msg.payload;
         if (S.me && payload && payload.uid === S.me.id) api.forceLogout('Your staff access has been revoked.');
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'punishments' }, function () { api.loadData(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'player_notes' }, function () { api.loadData(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_logs' }, function () { api.loadLogs(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'guides' }, function () { api.loadGuides(); })
@@ -150,9 +151,12 @@
       sb.from('mod_actions').select('*').eq('server', srv).order('created_at', { ascending: false }).limit(300),
       sb.from('staff').select('*').eq('server', srv).order('created_at', { ascending: true }),
       sb.from('player_notes').select('*').eq('server', srv).order('created_at', { ascending: true }).limit(1000),
-      sb.from('player_presence').select('*').eq('server', srv).order('last_seen', { ascending: false }).limit(2000)
+      sb.from('player_presence').select('*').eq('server', srv).order('last_seen', { ascending: false }).limit(2000),
+      // The punishment ledger the game server publishes. mod_actions above is the queue of what
+      // this panel ASKED for; this is what actually happened, including every ban typed in game.
+      sb.from('punishments').select('*').eq('server', srv).order('created_at', { ascending: false }).limit(1000)
     ]).then(function (r) {
-      var a = r[0], st = r[1], n = r[2], pr = r[3];
+      var a = r[0], st = r[1], n = r[2], pr = r[3], pu = r[4];
       if (a.error || st.error) { S.data.auditError = (a.error || st.error).message; P.toast('fail', 'Could not load data: ' + (a.error || st.error).message); return; }
       if (srvChanged(srv) || !S.authed) return;
       S.data.auditError = null;
@@ -160,6 +164,10 @@
       S.data.staff = st.data || [];
       if (!n.error) S.data.notes = n.data || [];
       if (pr && !pr.error) S.data.presence = pr.data || [];
+      // Absent rather than empty when the table is missing, so a panel pointed at a database that
+      // has not run punishments-setup.sql falls back to mod_actions instead of calling everybody
+      // clean -- the exact failure this ledger exists to fix.
+      S.data.punishments = (pu && !pu.error) ? (pu.data || []) : null;
       P.rerender();
     });
   };

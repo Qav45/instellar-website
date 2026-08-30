@@ -287,10 +287,76 @@
     return (P.state.data.presence || []).filter(function (p) { return String(p.name || '').toLowerCase() === n; })[0] || null;
   };
   P.onlinePlayers = function (rows) { return (rows || P.state.data.presence || []).filter(P.isOnline); };
-  // Ban/mute status + executed history (newest first) from the current server's actions.
+  // Ban/mute status + history (newest first) for the current server.
+  //
+  // Read from the punishment ledger the game server publishes, not from mod_actions. That table is
+  // a queue of what this panel asked for, so replaying it answered "is this player banned" with
+  // "did somebody ban them FROM HERE" -- a ban typed in game showed as Clear, which is what this
+  // whole ledger exists to fix. The ledger says whether each punishment is still in force, so
+  // nothing has to be inferred by replaying Unbans over Bans in order.
+  //
+  // The old replay is kept as the fallback for a panel whose database has not run
+  // punishments-setup.sql yet: wrong for in-game bans, but far better than reporting everybody
+  // clean. api.loadData leaves S.data.punishments null in exactly that case.
   P.playerRecord = function (name) {
     var n = String(name || '').toLowerCase();
     var rows = (P.state.data.actions || []).filter(function (a) { return String(a.target || '').toLowerCase() === n; });
+    var ledger = P.state.data.punishments;
+    if (!ledger) return P.playerRecordFromActions(name, rows);
+
+    var mine = ledger.filter(function (p) { return String(p.player_name || '').toLowerCase() === n; });
+    var now = Date.now(), status = 'Clear', history = [];
+    mine.forEach(function (p) {
+      var inForce = p.active && (!p.expires_at || new Date(p.expires_at).getTime() > now);
+      history.push({ row: P.punishmentAsRow(p), active: inForce, punishment: p });
+      if (!inForce) return;
+      if (p.type === 'ban' || p.type === 'ipban' || p.type === 'blacklist') status = 'Banned';
+      else if (p.type === 'mute' && status !== 'Banned') status = 'Muted';
+    });
+    return { status: status, history: history, all: rows, ledger: mine };
+  };
+
+  // A ledger row wearing the shape the record and infractions views already render, so the two
+  // sources do not need two renderers. Kicks and warns keep their own labels; a wipe is a Ban with
+  // the flag the site already knows how to draw.
+  // How long a punishment was for, in the vocabulary the panel already uses everywhere else.
+  // Derived from the two timestamps rather than stored, because the ledger records when a
+  // punishment ends, not the phrase somebody picked from a menu -- a ban typed in game as "/tempban
+  // 36h" never had one.
+  P.spanLabel = function (fromISO, toISO) {
+    if (!toISO) return 'Permanent';
+    var ms = new Date(toISO).getTime() - new Date(fromISO).getTime();
+    if (!(ms > 0)) return null;
+    var units = [['day', 86400000], ['hour', 3600000], ['minute', 60000]];
+    for (var i = 0; i < units.length; i++) {
+      var n = Math.round(ms / units[i][1]);
+      if (n >= 1) return n + ' ' + units[i][0] + (n === 1 ? '' : 's');
+    }
+    return 'under a minute';
+  };
+
+  P.punishmentAsRow = function (p) {
+    var TYPES = { ban: 'Ban', ipban: 'Ban', blacklist: 'Ban', mute: 'Mute', kick: 'Kick', warn: 'Warn' };
+    return {
+      id: p.public_id,
+      server: p.server,
+      type: p.wiped ? 'Wipeban' : (TYPES[p.type] || p.type),
+      target: p.player_name,
+      reason: p.reason,
+      duration: P.spanLabel(p.created_at, p.expires_at),
+      expires_at: p.expires_at,
+      by_name: p.staff_name,
+      status: 'Executed',
+      error: null,
+      created_at: p.created_at,
+      revoked_at: p.revoked_at,
+      revoked_by: p.revoked_by,
+      silent: p.silent
+    };
+  };
+
+  // The pre-ledger derivation, kept for a database without the punishments table.
+  P.playerRecordFromActions = function (name, rows) {
     var status = 'Clear', history = [];
     rows.slice().reverse().forEach(function (a) {
       if (a.status !== 'Executed') return;

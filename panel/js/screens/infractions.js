@@ -130,7 +130,12 @@
     var target = targetOf(u);
     if (!target) return '<div class="gl-card p-card p-record"><div class="empty p-empty">Pick a player to see their record.</div></div>';
     var t = target.toLowerCase();
-    var all = (P.state.data.actions || []).filter(function (a) { return String(a.target || '').toLowerCase() === t; });
+    // The record is the ledger: every punishment the server actually carried out, wherever it was
+    // issued. Reading mod_actions here showed only what this panel queued, so a player banned in
+    // game read as "No punishments yet" -- the reason somebody would then hand out a first warning
+    // to a repeat offender. P.playerRecord falls back to mod_actions when the ledger is absent.
+    var rec = P.playerRecord(target);
+    var all = rec.history.map(function (e) { return e.row; });
     var rows = all.slice(0, 12);
     var h = '<div class="gl-card p-card p-record"><h3 class="p-hist-head">' + esc(target) + '’s record</h3>';
     if (!rows.length) h += '<div class="empty">No punishments yet.</div>';
@@ -140,6 +145,8 @@
         if (a.duration) bits.push(esc(a.duration));
         bits.push('by ' + esc(a.by_name));
         bits.push(esc(P.timeAgo(a.created_at)));
+        if (a.revoked_at) bits.push('lifted by ' + esc(a.revoked_by || 'staff'));
+        if (a.silent) bits.push('silent');
         return '<div class="p-row"><span class="p-what">' + P.typePill(a.type) + esc(a.reason) + ' <span class="p-dim">· ' + bits.join(' · ') + '</span>'
           + (a.status === 'Failed' && a.error ? '<span class="p-err">' + esc(a.error) + '</span>' : '')
           + (a.proof && a.proof.length ? '<span class="p-proof">' + P.proofLinks(a.proof) + '</span>' : '')

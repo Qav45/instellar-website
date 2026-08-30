@@ -61,6 +61,51 @@
   for (var k = 0; k < 6; k++) act({ server: 'instellar1', type: 'Ban', target: pick(players), reason: 'Cheating / Hacking', duration: '7 days', by_id: 'u-rin', by_name: 'Rin M.', status: 'Executed', proof: k % 2 ? [proofs[1]] : null, created_at: ago((k + 1) * D * 0.9) });
   actions.sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; });
 
+  // The punishment ledger the game server publishes. Derived from the executed mod_actions above so
+  // the two agree wherever the panel queued something, PLUS a handful of punishments that were
+  // typed in game and exist in no mod_actions row at all -- which is the whole point of the ledger
+  // and the case the panel used to render as "No punishments yet".
+  var LEDGER_TYPE = { Ban: 'ban', Wipeban: 'ban', Mute: 'mute', Kick: 'kick', Warn: 'warn' };
+  var punishments = [], pid = 0;
+  function publicId() {
+    var abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', out = '';
+    for (var q = 0; q < 8; q++) out += abc[Math.floor(rnd() * abc.length)];
+    return out;
+  }
+  function ledger(o) {
+    o.public_id = publicId();
+    o.player_uuid = 'p-' + (pid++) + '-0000-4000-8000-00000000' + (1000 + pid);
+    o.silent = o.silent || false;
+    o.wiped = o.wiped || false;
+    o.revoked_at = o.revoked_at || null;
+    o.revoked_by = o.revoked_by || null;
+    o.revoked_reason = o.revoked_reason || null;
+    o.expires_at = o.expires_at === undefined ? null : o.expires_at;
+    o.synced_at = o.created_at;
+    punishments.push(o);
+    return o;
+  }
+  var DUR_MS = { '30 minutes': 30 * 60000, '3 hours': 3 * H, '1 day': D, '3 days': 3 * D, '7 days': 7 * D, '14 days': 14 * D, '30 days': 30 * D };
+  actions.forEach(function (a) {
+    if (a.status !== 'Executed' || a.type === 'Unban') return;
+    var span = DUR_MS[a.duration];
+    ledger({
+      server: a.server, type: LEDGER_TYPE[a.type] || 'warn', player_name: a.target, reason: a.reason,
+      staff_name: a.by_name, created_at: a.created_at, active: a.type === 'Ban' || a.type === 'Wipeban' || a.type === 'Mute',
+      wiped: a.type === 'Wipeban',
+      expires_at: span ? new Date(new Date(a.created_at).getTime() + span).toISOString() : null
+    });
+  });
+  // Issued in game with /ban and /mute: no mod_actions row exists for any of these.
+  ledger({ server: 'instellar1', type: 'ban', player_name: 'iron_ivy', reason: 'X-ray (freecam)', staff_name: 'Ash Vellum', created_at: ago(6 * H), active: true });
+  ledger({ server: 'instellar1', type: 'ipban', player_name: 'nether_nat', reason: 'Ban evasion', staff_name: 'Kai F.', created_at: ago(30 * H), active: true });
+  ledger({ server: 'instellar1', type: 'mute', player_name: 'Mossy_Bee', reason: 'AutoMute: excessive caps', staff_name: 'AutoMute', created_at: ago(45 * 60000), active: true, expires_at: new Date(NOW + 2 * H).toISOString() });
+  ledger({ server: 'instellar1', type: 'ban', player_name: 'quartz_qt', reason: 'Cheating / Hacking', staff_name: 'Nova_Hex', created_at: ago(20 * D), active: false, revoked_at: ago(3 * D), revoked_by: 'qav45', revoked_reason: 'Appeal accepted' });
+  ledger({ server: 'instellar1', type: 'warn', player_name: 'iron_ivy', reason: 'Toxicity', staff_name: 'Rin M.', created_at: ago(40 * D), active: false });
+  ledger({ server: 'instellar1', type: 'ban', player_name: 'blocky_bill', reason: 'Doxing / DDoSing', staff_name: 'qav45', created_at: ago(9 * D), active: true, silent: true });
+  ledger({ server: 'instellar2', type: 'ban', player_name: 'Kestrel99', reason: 'Exploiting / Bug abuse', staff_name: 'Lia', created_at: ago(11 * D), active: true });
+  punishments.sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; });
+
   var presence = [];
   players.forEach(function (p, i) {
     var online = i % 3 !== 0;
@@ -70,6 +115,7 @@
   M.db = {
     staff: staff,
     mod_actions: actions,
+    punishments: punishments,
     player_notes: [
       { id: 1, server: 'instellar1', target: 'Sn0wF0x_', text: 'Second account of xX_grief_Xx? Watch for cheating.', by_id: 'u-ash', by_name: 'Ash Vellum', created_at: ago(3 * D) },
       { id: 2, server: 'instellar1', target: 'Sn0wF0x_', text: 'Warned in Discord too.', by_id: 'u-kai', by_name: 'Kai F.', created_at: ago(2 * H) },
