@@ -393,7 +393,12 @@ function connect() {
     stats.window += (e.data && e.data.byteLength) || 0;
   });
 
-  rfb = new RFB(screenEl, sock, { credentials: { password: password } });
+  // Only hand over a password we actually have. Passing an empty string counts as
+  // a real credential, so noVNC would attempt auth with it, get refused, and greet
+  // a first-time viewer with "the host refused that password" before they typed
+  // anything. With none supplied it asks properly instead.
+  rfb = new RFB(screenEl, sock,
+    password ? { credentials: { password: password } } : {});
   rfb.background = "#000";
   rfb.focusOnClick = true;
   rfb.showDotCursor = true;
