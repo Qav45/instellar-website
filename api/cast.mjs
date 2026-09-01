@@ -48,7 +48,12 @@ async function handle(request) {
       const target = String(body?.url || "");
       const token = String(body?.token || "");
       if (!/^wss:\/\/[^\s]+$/i.test(target)) return json(400, { error: "url must be a wss:// address" });
-      if (token.length < 16) return json(400, { error: "token must be at least 16 chars" });
+      // A short key is enumerable: 1234 is ten thousand guesses against this very
+      // endpoint, and whoever finds it gets the tunnel URL and lands on the VNC
+      // password prompt. That is the owner's call to make, so this only rejects
+      // the degenerate case - but a short key means the VNC password is the only
+      // thing left guarding the machine, not one of two independent secrets.
+      if (token.length < 4) return json(400, { error: "token must be at least 4 chars" });
 
       const th = await sha256(token);
       const rec = await getRecord();
