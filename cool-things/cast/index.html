@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Cast</title>
+<meta name="robots" content="noindex">
+<script>
+  // Same file is served by GitHub Pages (instellar.net) and Vercel (go.instellar.net).
+  // Only the Vercel copy has /api/*, so bounce to the one that works.
+  if (!window.CAST_DIRECT &&
+      (location.hostname === "instellar.net" || location.hostname === "www.instellar.net")) {
+    location.replace("https://go.instellar.net" + location.pathname + location.search + location.hash);
+  }
+</script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  :root { --bg:#0b0d12; --fg:#e7e9ee; --muted:#8a90a0; --accent:#6ea8fe; --panel:#151922; --line:#232838; }
+  html, body { height: 100%; overflow: hidden; }
+  body { background: var(--bg); color: var(--fg); display: flex; flex-direction: column;
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+  /* ---- toolbar ---- */
+  #bar { display:flex; align-items:center; gap:8px; padding:6px 10px; flex:0 0 auto; flex-wrap:wrap;
+         background:var(--panel); border-bottom:1px solid var(--line); font-size:13px; }
+  #bar .spacer { flex:1; }
+  #bar button, #bar select { background:#1b2130; color:var(--fg); border:1px solid var(--line);
+         border-radius:8px; padding:5px 9px; font-size:12px; font-family:inherit; cursor:pointer; }
+  #bar button:hover, #bar select:hover { border-color:var(--accent); }
+  #bar button.on { border-color:var(--accent); color:var(--accent); }
+  #bar label { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:5px; }
+
+  #state { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px;
+           min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #state .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
+  #state.live .dot { background:#3ddc84; box-shadow:0 0 8px #3ddc84; }
+  #state.wait .dot { background:#ffb020; box-shadow:0 0 8px #ffb020; animation:pulse 1.2s infinite; }
+  #state.bad  .dot { background:#ff5c5c; box-shadow:0 0 8px #ff5c5c; }
+  @keyframes pulse { 50% { opacity:.25; } }
+
+  /* ---- stats readout ---- */
+  #hud { display:flex; gap:12px; font-size:11.5px; color:var(--muted);
+         font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #hud b { color:var(--fg); font-weight:600; }
+  #hud .warn b { color:#ffb020; }
+  #hud .bad b { color:#ff5c5c; }
+
+  /* ---- screen ---- */
+  #screen { flex:1 1 auto; min-height:0; background:#000; position:relative; }
+
+  /* ---- overlay cards (token / password / errors) ---- */
+  #veil { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+          background:rgba(11,13,18,.94); z-index:10; padding:24px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px;
+          padding:26px 26px 22px; width:100%; max-width:400px; }
+  .card h2 { font-size:19px; letter-spacing:-.01em; margin-bottom:6px; }
+  .card p { color:var(--muted); font-size:13px; line-height:1.55; margin-bottom:16px; }
+  .card input { width:100%; background:#0f131c; color:var(--fg); border:1px solid var(--line);
+          border-radius:9px; padding:10px 12px; font-size:14px; font-family:inherit; margin-bottom:12px; }
+  .card input:focus { outline:none; border-color:var(--accent); }
+  .card button { width:100%; background:var(--accent); color:#0b0d12; border:0; border-radius:9px;
+          padding:10px; font-size:14px; font-weight:600; font-family:inherit; cursor:pointer; }
+  .card .err { color:#ff8080; font-size:13px; margin-bottom:12px; }
+  .card .foot { color:var(--muted); font-size:12px; margin-top:14px; line-height:1.5; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <div id="state"><span class="dot"></span><span id="stateText">Starting…</span></div>
+  <div id="hud">
+    <span id="hRtt">ping <b>–</b></span>
+    <span id="hRate">link <b>–</b></span>
+    <span id="hFb">screen <b>–</b></span>
+  </div>
+  <div class="spacer"></div>
+  <label>Show
+    <select id="share" title="Fewer pixels is the single biggest speed win">
+      <option value="primary" selected>Main screen</option>
+      <option value="2">Second screen</option>
+      <option value="full">Both</option>
+    </select>
+  </label>
+  <label>Quality
+    <select id="quality" title="Auto watches the link and picks for you">
+      <option value="auto" selected>Auto</option>
+      <option value="9,1">Sharp</option>
+      <option value="6,2">Balanced</option>
+      <option value="3,6">Fast</option>
+    </select>
+  </label>
+  <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
+  <button id="look" title="Ignore my mouse and keyboard">Watch only</button>
+  <button id="cad" title="Send Ctrl+Alt+Delete to the remote machine">Ctrl+Alt+Del</button>
+  <button id="full" title="Fullscreen">Fullscreen</button>
+  <button id="again" title="Reconnect">Reconnect</button>
+</div>
+
+<div id="screen">
+  <div id="veil">
+    <div class="card">
+      <h2>Access key</h2>
+      <p>Paste the key the host printed when it started casting.</p>
+      <input type="password" id="gateInput" placeholder="Access key" autocomplete="off" spellcheck="false">
+      <button id="gateGo">Connect</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+// The stream does NOT come through instellar.net: Vercel functions cannot hold a
+// WebSocket open. /api/cast only hands back the address of the host's tunnel, and
+// this page then talks RFB straight to it. No serverless hop in the pixel path is
+// the reason this stays quick.
+//
+// Everything else about feeling fast comes down to three numbers, all of which the
+// toolbar shows so they can be argued with rather than taken on faith:
+//   ping    - the floor on how fast a keystroke can echo. Network, not us.
+//   link    - bytes actually arriving. If this pins, quality is too high.
+//   screen  - the framebuffer. Every pixel here is decode work on a weak laptop,
+//             which is why the host shares one display by default.
+
+// noVNC ships CommonJS only - there is no ESM build to import - and its 54
+// modules would be 54 requests on every cold load. novnc.js is that whole tree
+// bundled into one same-origin file, which is one request and no third party in
+// the critical path.
+import RFB from "./novnc.js";
+
+const $ = (id) => document.getElementById(id);
+const screenEl = $("screen");
+
+let token = decodeURIComponent((location.hash || "").replace(/^#/, "")) ||
+            sessionStorage.getItem("castToken") || "";
+let password = sessionStorage.getItem("castPass") || "";
+// Served by the bridge itself on the LAN: the endpoint is this very host, and the
+// session key was injected into the page, so there is nothing to look up.
+const DIRECT = typeof window.CAST_DIRECT === "string" ? window.CAST_DIRECT : "";
+let endpoint = DIRECT
+  ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host +
+    "/ws?k=" + encodeURIComponent(DIRECT)
+  : "";
+let rfb = null;
+let retry = null;
+let manualStop = false;
+let needPassword = false;   // a password card is up; disconnect must not bury it
+
+/* --------------------------------------------------------------- metrics -- */
+
+// A Chromebook is CPU-poor before it is bandwidth-poor, so the presets trade JPEG
+// quality away first. That costs less than it sounds: Tight sends flat and
+// low-colour regions - which is most of a code editor - through zlib with a
+// palette, and only photographic areas through JPEG. Dropping quality blurs
+// wallpaper, not text.
+const PRESETS = {
+  sharp:    { quality: 9, compression: 1 },
+  balanced: { quality: 6, compression: 2 },
+  fast:     { quality: 3, compression: 6 },
+};
+
+// Cheap proxy for "is this a weak machine": Chromebooks commonly report 2-4 cores
+// and 4GB. Only a starting guess; measurement takes over within seconds.
+const WEAK = (navigator.hardwareConcurrency || 4) <= 4 ||
+             (navigator.deviceMemory || 8) <= 4;
+
+const stats = { rtt: 0, window: 0, mbps: 0 };
+const hud = {
+  rtt: $("hRtt").querySelector("b"),
+  rate: $("hRate").querySelector("b"),
+  fb: $("hFb").querySelector("b"),
+};
+let pingSock = null;
+let pingTimer = null;
+let autoTier = WEAK ? "balanced" : "sharp";
+
+function openPing() {
+  if (!endpoint) return;
+  closePing();
+  try {
+    pingSock = new WebSocket(endpoint.replace("/ws?", "/ping?"), ["binary"]);
+  } catch (_) { return; }
+  pingSock.binaryType = "arraybuffer";
+
+  pingSock.addEventListener("open", () => {
+    pingTimer = setInterval(() => {
+      if (!pingSock || pingSock.readyState !== 1) return;
+      pingSock.send(new Float64Array([performance.now()]).buffer);
+    }, 1000);
+  });
+
+  pingSock.addEventListener("message", (e) => {
+    if (!(e.data instanceof ArrayBuffer) || e.data.byteLength !== 8) return;
+    const sample = performance.now() - new Float64Array(e.data)[0];
+    // Smoothed, so one scheduling hiccup does not swing the readout or the tier.
+    stats.rtt = stats.rtt ? stats.rtt * 0.7 + sample * 0.3 : sample;
+  });
+
+  // The probe is a nicety; if it cannot connect the session carries on regardless.
+  pingSock.addEventListener("close", () => clearInterval(pingTimer));
+  pingSock.addEventListener("error", () => clearInterval(pingTimer));
+}
+
+function closePing() {
+  clearInterval(pingTimer);
+  if (pingSock) { try { pingSock.close(); } catch (_) {} }
+  pingSock = null;
+}
+
+function fmtRate(mbps) {
+  if (!mbps) return "idle";
+  return mbps >= 1 ? mbps.toFixed(1) + " Mb/s" : (mbps * 1000).toFixed(0) + " kb/s";
+}
+
+// One timer drives both the readout and the auto tier, so the page does no
+// per-frame work of its own.
+setInterval(() => {
+  stats.mbps = (stats.window * 8) / 1e6;
+  stats.window = 0;
+
+  const rtt = stats.rtt;
+  hud.rtt.textContent = rtt ? Math.round(rtt) + " ms" : "–";
+  $("hRtt").className = rtt > 150 ? "bad" : rtt > 70 ? "warn" : "";
+  hud.rate.textContent = fmtRate(stats.mbps);
+
+  const canvas = screenEl.querySelector("canvas");
+  hud.fb.textContent = canvas && canvas.width
+    ? canvas.width + "×" + canvas.height : "–";
+
+  if ($("quality").value === "auto") retune();
+}, 1000);
+
+// Auto quality, driven by latency alone. Throughput looks like a tempting second
+// signal but it is a trap: lowering quality lowers throughput, which would argue
+// for raising quality again, and the tier oscillates. Round-trip time has no such
+// feedback loop. Hysteresis on top keeps noisy wifi from twitching the tier.
+let tuneHold = 0;
+
+function retune() {
+  const rtt = stats.rtt;
+  if (!rtt) return;
+
+  let want;
+  if (rtt > 150) want = "fast";
+  else if (rtt > 70 || WEAK) want = "balanced";
+  else want = "sharp";
+
+  if (want === autoTier) { tuneHold = 0; return; }
+  if (++tuneHold < 3) return;               // three straight seconds before moving
+  tuneHold = 0;
+  autoTier = want;
+  applyQuality();
+}
+
+/* ------------------------------------------------------------------ ui -- */
+
+function state(kind, text) {
+  $("state").className = kind;
+  $("stateText").textContent = text;
+}
+
+// One overlay, reused for the key prompt, the VNC password and every dead end.
+function veil(html, onReady) {
+  const el = document.createElement("div");
+  el.id = "veil";
+  el.innerHTML = '<div class="card">' + html + "</div>";
+  const old = $("veil");
+  if (old) old.remove();
+  screenEl.appendChild(el);
+  if (onReady) onReady(el);
+}
+
+function hideVeil() {
+  const el = $("veil");
+  if (el) el.remove();
+}
+
+function askToken(message) {
+  veil(
+    "<h2>Access key</h2>" +
+    "<p>Paste the key the host printed when it started casting.</p>" +
+    (message ? '<div class="err">' + message + "</div>" : "") +
+    '<input type="password" id="gateInput" placeholder="Access key" autocomplete="off" spellcheck="false">' +
+    '<button id="gateGo">Connect</button>',
+    (el) => {
+      const input = el.querySelector("#gateInput");
+      const go = () => {
+        const v = input.value.trim();
+        if (!v) return;
+        token = v;
+        sessionStorage.setItem("castToken", v);
+        start();
+      };
+      el.querySelector("#gateGo").addEventListener("click", go);
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+      input.focus();
+    }
+  );
+}
+
+function askPassword(message) {
+  veil(
+    "<h2>Screen password</h2>" +
+    "<p>The VNC password set on the host machine.</p>" +
+    (message ? '<div class="err">' + message + "</div>" : "") +
+    '<input type="password" id="pw" placeholder="Password" autocomplete="off">' +
+    '<button id="pwGo">Unlock</button>',
+    (el) => {
+      const input = el.querySelector("#pw");
+      const go = () => {
+        password = input.value;
+        sessionStorage.setItem("castPass", password);
+        needPassword = false;
+        if (rfb) { hideVeil(); rfb.sendCredentials({ password: password }); }
+        else start();
+      };
+      el.querySelector("#pwGo").addEventListener("click", go);
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+      input.focus();
+    }
+  );
+}
+
+function problem(title, detail, retrying) {
+  veil(
+    "<h2>" + title + "</h2><p>" + detail + "</p>" +
+    (retrying ? '<div class="foot">Retrying every few seconds…</div>'
+              : '<button id="retryGo">Try again</button>'),
+    (el) => {
+      const b = el.querySelector("#retryGo");
+      if (b) b.addEventListener("click", start);
+    }
+  );
+}
+
+/* ------------------------------------------------------------- connect -- */
+
+async function start() {
+  clearTimeout(retry);
+  manualStop = false;
+  needPassword = false;
+  hideVeil();
+
+  if (DIRECT) return connect();
+  if (!token) return askToken("");
+
+  state("wait", "Looking for the host…");
+  try {
+    const res = await fetch("/api/cast?t=" + encodeURIComponent(token), { cache: "no-store" });
+    const body = await res.json().catch(() => ({}));
+
+    if (res.status === 401) {
+      sessionStorage.removeItem("castToken");
+      token = "";
+      state("bad", "Wrong key");
+      return askToken("That key does not match the host.");
+    }
+    if (res.status === 404) {
+      state("wait", "Host offline");
+      problem("Nobody is casting", "Run the host script on the machine you want to reach.", true);
+      retry = setTimeout(start, 5000);
+      return;
+    }
+    if (!res.ok) throw new Error(body.error || "HTTP " + res.status);
+    endpoint = body.url;
+    if (body.name) document.title = "Cast - " + body.name;
+  } catch (e) {
+    state("bad", "Lookup failed");
+    problem("Could not reach the site API", String(e.message || e), false);
+    return;
+  }
+
+  connect();
+}
+
+function connect() {
+  state("wait", "Connecting…");
+  if (rfb) { try { rfb.disconnect(); } catch (_) {} rfb = null; }
+
+  // Building the socket here rather than handing RFB a URL is what makes the link
+  // readout possible: noVNC replaces the onmessage property, but a listener added
+  // with addEventListener still fires, so bytes can be counted without reaching
+  // into its internals. It must still be CONNECTING when RFB takes it, because
+  // RFB waits for the open event.
+  let sock;
+  try {
+    sock = new WebSocket(endpoint, ["binary"]);
+  } catch (e) {
+    state("bad", "Bad endpoint");
+    return problem("Could not open the connection", String(e.message || e), false);
+  }
+  sock.binaryType = "arraybuffer";
+  sock.addEventListener("message", (e) => {
+    stats.window += (e.data && e.data.byteLength) || 0;
+  });
+
+  rfb = new RFB(screenEl, sock, { credentials: { password: password } });
+  rfb.background = "#000";
+  rfb.focusOnClick = true;
+  rfb.showDotCursor = true;
+  applyQuality();
+  applyFit();
+  rfb.viewOnly = $("look").classList.contains("on");
+
+  rfb.addEventListener("connect", () => {
+    hideVeil();
+    state("live", "Connected");
+    rfb.focus();
+    openPing();
+  });
+
+  rfb.addEventListener("credentialsrequired", () => {
+    state("wait", "Password needed");
+    needPassword = true;
+    askPassword(password ? "That password was rejected." : "");
+  });
+
+  // noVNC fires this and then immediately fails the connection, so without the
+  // flag the disconnect handler below would replace the password card with
+  // "Connection dropped" and start retrying - leaving nowhere to type.
+  rfb.addEventListener("securityfailure", (e) => {
+    sessionStorage.removeItem("castPass");
+    password = "";
+    needPassword = true;
+    state("bad", "Rejected");
+    askPassword((e.detail && e.detail.reason) || "The host refused that password.");
+  });
+
+  rfb.addEventListener("disconnect", (e) => {
+    rfb = null;
+    closePing();
+    if (manualStop || needPassword) return;
+    // A clean close is the host hanging up; anything else is usually the tunnel
+    // rotating out from under us, which a fresh /api/cast lookup fixes.
+    state("bad", "Disconnected");
+    problem("Connection dropped",
+      (e.detail && e.detail.clean) ? "The host ended the session."
+                                   : "Lost the link to the host.", true);
+    retry = setTimeout(start, 4000);
+  });
+
+  rfb.addEventListener("clipboard", (e) => {
+    if (e.detail && e.detail.text && navigator.clipboard) {
+      navigator.clipboard.writeText(e.detail.text).catch(() => {});
+    }
+  });
+}
+
+/* ------------------------------------------------------------ controls -- */
+
+// Clicking anything in the toolbar moves focus out of the canvas, and then typing
+// silently goes nowhere - which reads as "the cast froze". Hand focus back every
+// time, and blur the control so it does not keep eating arrow keys.
+function refocus() {
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  if (rfb) rfb.focus();
+}
+
+function applyQuality() {
+  if (!rfb) return;
+  const picked = $("quality").value;
+  const p = picked === "auto"
+    ? PRESETS[autoTier]
+    : { quality: +picked.split(",")[0], compression: +picked.split(",")[1] };
+  rfb.qualityLevel = p.quality;
+  rfb.compressionLevel = p.compression;
+}
+
+// Fit scales the desktop into the window. Off renders 1:1 and lets noVNC's own
+// screen div scroll, so ordinary scrollbars pan - which beats drag-panning, where
+// a drag to pan is a drag you did not mean to send to the remote machine.
+function applyFit() {
+  if (!rfb) return;
+  rfb.scaleViewport = $("fit").classList.contains("on");
+  rfb.clipViewport = false;
+  rfb.dragViewport = false;
+}
+
+$("quality").addEventListener("change", () => { applyQuality(); refocus(); });
+
+// Switching monitors is a host-side change, so it goes to the bridge's control
+// endpoint. The session key already in the endpoint URL is what authorises it.
+$("share").addEventListener("change", async () => {
+  if (!endpoint) return;
+  const ctl = endpoint.replace(/^wss:/, "https:").replace(/^ws:/, "http:")
+                      .replace("/ws?", "/ctl?") +
+              "&share=" + encodeURIComponent($("share").value);
+  state("wait", "Switching screen…");
+  try {
+    const r = await fetch(ctl, { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+  } catch (_) {
+    state("bad", "Could not switch screen");
+    refocus();
+    return;
+  }
+  // The shared area is now a different size. Rather than hope the desktop-resize
+  // path is handled everywhere, take the reliable route: the password is already
+  // cached, so reconnecting costs a second and always lands in a correct state.
+  manualStop = true;
+  if (rfb) { try { rfb.disconnect(); } catch (_) {} rfb = null; }
+  setTimeout(start, 250);
+});
+
+$("fit").addEventListener("click", () => {
+  $("fit").classList.toggle("on");
+  applyFit();
+  refocus();
+});
+
+$("look").addEventListener("click", () => {
+  const on = $("look").classList.toggle("on");
+  if (rfb) rfb.viewOnly = on;
+  refocus();
+});
+
+$("cad").addEventListener("click", () => { if (rfb) rfb.sendCtrlAltDel(); refocus(); });
+
+$("full").addEventListener("click", () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+});
+
+$("again").addEventListener("click", () => {
+  manualStop = true;
+  if (rfb) { try { rfb.disconnect(); } catch (_) {} rfb = null; }
+  start();
+});
+
+window.addEventListener("beforeunload", () => {
+  manualStop = true;
+  closePing();
+  if (rfb) { try { rfb.disconnect(); } catch (_) {} }
+});
+
+/* ---------------------------------------------------------------- boot -- */
+
+// Keep the key out of the address bar once we have it.
+if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+
+$("gateGo").addEventListener("click", () => {
+  const v = $("gateInput").value.trim();
+  if (!v) return;
+  token = v;
+  sessionStorage.setItem("castToken", v);
+  start();
+});
+$("gateInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("gateGo").click();
+});
+
+if (DIRECT || token) start();
+else { state("wait", "Waiting for a key"); $("gateInput").focus(); }
+</script>
+</body>
+</html>
