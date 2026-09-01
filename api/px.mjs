@@ -57,18 +57,20 @@ const L1_TTL = 2000;       // ms — long enough to cover one page's burst of
 
 const L1 = new Map();      // sid -> { at, jar }
 
-// Access control. Without it this is an OPEN proxy — anyone who learns the URL can
-// push traffic through the project. Keys are managed from /cool-things/ip.
+// Visitor tracking. Every browser carries a persistent id (its localStorage
+// "vid", which is also its proxy session id), so the proxy can record who is
+// using it, from what device, and what they open — and refuse anyone you've
+// blocked. Managed from /cool-things/ip.
 //
-// The gate ARMS ITSELF: while the key registry is empty the proxy stays open, and
-// the moment the first key exists it will only serve a session id that is also a
-// live key. That ordering matters — it means you cannot lock yourself out by
-// enabling a gate before you have a way through it.
-//
-// The access key IS the session id, so there is no separate handshake and each
-// person gets their own persistent cookie jar. Revoking a key drops both the
-// registry entry and the jar.
-const KEYS_KEY = "pxkeys";
+// Held in two Redis hashes so a single visitor is one small field, not a
+// whole-registry rewrite on every hit:
+//   pxv    vid -> { first, last, ip, ua, dev, blocked, hits, log:[{t,u}] }
+//   pxbip  ip  -> "1"   (IPs blocked alongside a visitor, so clearing storage
+//                        for a fresh id from the same network still gets stopped)
+// All tracking is off when there is no KV, so the proxy still works uninjected.
+const V_HASH = "pxv";
+const IP_HASH = "pxbip";
+const LOG_CAP = 100;
 
 export default { fetch: handle };
 
@@ -82,10 +84,10 @@ async function handle(request) {
   }
 
   // No session id yet: mint one and bounce, so every relative sub-request the
-  // page goes on to make inherits it through the path. With the gate on there is
-  // nothing to mint — the caller has to bring a key.
+  // page goes on to make inherits it through the path. (Normally the page brings
+  // its own persistent vid, so this only fires for a direct hit without one.)
   if (!parsed.sid) {
-    if (KV_ON && await gateArmed()) return denied();
+    if (KV_ON && await ipBlocked(clientIp(request))) return denied();
     return new Response(null, {
       status: 302,
       headers: { location: proxyPath(parsed.target, newSid()), "cache-control": "no-store" },
@@ -102,17 +104,13 @@ async function handle(request) {
 
   const jar = await loadJar(sid);
 
-  // Authorise once per jar: the first request for a session costs one extra KV
-  // read to confirm the key is live, then the verdict rides along in the jar we
-  // were already loading, so later requests cost nothing.
-  if (KV_ON && !jar.__k) {
-    const keys = await readKeys();
-    if (keys && Object.keys(keys).length) {          // gate is armed
-      if (!keys[sid]) return denied();
-      jar.__k = sid;
-      await saveJar(sid, jar);
-      await touchKey(sid, clientIp(request), keys);
-    }
+  // A top-level navigation (the browser loading a page/iframe, not one of its
+  // assets) is exactly "someone opened a site" — the only thing worth recording,
+  // and cheap because it happens once per site, not once per request. Record the
+  // visit and enforce a block here. Subresources ride on the document's verdict.
+  if (KV_ON && isNavigation(request)) {
+    const blocked = await recordVisit(sid, target, request);
+    if (blocked) return denied();
   }
 
   let upstream;
@@ -523,34 +521,83 @@ async function saveJar(sid, jar) {
   } catch (_) { /* best effort; the L1 copy still serves this instance */ }
 }
 
-// The key registry is a single KV entry, { id: {created, uses, lastIp, lastAt} }.
-// One document rather than a key each: there are only ever a handful, and it keeps
-// this to one GET and one SET.
-async function readKeys() {
-  try {
-    const out = await kv("/get/" + KEYS_KEY);
-    return out && out.result ? JSON.parse(out.result) : {};
-  } catch (_) { return null; }        // null = couldn't tell, treat as "no"
+// Upstash REST also speaks a command-array form (POST ["HGET","hash","field"]),
+// which is what the per-visitor hash needs — one field in, one field out, no
+// whole-registry transfer.
+async function kvCmd(args) {
+  const r = await fetch(KV_URL, {
+    method: "POST",
+    headers: { authorization: "Bearer " + KV_TOKEN, "content-type": "application/json" },
+    body: JSON.stringify(args),
+    signal: AbortSignal.timeout(4000),
+  });
+  if (!r.ok) throw new Error("kv " + r.status);
+  return (await r.json()).result;
 }
 
-// Armed once at least one key exists. Until then the proxy stays open, so the
-// first thing you do can be to create a key rather than to regain access.
-async function gateArmed() {
-  const keys = await readKeys();
-  return !!(keys && Object.keys(keys).length);
+function isNavigation(request) {
+  const mode = request.headers.get("sec-fetch-mode");
+  const dest = request.headers.get("sec-fetch-dest");
+  if (mode) return mode === "navigate";
+  return !dest || dest === "document" || dest === "iframe" || dest === "";
 }
 
-async function touchKey(id, ip, known) {
-  const keys = known || (await readKeys());
-  if (!keys || !keys[id]) return;
-  keys[id].uses = (keys[id].uses || 0) + 1;
-  keys[id].lastIp = ip || keys[id].lastIp || "";
-  keys[id].lastAt = new Date().toISOString();
+async function ipBlocked(ip) {
+  if (!ip) return false;
+  try { return !!(await kvCmd(["HGET", IP_HASH, ip])); } catch (_) { return false; }
+}
+
+// One HGET + one HSET per site opened. Returns true if this visitor (or their IP)
+// is blocked, so the caller can refuse. A KV hiccup fails OPEN — the proxy keeps
+// working, it just misses a log line rather than locking everyone out.
+async function recordVisit(vid, target, request) {
+  const ip = clientIp(request);
+  const ua = request.headers.get("user-agent") || "";
+
+  let entry;
   try {
-    await kv("/set/" + KEYS_KEY, {
-      method: "POST", headers: { "content-type": "text/plain" }, body: JSON.stringify(keys),
-    });
-  } catch (_) {}
+    const raw = await kvCmd(["HGET", V_HASH, vid]);
+    entry = raw ? JSON.parse(raw) : null;
+  } catch (_) { return false; }
+
+  if ((entry && entry.blocked) || (await ipBlocked(ip))) return true;
+
+  const now = new Date().toISOString();
+  if (!entry) entry = { first: now, ip, ua, dev: deviceOf(ua), blocked: false, hits: 0, log: [] };
+  entry.last = now;
+  entry.ip = ip || entry.ip;
+  entry.ua = ua || entry.ua;
+  entry.dev = deviceOf(ua) || entry.dev;
+  entry.hits = (entry.hits || 0) + 1;
+  entry.log = entry.log || [];
+  entry.log.unshift({ t: now, u: target.href });
+  if (entry.log.length > LOG_CAP) entry.log.length = LOG_CAP;
+
+  try { await kvCmd(["HSET", V_HASH, vid, JSON.stringify(entry)]); } catch (_) {}
+  return false;
+}
+
+// Coarse device label from the user-agent — Chromebook, Windows, iPhone, etc.,
+// plus the browser. Enough to tell one person's devices apart at a glance.
+function deviceOf(ua) {
+  ua = ua || "";
+  let os = "Unknown";
+  if (/\bCrOS\b/.test(ua)) os = "Chromebook";
+  else if (/Windows NT/.test(ua)) os = "Windows";
+  else if (/iPhone/.test(ua)) os = "iPhone";
+  else if (/iPad/.test(ua)) os = "iPad";
+  else if (/Android/.test(ua)) os = "Android";
+  else if (/Macintosh|Mac OS X/.test(ua)) os = "Mac";
+  else if (/Linux/.test(ua)) os = "Linux";
+
+  let br = "";
+  if (/Edg\//.test(ua)) br = "Edge";
+  else if (/OPR\/|Opera/.test(ua)) br = "Opera";
+  else if (/Chrome\//.test(ua)) br = "Chrome";
+  else if (/Firefox\//.test(ua)) br = "Firefox";
+  else if (/Version\/.*Safari/.test(ua)) br = "Safari";
+
+  return br ? os + " · " + br : os;
 }
 
 function clientIp(request) {

@@ -464,19 +464,19 @@
   // the point: one host, nothing else. A full origin is used verbatim if set.
   const API = (CONFIG.proxyBase || "").replace(/\/+$/, "");
 
-  // Access key. Arrive once at /cool-things/?k=<key> (the link the admin page
-  // hands out) and it's remembered from then on; the key is stripped straight
-  // back out of the address bar so it isn't sitting on screen. It doubles as the
-  // proxy's session id, so each key gets its own cookie jar.
-  let accessKey = "";
+  // A persistent id for this browser. It doubles as the proxy's session id (so
+  // each device keeps its own cookie jar) and as the visitor id the proxy logs,
+  // so the admin page can see who's using it and block anyone. Minted once and
+  // kept; a fresh browser or a storage wipe just becomes a new visitor.
+  let visitorId = "";
   try {
-    const fromUrl = new URLSearchParams(location.search).get("k");
-    if (fromUrl) {
-      localStorage.setItem("ck", fromUrl);
-      history.replaceState(null, "", location.pathname);
+    visitorId = localStorage.getItem("vid") || "";
+    if (!visitorId) {
+      const b = new Uint8Array(16); crypto.getRandomValues(b);
+      visitorId = Array.from(b, (n) => n.toString(16).padStart(2, "0")).join("");
+      localStorage.setItem("vid", visitorId);
     }
-    accessKey = localStorage.getItem("ck") || "";
-  } catch (_) { /* private mode: fall through with no key */ }
+  } catch (_) { /* private mode: the server will mint a throwaway id instead */ }
 
   // Treat input as a URL if it has an http(s) scheme or looks like a bare domain
   // ("example.com/path", "example.com:8080", "example.com?q=1"). Returns the
@@ -494,7 +494,7 @@
   // server adds a session id and redirects.
   function proxyUrl(absUrl) {
     const u = new URL(absUrl);
-    return API + "/api/p/" + (accessKey ? accessKey + "/" : "") +
+    return API + "/api/p/" + (visitorId ? visitorId + "/" : "") +
       u.protocol.slice(0, -1) + "/" + u.host + u.pathname + u.search;
   }
 
