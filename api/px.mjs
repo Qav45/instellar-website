@@ -135,6 +135,14 @@ async function handle(request) {
 // "Sec-Fetch-Mode: cors" on what is plainly a top-level page load. That mismatch
 // is exactly the kind of thing bot detection looks for. Going one level down
 // gives us byte-level control of the request line and headers.
+const TRACE_HEADERS = [
+  "x-vercel-id", "x-invocation-id", "x-vercel-deployment-url", "x-vercel-forwarded-for",
+  "x-vercel-proxy-signature", "x-vercel-proxy-signature-ts", "x-vercel-sc-host",
+  "x-vercel-sc-basepath", "x-vercel-sc-headers", "x-vercel-internal-ingress-bucket",
+  "traceparent", "tracestate", "baggage", "x-amzn-trace-id",
+  "via", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip",
+];
+
 function upstreamRequest(target, { method, headers, body }) {
   return new Promise((resolve, reject) => {
     const mod = target.protocol === "http:" ? http : https;
@@ -144,6 +152,12 @@ function upstreamRequest(target, { method, headers, body }) {
         resolve({ status: res.statusCode, headers: res.headers, stream: res });
       });
     } catch (e) { reject(e); return; }
+
+    // Vercel's runtime instruments outbound http and puts its own tracing headers
+    // back on after we built ours, which tells every target site in plain text
+    // that it is talking to a serverless function. Take them off again here,
+    // before anything is flushed to the socket.
+    for (const k of TRACE_HEADERS) { try { req.removeHeader(k); } catch (_) {} }
 
     req.setTimeout(TIMEOUT_MS, () => req.destroy(new Error("upstream timed out after " + TIMEOUT_MS + "ms")));
     req.on("error", reject);
@@ -186,20 +200,22 @@ const RAW_MARKER = "/__pxraw";
 // for a bracket file, so vercel.json rewrites /api/p/:path* to this function and
 // hands the path over in `__p` — in which case the pathname here is just /api/px.
 function parsePath(here) {
-  let segs, search;
+  let segs;
 
   if (here.pathname.startsWith("/api/p/")) {
     segs = here.pathname.split("/").slice(3);       // drop ["", "api", "p"]
-    search = here.search;
   } else {
     const handed = here.searchParams.get("__p");
     if (handed == null) return null;
     segs = handed.split("/").filter(Boolean);
-    const rest = new URLSearchParams(here.search);  // give back the target's own query
-    rest.delete("__p");
-    const s = rest.toString();
-    search = s ? "?" + s : "";
   }
+
+  // The rewrite hands us __p on the query REGARDLESS of whether it also kept the
+  // original path, so it has to come off either way or it rides along into the
+  // target's own query string. Stripped textually rather than through
+  // URLSearchParams so every other parameter survives byte-for-byte — signed
+  // URLs and + vs %20 do not tolerate being re-serialised.
+  const search = stripHandover(here.search);
 
   let i = 0;
   let sid = null;
@@ -241,6 +257,12 @@ function proxyPath(absUrl, sid) {
     return head + RAW_MARKER + "?__pxu=" + encodeURIComponent(t.origin + t.pathname + t.search);
   }
   return head + t.pathname + t.search;
+}
+
+function stripHandover(raw) {
+  if (!raw || raw.length < 2) return "";
+  const kept = raw.slice(1).split("&").filter((p) => p !== "__p" && !p.startsWith("__p="));
+  return kept.length ? "?" + kept.join("&") : "";
 }
 
 function newSid() {
