@@ -57,6 +57,21 @@ const L1_TTL = 2000;       // ms — long enough to cover one page's burst of
 
 const L1 = new Map();      // sid -> { at, jar }
 
+// Access control. This is an OPEN proxy otherwise — anyone who learns the URL can
+// push traffic through the project. With an ADMIN_TOKEN set (and KV available to
+// hold the key list) the proxy will only serve a session id that is also a live
+// access key, generated from /cool-things/ip.
+//
+// The access key IS the session id, so it needs no separate handshake and each
+// person gets their own persistent cookie jar. Revoking a key deletes both the
+// registry entry and the jar, so it takes effect immediately.
+//
+// The gate stays off entirely when ADMIN_TOKEN is unset, so nothing changes for a
+// deployment that hasn't opted in.
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
+const GATE_ON = !!(ADMIN_TOKEN && KV_ON);
+const KEYS_KEY = "pxkeys";
+
 export default { fetch: handle };
 
 async function handle(request) {
@@ -69,8 +84,10 @@ async function handle(request) {
   }
 
   // No session id yet: mint one and bounce, so every relative sub-request the
-  // page goes on to make inherits it through the path.
+  // page goes on to make inherits it through the path. With the gate on there is
+  // nothing to mint — the caller has to bring a key.
   if (!parsed.sid) {
+    if (GATE_ON) return denied();
     return new Response(null, {
       status: 302,
       headers: { location: proxyPath(parsed.target, newSid()), "cache-control": "no-store" },
@@ -86,6 +103,16 @@ async function handle(request) {
   const withBody = request.method !== "GET" && request.method !== "HEAD";
 
   const jar = await loadJar(sid);
+
+  // Authorise once per jar: the first request for a session costs one extra KV
+  // read to confirm the key is live, then the verdict rides along in the jar we
+  // were already loading, so later requests cost nothing.
+  if (GATE_ON && !jar.__k) {
+    if (!(await keyIsLive(sid))) return denied();
+    jar.__k = sid;
+    await saveJar(sid, jar);
+    await touchKey(sid, clientIp(request));
+  }
 
   let upstream;
   try {
@@ -495,6 +522,48 @@ async function saveJar(sid, jar) {
   } catch (_) { /* best effort; the L1 copy still serves this instance */ }
 }
 
+// The key registry is a single KV entry, { id: {created, uses, lastIp, lastAt} }.
+// One document rather than a key each: there are only ever a handful, and it keeps
+// this to one GET and one SET.
+async function readKeys() {
+  try {
+    const out = await kv("/get/" + KEYS_KEY);
+    return out && out.result ? JSON.parse(out.result) : {};
+  } catch (_) { return null; }        // null = couldn't tell, treat as "no"
+}
+
+async function keyIsLive(id) {
+  const keys = await readKeys();
+  return !!(keys && Object.prototype.hasOwnProperty.call(keys, id));
+}
+
+async function touchKey(id, ip) {
+  const keys = await readKeys();
+  if (!keys || !keys[id]) return;
+  keys[id].uses = (keys[id].uses || 0) + 1;
+  keys[id].lastIp = ip || keys[id].lastIp || "";
+  keys[id].lastAt = new Date().toISOString();
+  try {
+    await kv("/set/" + KEYS_KEY, {
+      method: "POST", headers: { "content-type": "text/plain" }, body: JSON.stringify(keys),
+    });
+  } catch (_) {}
+}
+
+function clientIp(request) {
+  const xff = request.headers.get("x-forwarded-for") || "";
+  return xff.split(",")[0].trim();
+}
+
+function denied() {
+  return new Response(
+    '<!doctype html><meta charset="utf-8"><title>Unavailable</title>' +
+    '<div style="font:15px/1.6 arial,sans-serif;color:#5f6368;padding:48px;text-align:center">' +
+    "This service isn’t available.</div>",
+    { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } }
+  );
+}
+
 // Returns true when something actually changed, so we only pay for a KV write
 // on responses that really carried a Set-Cookie.
 function storeCookies(jar, host, setCookie) {
@@ -531,6 +600,7 @@ function storeCookies(jar, host, setCookie) {
 function cookieHeader(jar, host) {
   const out = [];
   for (const scope of Object.keys(jar)) {
+    if (scope.startsWith("__")) continue;          // our own markers, not a host
     if (host !== scope && !host.endsWith("." + scope)) continue;
     for (const n of Object.keys(jar[scope])) out.push(n + "=" + jar[scope][n]);
   }
