@@ -500,7 +500,7 @@ function rewriteDocument(html, target, sid) {
 
   // Inject AFTER <meta charset> if there is one — inserting before it pushes the
   // declaration past the browser's 1024-byte sniff window and flips the encoding.
-  const inject = interceptor(page, sid);
+  const inject = importMap(target, sid) + interceptor(page, sid);
   const charset = /<meta[^>]+charset[^>]*>/i.exec(out);
   if (charset) return out.replace(charset[0], charset[0] + inject);
   if (/<head[^>]*>/i.test(out)) return out.replace(/<head[^>]*>/i, (t) => t + inject);
@@ -600,6 +600,22 @@ function rewriteCss(css, page, sid) {
 //     an opaque origin where localStorage and document.cookie THROW on access.
 //     Plenty of sites touch those during startup and die, taking every event
 //     handler they were about to attach with them.
+// The one hole the path-prefix scheme leaves open: a ROOT-relative ES module
+// specifier. ChatGPT's boot script is literally
+//   <script type="module">import "/cdn/assets/manifest-x.js"</script>
+// which resolves against OUR origin and 404s, so the app never starts. It can't
+// be patched at runtime — the browser resolves import specifiers itself, so
+// hooking fetch does nothing — and rewriting script bodies is what corrupted
+// inline JS in the old build. An import map fixes it declaratively: a key ending
+// in "/" is a prefix mapping, so "/" catches every root-relative specifier and
+// re-points it at the proxy. Must come before any module script.
+function importMap(target, sid) {
+  const prefix = "/api/p/" + sid + "/" + target.protocol.slice(0, -1) + "/" + target.host + "/";
+  const json = JSON.stringify({ imports: { "/": prefix, [target.origin + "/"]: prefix } })
+    .replace(/</g, "\\u003c");
+  return '<script type="importmap">' + json + "</scr" + "ipt>";
+}
+
 function interceptor(pageUrl, sid) {
   const cfg = JSON.stringify({ page: pageUrl, root: "/api/p/" + sid + "/" });
 
