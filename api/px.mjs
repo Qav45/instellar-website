@@ -180,11 +180,28 @@ const RAW_MARKER = "/__pxraw";
 
 // "/api/p/<sid>/https/example.com/a/b?q=1" -> { sid, target }
 // A segment of exactly "http"/"https" where the sid would be means there is no sid.
+//
+// Two shapes have to work. Normally the request still carries the real path and we
+// read it straight off. But Vercel's zero-config routing only matches ONE segment
+// for a bracket file, so vercel.json rewrites /api/p/:path* to this function and
+// hands the path over in `__p` — in which case the pathname here is just /api/px.
 function parsePath(here) {
-  const segs = here.pathname.split("/");        // ["", "api", "p", ...]
-  if (segs[1] !== "api" || segs[2] !== "p") return null;
+  let segs, search;
 
-  let i = 3;
+  if (here.pathname.startsWith("/api/p/")) {
+    segs = here.pathname.split("/").slice(3);       // drop ["", "api", "p"]
+    search = here.search;
+  } else {
+    const handed = here.searchParams.get("__p");
+    if (handed == null) return null;
+    segs = handed.split("/").filter(Boolean);
+    const rest = new URLSearchParams(here.search);  // give back the target's own query
+    rest.delete("__p");
+    const s = rest.toString();
+    search = s ? "?" + s : "";
+  }
+
+  let i = 0;
   let sid = null;
   if (segs[i] !== "http" && segs[i] !== "https") { sid = segs[i] || null; i++; }
 
@@ -193,16 +210,17 @@ function parsePath(here) {
   if ((scheme !== "http" && scheme !== "https") || !host) return null;
   if (!/^(?:[a-z0-9][a-z0-9.\-]*|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i.test(host)) return null;
 
+  const rest = segs.slice(i).join("/");
+
   // Escape hatch for targets the path grammar can't carry (see proxyPath).
-  const raw = here.searchParams.get("__pxu");
-  if (raw && here.pathname.endsWith(RAW_MARKER)) {
-    try { return { sid, target: new URL(raw).href }; } catch (_) { return null; }
+  if (("/" + rest).endsWith(RAW_MARKER)) {
+    const raw = new URLSearchParams(search).get("__pxu");
+    if (raw) { try { return { sid, target: new URL(raw).href }; } catch (_) { return null; } }
   }
 
-  const rest = segs.slice(i).join("/");
-  // pathname keeps its percent-encoding, and `search` is passed through byte-for-
-  // byte rather than re-serialised, so signed URLs and +/%20 survive intact.
-  return { sid, target: scheme + "://" + host + "/" + rest + here.search };
+  // The path keeps its percent-encoding, and `search` is passed through rather than
+  // re-serialised where possible, so signed URLs and +/%20 survive intact.
+  return { sid, target: scheme + "://" + host + "/" + rest + search };
 }
 
 // Absolute target url -> our same-origin path. Deliberately relative (no host):
