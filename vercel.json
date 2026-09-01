@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
-    { "source": "/api/p/:__pxp(.*)", "destination": "/api/px" }
+    { "source": "/api/p/:__pxp(.*)", "destination": "/api/px" },
+    { "source": "/:__pxesc((?!api/).*)", "destination": "/api/px" }
   ]
 }

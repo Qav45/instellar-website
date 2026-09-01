@@ -62,7 +62,11 @@ export default { fetch: handle };
 async function handle(request) {
   const here = new URL(request.url);
   const parsed = parsePath(here);
-  if (!parsed) return text(400, "Bad proxy path. Expected /api/p/<sid>/<scheme>/<host>/<path>");
+  if (!parsed) {
+    const rescued = escapeRedirect(here, request);
+    if (rescued) return rescued;
+    return text(404, "Not found");
+  }
 
   // No session id yet: mint one and bounce, so every relative sub-request the
   // page goes on to make inherits it through the path.
@@ -287,7 +291,45 @@ function proxyPath(absUrl, sid) {
 // __pxp precisely so it cannot collide with a real parameter — an earlier version
 // used ":path", whose auto-appended "path=" then rode into the target URL and grew
 // by one layer on every redirect until the browser gave up with a redirect loop.
-const HANDOVER = ["__pxp", "__p"];
+const HANDOVER = ["__pxp", "__pxesc", "__p"];
+
+// `window.location` is the one thing the injected interceptor cannot hook — it is
+// [Unforgeable], so `location.href = "/c/abc"` inside a proxied page resolves
+// against OUR origin and lands on a 404 with a blank frame. ChatGPT does exactly
+// that when you send a message (its bundle has 11 `location.href =` and 9
+// `location.assign`), which is why sending appeared to blank the page.
+//
+// It can't be prevented, but it can be caught: such a request still carries a
+// Referer pointing at the proxied page, which tells us both the session and the
+// host it meant. Bounce it back into the proxy. Requests with no proxy referer
+// are genuine 404s and are left alone.
+function escapeRedirect(here, request) {
+  const ref = request.headers.get("referer");
+  if (!ref) return null;
+
+  let back;
+  try { back = parsePath(new URL(ref)); } catch (_) { return null; }
+  if (!back || !back.sid) return null;
+
+  let origin;
+  try { origin = new URL(back.target).origin; } catch (_) { return null; }
+
+  // Behind the catch-all rewrite the real path is usually still on the URL; fall
+  // back to the handed-over copy when it isn't.
+  let path = here.pathname;
+  if (path === "/api/px" || path === "/api/p") {
+    const handed = here.searchParams.get("__pxesc");
+    path = "/" + String(handed || "").replace(/^\/+/, "");
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: proxyPath(origin + path + stripHandover(here.search), back.sid),
+      "cache-control": "no-store",
+    },
+  });
+}
 
 function stripHandover(raw) {
   if (!raw || raw.length < 2) return "";
