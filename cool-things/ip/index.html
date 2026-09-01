@@ -172,7 +172,9 @@
     }
   });
 
-  if (token) load(); else $("gate").hidden = false;
+  // Just open the page. The prompt only appears if the API actually asks for a
+  // token, i.e. if ADMIN_TOKEN has been set on the deployment.
+  load();
 })();
 </script>
 </body>

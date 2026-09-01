@@ -27,14 +27,14 @@ async function handle(request) {
   if (!KV_URL || !KV_TOKEN) {
     return json(503, { error: "No KV configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN." });
   }
-  // Fail closed: without a token anyone could mint themselves a key, which would
-  // make the whole gate pointless.
-  if (!ADMIN_TOKEN) {
-    return json(503, { error: "No ADMIN_TOKEN set, so key management is disabled." });
+  // ADMIN_TOKEN is optional. Unset, this page is open to anyone who finds the URL
+  // — which is what was asked for, and it does mean a stranger who finds
+  // /cool-things/ip could mint themselves a key. Set the variable later and it
+  // starts being enforced with no code change.
+  if (ADMIN_TOKEN) {
+    const given = request.headers.get("x-admin-token") || url.searchParams.get("t") || "";
+    if (!safeEqual(given, ADMIN_TOKEN)) return json(401, { error: "Unauthorized" });
   }
-
-  const given = request.headers.get("x-admin-token") || url.searchParams.get("t") || "";
-  if (!safeEqual(given, ADMIN_TOKEN)) return json(401, { error: "Unauthorized" });
 
   try {
     if (request.method === "GET") {

@@ -57,19 +57,17 @@ const L1_TTL = 2000;       // ms — long enough to cover one page's burst of
 
 const L1 = new Map();      // sid -> { at, jar }
 
-// Access control. This is an OPEN proxy otherwise — anyone who learns the URL can
-// push traffic through the project. With an ADMIN_TOKEN set (and KV available to
-// hold the key list) the proxy will only serve a session id that is also a live
-// access key, generated from /cool-things/ip.
+// Access control. Without it this is an OPEN proxy — anyone who learns the URL can
+// push traffic through the project. Keys are managed from /cool-things/ip.
 //
-// The access key IS the session id, so it needs no separate handshake and each
-// person gets their own persistent cookie jar. Revoking a key deletes both the
-// registry entry and the jar, so it takes effect immediately.
+// The gate ARMS ITSELF: while the key registry is empty the proxy stays open, and
+// the moment the first key exists it will only serve a session id that is also a
+// live key. That ordering matters — it means you cannot lock yourself out by
+// enabling a gate before you have a way through it.
 //
-// The gate stays off entirely when ADMIN_TOKEN is unset, so nothing changes for a
-// deployment that hasn't opted in.
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
-const GATE_ON = !!(ADMIN_TOKEN && KV_ON);
+// The access key IS the session id, so there is no separate handshake and each
+// person gets their own persistent cookie jar. Revoking a key drops both the
+// registry entry and the jar.
 const KEYS_KEY = "pxkeys";
 
 export default { fetch: handle };
@@ -87,7 +85,7 @@ async function handle(request) {
   // page goes on to make inherits it through the path. With the gate on there is
   // nothing to mint — the caller has to bring a key.
   if (!parsed.sid) {
-    if (GATE_ON) return denied();
+    if (KV_ON && await gateArmed()) return denied();
     return new Response(null, {
       status: 302,
       headers: { location: proxyPath(parsed.target, newSid()), "cache-control": "no-store" },
@@ -107,11 +105,14 @@ async function handle(request) {
   // Authorise once per jar: the first request for a session costs one extra KV
   // read to confirm the key is live, then the verdict rides along in the jar we
   // were already loading, so later requests cost nothing.
-  if (GATE_ON && !jar.__k) {
-    if (!(await keyIsLive(sid))) return denied();
-    jar.__k = sid;
-    await saveJar(sid, jar);
-    await touchKey(sid, clientIp(request));
+  if (KV_ON && !jar.__k) {
+    const keys = await readKeys();
+    if (keys && Object.keys(keys).length) {          // gate is armed
+      if (!keys[sid]) return denied();
+      jar.__k = sid;
+      await saveJar(sid, jar);
+      await touchKey(sid, clientIp(request), keys);
+    }
   }
 
   let upstream;
@@ -532,13 +533,15 @@ async function readKeys() {
   } catch (_) { return null; }        // null = couldn't tell, treat as "no"
 }
 
-async function keyIsLive(id) {
+// Armed once at least one key exists. Until then the proxy stays open, so the
+// first thing you do can be to create a key rather than to regain access.
+async function gateArmed() {
   const keys = await readKeys();
-  return !!(keys && Object.prototype.hasOwnProperty.call(keys, id));
+  return !!(keys && Object.keys(keys).length);
 }
 
-async function touchKey(id, ip) {
-  const keys = await readKeys();
+async function touchKey(id, ip, known) {
+  const keys = known || (await readKeys());
   if (!keys || !keys[id]) return;
   keys[id].uses = (keys[id].uses || 0) + 1;
   keys[id].lastIp = ip || keys[id].lastIp || "";
