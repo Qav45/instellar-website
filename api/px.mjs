@@ -33,10 +33,27 @@ const MAX_SIDS = 300;
 const DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 
-// sid -> host -> Map(name -> value). In-memory, so it dies with the instance and
-// is not shared between concurrent instances. See "Known limitation" in the plan:
-// good enough for browsing, unreliable for staying logged in.
-const JAR = new Map();
+// Cookie storage. The frame is sandboxed to an opaque origin so it has no cookie
+// store of its own, which means the jar has to live server-side, keyed by the sid
+// carried in the path.
+//
+// A plain in-memory Map is not enough: a cold instance starts with an empty jar,
+// so a session established on one instance is silently missing on the next and
+// logged-in sites bounce you back to the login page. Measured, that was ~2 in 5
+// requests. So the jar goes to an HTTP-callable KV when one is configured, with
+// the Map kept in front of it as a short-lived read cache.
+//
+// Set KV_REST_API_URL and KV_REST_API_TOKEN (Upstash / Vercel KV) to turn it on.
+// With them unset everything still works exactly as before, just warm-only.
+const KV_URL = (process.env.KV_REST_API_URL || "").replace(/\/+$/, "");
+const KV_TOKEN = process.env.KV_REST_API_TOKEN || "";
+const KV_ON = !!(KV_URL && KV_TOKEN);
+const JAR_TTL = 3600;      // seconds a session survives in KV
+const L1_TTL = 2000;       // ms — long enough to cover one page's burst of
+                           // subresources, short enough that a cookie set by a
+                           // POST is picked up by the request right after it.
+
+const L1 = new Map();      // sid -> { at, jar }
 
 export default { fetch: handle };
 
@@ -62,18 +79,22 @@ async function handle(request) {
   const sid = parsed.sid;
   const withBody = request.method !== "GET" && request.method !== "HEAD";
 
+  const jar = await loadJar(sid);
+
   let upstream;
   try {
     upstream = await upstreamRequest(target, {
       method: request.method,
-      headers: upstreamHeaders(request, target, sid),
+      headers: upstreamHeaders(request, target, jar),
       body: withBody ? request.body : null,
     });
   } catch (e) {
     return text(502, "Upstream fetch failed: " + e.message + "\n\nfor " + target.href);
   }
 
-  storeCookies(sid, target.hostname, upstream.headers["set-cookie"]);
+  if (storeCookies(jar, target.hostname, upstream.headers["set-cookie"])) {
+    await saveJar(sid, jar);
+  }
 
   // Handle redirects ourselves rather than following them server-side. Bouncing
   // the browser keeps its idea of "the current URL" in step with the target's,
@@ -307,7 +328,7 @@ const STRIP_REQ = new Set([
   "x-forwarded-port", "x-real-ip", "true-client-ip", "forwarded", "via", "cdn-loop",
 ]);
 
-function upstreamHeaders(request, target, sid) {
+function upstreamHeaders(request, target, jar) {
   const src = request.headers;
   const h = Object.create(null);
 
@@ -357,7 +378,7 @@ function upstreamHeaders(request, target, sid) {
     h["sec-fetch-site"] = refHost && refHost === target.host ? "same-origin" : "cross-site";
   }
 
-  const cookie = cookieHeader(sid, target.hostname);
+  const cookie = cookieHeader(jar, target.hostname);
   if (cookie) h["cookie"] = cookie;
 
   return h;
@@ -392,15 +413,50 @@ function responseHeaders(from) {
 
 /* ---------------------------------------------------------------- cookies -- */
 
-function storeCookies(sid, host, setCookie) {
-  const raw = Array.isArray(setCookie) ? setCookie : (setCookie ? [setCookie] : []);
-  if (!raw.length) return;
+async function kv(path, init) {
+  const r = await fetch(KV_URL + path, {
+    ...init,
+    headers: { authorization: "Bearer " + KV_TOKEN, ...((init && init.headers) || {}) },
+    signal: AbortSignal.timeout(4000),
+  });
+  if (!r.ok) throw new Error("kv " + r.status);
+  return r.json();
+}
 
-  if (!JAR.has(sid)) {
-    if (JAR.size >= MAX_SIDS) JAR.delete(JAR.keys().next().value);
-    JAR.set(sid, new Map());
+async function loadJar(sid) {
+  const hit = L1.get(sid);
+  if (hit && Date.now() - hit.at < L1_TTL) return hit.jar;
+
+  let jar = (hit && hit.jar) || {};
+  if (KV_ON) {
+    try {
+      const out = await kv("/get/" + encodeURIComponent("jar:" + sid));
+      jar = out && out.result ? JSON.parse(out.result) : {};
+    } catch (_) { /* KV down: carry on with whatever we already had */ }
   }
-  const bySid = JAR.get(sid);
+  if (L1.size >= MAX_SIDS) L1.delete(L1.keys().next().value);
+  L1.set(sid, { at: Date.now(), jar });
+  return jar;
+}
+
+async function saveJar(sid, jar) {
+  L1.set(sid, { at: Date.now(), jar });
+  if (!KV_ON) return;
+  try {
+    await kv("/set/" + encodeURIComponent("jar:" + sid) + "?EX=" + JAR_TTL, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify(jar),
+    });
+  } catch (_) { /* best effort; the L1 copy still serves this instance */ }
+}
+
+// Returns true when something actually changed, so we only pay for a KV write
+// on responses that really carried a Set-Cookie.
+function storeCookies(jar, host, setCookie) {
+  const raw = Array.isArray(setCookie) ? setCookie : (setCookie ? [setCookie] : []);
+  if (!raw.length) return false;
+  let changed = false;
 
   for (const line of raw) {
     const str = String(line);
@@ -416,24 +472,23 @@ function storeCookies(sid, host, setCookie) {
       const d = dm[1].toLowerCase().replace(/^\./, "");
       if (host === d || host.endsWith("." + d)) scope = d;
     }
-    if (!bySid.has(scope)) bySid.set(scope, new Map());
-    const bag = bySid.get(scope);
+    if (!jar[scope]) jar[scope] = {};
+    const bag = jar[scope];
 
     const name = first.slice(0, eq).trim();
     const value = first.slice(eq + 1).trim();
     const expired = /;\s*max-age\s*=\s*(0|-\d+)\b/i.test(str);
-    if (expired) bag.delete(name);
-    else bag.set(name, value);
+    if (expired) { if (name in bag) { delete bag[name]; changed = true; } }
+    else if (bag[name] !== value) { bag[name] = value; changed = true; }
   }
+  return changed;
 }
 
-function cookieHeader(sid, host) {
-  const bySid = JAR.get(sid);
-  if (!bySid) return "";
+function cookieHeader(jar, host) {
   const out = [];
-  for (const [scope, bag] of bySid) {
+  for (const scope of Object.keys(jar)) {
     if (host !== scope && !host.endsWith("." + scope)) continue;
-    for (const [n, v] of bag) out.push(n + "=" + v);
+    for (const n of Object.keys(jar[scope])) out.push(n + "=" + jar[scope][n]);
   }
   return out.join("; ");
 }
