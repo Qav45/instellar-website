@@ -6,12 +6,27 @@
 <title>Cast</title>
 <meta name="robots" content="noindex">
 <script>
-  // Same file is served by GitHub Pages (instellar.net) and Vercel (go.instellar.net).
-  // Only the Vercel copy has /api/*, so bounce to the one that works.
-  if (!window.CAST_DIRECT &&
-      (location.hostname === "instellar.net" || location.hostname === "www.instellar.net")) {
-    location.replace("https://go.instellar.net" + location.pathname + location.search + location.hash);
-  }
+  (function () {
+    // Served by the bridge on the LAN: already at the root, nothing to normalise.
+    if (window.CAST_DIRECT) return;
+
+    // Same file is served by GitHub Pages (instellar.net) and Vercel
+    // (go.instellar.net). Only the Vercel copy has /api/*, so bounce to that one.
+    var h = location.hostname;
+    if (h === "instellar.net" || h === "www.instellar.net") {
+      location.replace("https://go.instellar.net" +
+        location.pathname + location.search + location.hash);
+      return;
+    }
+
+    // Vercel serves /cast without redirecting to /cast/, and a relative URL in a
+    // page at /cast resolves against / - so ./novnc.js would ask for /novnc.js and
+    // 404, leaving the page stuck on its own markup. Add the slash so relative
+    // paths mean what they look like.
+    if (!location.pathname.endsWith("/")) {
+      location.replace(location.pathname + "/" + location.search + location.hash);
+    }
+  })();
 </script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
