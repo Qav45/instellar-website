@@ -205,7 +205,7 @@ function parsePath(here) {
   if (here.pathname.startsWith("/api/p/")) {
     segs = here.pathname.split("/").slice(3);       // drop ["", "api", "p"]
   } else {
-    const handed = here.searchParams.get("__p");
+    const handed = here.searchParams.get("__pxp") ?? here.searchParams.get("__p");
     if (handed == null) return null;
     segs = handed.split("/").filter(Boolean);
   }
@@ -259,9 +259,17 @@ function proxyPath(absUrl, sid) {
   return head + t.pathname + t.search;
 }
 
+// Vercel appends the rewrite's capture group to the query automatically, so the
+// handover parameter is always there and must always come off. Its group is named
+// __pxp precisely so it cannot collide with a real parameter — an earlier version
+// used ":path", whose auto-appended "path=" then rode into the target URL and grew
+// by one layer on every redirect until the browser gave up with a redirect loop.
+const HANDOVER = ["__pxp", "__p"];
+
 function stripHandover(raw) {
   if (!raw || raw.length < 2) return "";
-  const kept = raw.slice(1).split("&").filter((p) => p !== "__p" && !p.startsWith("__p="));
+  const kept = raw.slice(1).split("&").filter(
+    (p) => !HANDOVER.some((k) => p === k || p.startsWith(k + "=")));
   return kept.length ? "?" + kept.join("&") : "";
 }
 
