@@ -43,10 +43,12 @@ const DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 // requests. So the jar goes to an HTTP-callable KV when one is configured, with
 // the Map kept in front of it as a short-lived read cache.
 //
-// Set KV_REST_API_URL and KV_REST_API_TOKEN (Upstash / Vercel KV) to turn it on.
-// With them unset everything still works exactly as before, just warm-only.
-const KV_URL = (process.env.KV_REST_API_URL || "").replace(/\/+$/, "");
-const KV_TOKEN = process.env.KV_REST_API_TOKEN || "";
+// Turn it on with either naming convention: KV_REST_API_* (what Vercel's KV
+// integration injects) or UPSTASH_REDIS_REST_* (what the Upstash console hands
+// you). With both unset everything still works exactly as before, just warm-only.
+const KV_URL = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "")
+  .replace(/\/+$/, "");
+const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
 const KV_ON = !!(KV_URL && KV_TOKEN);
 const JAR_TTL = 3600;      // seconds a session survives in KV
 const L1_TTL = 2000;       // ms — long enough to cover one page's burst of
