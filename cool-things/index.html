@@ -67,27 +67,24 @@
     padding:0 16px; height:36px; border-radius:4px; cursor:pointer; font-family:arial,sans-serif;
   }
   .gbtns button:hover { border-color:#dadce0; box-shadow:0 1px 1px rgba(0,0,0,.1); }
-  /* results view */
-  #gresults { flex:1; display:flex; flex-direction:column; overflow:hidden; }
-  .grbar { display:flex; align-items:center; gap:20px; padding:14px 24px; border-bottom:1px solid #ebebeb; flex:none; }
-  .glogo.sm { font-size:26px; letter-spacing:-2px; margin:0; cursor:pointer; }
-  .gsearch.sm { width:min(560px,70vw); }
-  .gsearch.sm input { height:40px; }
-  #gcseResults { padding: 12px 24px 40px; max-width: 760px; flex:1 1 auto; overflow:auto; }
-  /* embedded proxied site — served by our /api/proxy worker, shown inside our page */
+  /* the proxied site — fetched server-side by /api/p, shown inside our page */
   #gframe { flex:1 1 auto; width:100%; border:0; background:#fff; }
-  #gsetup, #gfallback { padding:24px; color:#5f6673; font-size:14px; }
-  #gsetup code { background:#eef0f3; padding:1px 5px; border-radius:4px; }
-  #gfallback a { color:#1a0dab; }
-  /* our own Google-style results, rendered from the JSON API */
-  .res-meta { color:#70757a; font-size:14px; margin:6px 0 18px; }
-  .res { margin-bottom:26px; max-width:600px; }
-  .res-url { color:#202124; font-size:14px; line-height:1.3; }
-  .res-url .host { color:#4d5156; }
-  .res-title { color:#1a0dab; font-size:20px; line-height:1.3; margin-top:2px; text-decoration:none; display:inline-block; }
-  .res-title:hover { text-decoration:underline; }
-  .res-snippet { color:#4d5156; font-size:14px; line-height:1.58; margin-top:3px; }
-  .res-none { color:#4d5156; font-size:14px; padding:8px 0; }
+  /* Opening a site drops all the fake Google chrome so it gets the whole
+     viewport. #cover is already fixed/inset:0, so hiding the top bar, the hero
+     and the footer is enough to make the iframe full screen. */
+  #cover.framed .gtop,
+  #cover.framed #ghome,
+  #cover.framed .gfoot { display:none; }
+  /* With the chrome gone there'd be no way back, so leave one small control.
+     Escape does the same thing. */
+  #gexit {
+    position:fixed; top:10px; right:10px; z-index:70; display:none;
+    width:28px; height:28px; border:0; border-radius:50%; cursor:pointer;
+    background:rgba(32,33,36,.55); color:#fff; font:16px/1 arial,sans-serif;
+    opacity:.35; transition:opacity .15s;
+  }
+  #gexit:hover { opacity:1; }
+  #cover.framed #gexit { display:block; }
   .gfoot { background:#f2f2f2; color:#70757a; font-size:14px; }
   .gfoot .grow { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:14px 22px; }
   .gfoot a { color:#70757a; text-decoration:none; }
@@ -98,7 +95,7 @@
 
 <!-- No arm screen: the Google page below is the front. Typing the secret
      passphrase into its search box is the trigger that arms the guard and
-     auto-starts the webcam; any other query really searches Google. -->
+     auto-starts the webcam; anything else opens through the proxy instead. -->
 
 <!-- ============ STATUS PILL ============ -->
 <div id="status" hidden><span class="dot"></span><span id="statusText">Watching &mdash; clear</span></div>
@@ -127,11 +124,10 @@
 
 <!-- ============ GOOGLE FRONT / COVER ============ -->
 <!-- Shown by default (class "show"): it's the disguise you land on. Typing the
-     secret passphrase into this box arms the guard; any other query searches on
-     Google's servers and shows the results INLINE (no redirect to google.com).
-     It also doubles as the cover the guard flips back to when a second person
-     appears. Inline results come from Google's Custom Search JSON API — set
-     CONFIG.searchApiKey and CONFIG.searchEngineId below. -->
+     secret passphrase into this box arms the guard; a URL opens that site, and
+     anything else opens Google's own results page — both through /api/p, so the
+     browser never leaves this host and never contacts Google directly. It also
+     doubles as the cover the guard flips back to when a second person appears. -->
 <div id="cover" class="show" aria-hidden="false">
   <div class="gtop">
     <a href="https://mail.google.com" target="_blank" rel="noopener">Gmail</a>
@@ -153,22 +149,17 @@
     </div>
   </div>
 
-  <!-- Results view (inline; no redirect). Hidden until a search runs. -->
-  <div id="gresults" hidden>
-    <div class="grbar">
-      <div class="glogo sm" id="ghomebtn" title="Back"><span class="b1">G</span><span class="r">o</span><span class="y">o</span><span class="b2">g</span><span class="g">l</span><span class="r">e</span></div>
-      <form id="gform2" class="gsearch sm" action="https://www.google.com/search" method="GET" role="search">
-        <svg class="gicon gmag" viewBox="0 0 24 24" fill="#9aa0a6"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
-        <input type="text" name="q" aria-label="Search" autocomplete="off" spellcheck="false">
-      </form>
-    </div>
-    <!-- Search results (rendered from the JSON API) live here. -->
-    <div id="gcseResults"></div>
-    <div id="gfallback" hidden></div>
-    <div id="gsetup" hidden>Set your Google <code>CONFIG.searchApiKey</code> and <code>CONFIG.searchEngineId</code> to show live results here.</div>
-    <!-- "I'm Feeling Lucky" on a URL embeds the proxied site here (fetched server-side by /api/proxy). -->
-    <iframe id="gframe" hidden title="Search result"></iframe>
-  </div>
+  <!-- Whatever you open goes here, full screen, fetched server-side by /api/p.
+       Sandboxed WITHOUT allow-same-origin on purpose: the frame is served from
+       this very origin, so without the sandbox any script on the proxied site
+       could reach window.parent and read #real — the confidential content this
+       whole page exists to hide. The cost is that the proxied site gets no
+       cookies or localStorage of its own; the proxy keeps a server-side cookie
+       jar instead. -->
+  <iframe id="gframe" hidden title="Page"
+          sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
+
+  <button type="button" id="gexit" title="Back (Esc)" aria-label="Back">&times;</button>
 
   <div class="gfoot">
     <div class="grow g1"><span>United States</span></div>
@@ -192,30 +183,15 @@
      ====================================================================== */
   const CONFIG = {
     // Secret passphrase. Type this into the Google search box and submit to
-    // arm the guard + start the webcam. Any OTHER query really searches Google.
+    // arm the guard + start the webcam. Anything ELSE opens through the proxy.
     // CHANGE THIS to your own word.
     secret: 'instellar',
 
-    // Inline Google search (results shown on the fake page, no redirect). We call
-    // Google's Custom Search JSON API from the browser, then render the results
-    // ourselves. Two values are needed:
-    //   searchEngineId (cx) — from https://programmablesearchengine.google.com
-    //     (create one, set it to "Search the entire web").
-    //   searchApiKey (key)  — from https://console.cloud.google.com: enable the
-    //     "Custom Search API", then Credentials → Create API key. RESTRICT the key
-    //     to HTTP referrer https://instellar.net/* (Application restrictions →
-    //     Websites) so it can't be reused elsewhere. Free tier: ~100 queries/day.
-    // The key sits in this public page by design (static host); the referrer
-    // restriction + daily cap bound abuse. Left empty, a setup note is shown.
-    searchEngineId: '95460305a59bc4f8a',
-    searchApiKey: 'AIzaSyD1_uLaghiAergBkaM5gV7NX-7fTmhf8r8',
-
-    // Server-side search + web proxy. Empty = same origin, i.e. the serverless
-    // functions in api/ (this page is served from go.instellar.net, which Vercel
-    // hosts, so /api/search and /api/proxy resolve on the very same host).
-    // Typing a URL into the box and hitting "I'm Feeling Lucky" loads that site
-    // THROUGH the proxy — it's fetched on the server, so the browser only ever
-    // contacts go.instellar.net and never the target host.
+    // Web proxy base. Empty = same origin, i.e. the serverless function in api/
+    // (this page is served from go.instellar.net, which Vercel hosts, so /api/p
+    // resolves on the very same host). Whatever you type in the box is fetched
+    // on the SERVER, so the browser only ever contacts go.instellar.net and
+    // never the site you're looking at — that's the whole point.
     // Set a full origin here only to point at a different backend.
     proxyBase: '',
 
@@ -475,156 +451,72 @@
     requestAnimationFrame(loop);
   }
 
-  /* ---------- Inline Google search (results shown in-page, no redirect) ----------
-     The browser calls Google's Custom Search JSON API; Google's servers do the
-     searching and return JSON, which we render ourselves into a clean, Google-style
-     results list. Nothing redirects to google.com. */
-  const ghome    = document.getElementById("ghome");
-  const gresults = document.getElementById("gresults");
-  const gcseResults = document.getElementById("gcseResults");
-  const gframe   = document.getElementById("gframe");
-  const gform2   = document.getElementById("gform2");
-  const gInput2  = gform2.querySelector('input[name="q"]');
-  const gsetup   = document.getElementById("gsetup");
-  const gfallback = document.getElementById("gfallback");
-  const glucky   = document.getElementById("glucky");
+  /* ---------- The Google front: open any site through our proxy ----------
+     There is no search API any more. The box does three things: the secret
+     passphrase arms the guard, a URL opens that site through /api/p, and any
+     other text opens Google's own results page through that same proxy. Either
+     way the browser only ever talks to this one host. */
+  const ghome  = document.getElementById("ghome");
+  const gframe = document.getElementById("gframe");
+  const glucky = document.getElementById("glucky");
 
-  let searchSeq = 0;   // guards against a slow response overwriting a newer search
-
-  function esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  // Fallback: results didn't load — offer a real Google link (opens in a new tab)
-  // so the page never just sits there looking broken.
-  function showFallback(query) {
-    if (!query) return;
-    gfallback.hidden = false;
-    gfallback.innerHTML =
-      'Couldn\'t load results here. ' +
-      '<a href="https://www.google.com/search?q=' + encodeURIComponent(query) +
-      '" target="_blank" rel="noopener">Open this search on Google ↗</a>';
-  }
-
-  // Build our own results markup from the API's JSON items.
-  function renderResults(data, query) {
-    const items = (data && data.items) || [];
-    if (!items.length) {
-      gcseResults.innerHTML = '<div class="res-none">No results found for <b>' + esc(query) + '</b>.</div>';
-      return;
-    }
-    const info = data.searchInformation || {};
-    let html = "";
-    if (info.formattedTotalResults) {
-      html += '<div class="res-meta">About ' + esc(info.formattedTotalResults) +
-              ' results (' + esc(info.formattedSearchTime || "0") + ' seconds)</div>';
-    }
-    for (const it of items) {
-      // Links open in a NEW TAB so a click never leaves the disguise page.
-      html +=
-        '<div class="res">' +
-          '<div class="res-url"><span class="host">' + esc(it.displayLink || "") + '</span></div>' +
-          '<a class="res-title" href="' + esc(it.link) + '" target="_blank" rel="noopener">' + esc(it.title) + '</a>' +
-          '<div class="res-snippet">' + esc(it.snippet || "") + '</div>' +
-        '</div>';
-    }
-    gcseResults.innerHTML = html;
-  }
-
-  // Base for our server functions. Empty proxyBase → same-origin ("/api/..."),
-  // handled by the api/ functions on this same host, so the browser only ever
-  // talks to one domain. A full origin is used verbatim if set.
+  // Base for the proxy. Empty proxyBase means same-origin "/api/...", which is
+  // the point: one host, nothing else. A full origin is used verbatim if set.
   const API = (CONFIG.proxyBase || "").replace(/\/+$/, "");
 
-  // Call the search (on OUR server) and display the results. The server returns
-  // Google's JSON verbatim.
-  async function search(query) {
-    const seq = ++searchSeq;
-    gfallback.hidden = true;
-    gcseResults.innerHTML = '<div class="res-meta">Searching…</div>';
-    const url = API + "/api/search?q=" + encodeURIComponent(query);
-    try {
-      const res = await fetch(url);
-      if (seq !== searchSeq) return;          // a newer search superseded this one
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = await res.json();
-      if (seq !== searchSeq) return;
-      renderResults(data, query);
-    } catch (err) {
-      if (seq !== searchSeq) return;
-      console.warn("[cool-things] search failed:", err);
-      gcseResults.innerHTML = "";
-      showFallback(query);
-    }
+  // Treat input as a URL if it has an http(s) scheme or looks like a bare domain
+  // ("example.com/path", "example.com:8080", "example.com?q=1"). Returns the
+  // normalised absolute URL, or null when it's just words to search for.
+  function asUrl(s) {
+    if (/^https?:\/\//i.test(s)) return s;
+    if (!/^[\w-]+(\.[\w-]+)+(:\d{1,5})?([\/?#].*)?$/.test(s)) return null;
+    if (!/\.[a-z]{2,}(?=[:\/?#]|$)/i.test(s)) return null;
+    return "https://" + s;
   }
 
-  // Show the in-page results view and run the search.
-  function showResults(query) {
-    gInput.value = query;    // keep both boxes in sync
-    gInput2.value = query;
-    ghome.hidden = true;
-    gresults.hidden = false;
-    gfallback.hidden = true;
-    gframe.hidden = true; gframe.removeAttribute("src");   // leave any embedded page
-    gcseResults.hidden = false;
-    gsetup.hidden = true;
-    search(query);
+  // The proxy carries the target in its PATH rather than a query param, so
+  // relative URLs inside the proxied page resolve by themselves in the browser —
+  // which is what makes ES modules, workers and relative fetch() work. The
+  // server adds a session id and redirects.
+  function proxyUrl(absUrl) {
+    const u = new URL(absUrl);
+    return API + "/api/p/" + u.protocol.slice(0, -1) + "/" + u.host + u.pathname + u.search;
   }
 
-  // Embed a proxied site inside the page: the worker fetches it server-side, the
-  // iframe just displays it — the browser's address bar stays on our site.
-  function openProxied(rawUrl, target) {
-    gInput.value = rawUrl; gInput2.value = rawUrl;
-    ghome.hidden = true;
-    gresults.hidden = false;
-    gcseResults.hidden = true; gcseResults.innerHTML = "";
-    gfallback.hidden = true; gsetup.hidden = true;
-    gframe.src = target;
+  // Show a site full screen: the server fetches it, the iframe displays it, and
+  // the address bar stays on our page. `framed` strips the fake Google chrome.
+  function openSite(absUrl) {
+    gframe.src = proxyUrl(absUrl);
     gframe.hidden = false;
+    cover.classList.add("framed");
   }
 
   function backHome() {
-    gframe.hidden = true; gframe.removeAttribute("src");   // stop the embedded page loading
-    gresults.hidden = true;
-    ghome.hidden = false;
+    cover.classList.remove("framed");
+    gframe.hidden = true; gframe.removeAttribute("src");   // stop the page loading
     gInput.focus();
   }
-  document.getElementById("ghomebtn").addEventListener("click", backHome);
+  document.getElementById("gexit").addEventListener("click", backHome);
 
-  // Both search boxes share one handler: the secret arms the guard; any other
-  // query renders results inline instead of redirecting to google.com.
-  function onSearch(e, input) {
-    const raw = (input.value || "").trim();
-    e.preventDefault();          // never redirect to google.com
-    if (!armed && raw.toLowerCase() === CONFIG.secret) { unlock(); return; }
-    if (raw) showResults(raw);
-  }
-  gform.addEventListener("submit", function (e) { onSearch(e, gInput); });
-  gform2.addEventListener("submit", function (e) { onSearch(e, gInput2); });
-
-  // Treat input as a URL if it has an http(s) scheme or looks like a bare domain
-  // (e.g. "example.com/path"); returns the normalised absolute URL or null.
-  function asUrl(s) {
-    if (/^https?:\/\//i.test(s)) return s;
-    if (/^[\w-]+(\.[\w-]+)+(\/.*)?$/.test(s) && /\.[a-z]{2,}(\/|$|:)/i.test(s)) return "https://" + s;
-    return null;
-  }
-
-  // "I'm Feeling Lucky": a URL loads that site through the server proxy, embedded
-  // right here in the page (fetched server-side, never client-side); anything else
-  // runs a normal search.
-  glucky.addEventListener("click", function () {
-    const raw = (gInput.value || "").trim();
-    if (!raw) { gInput.focus(); return; }
-    const url = asUrl(raw);
-    if (url) {
-      openProxied(raw, API + "/api/proxy?url=" + encodeURIComponent(url));
-      return;
-    }
-    showResults(raw);
+  // Escape is the way back, since the chrome that would normally do it is hidden.
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !gframe.hidden) backHome();
   });
+
+  // What the box does with whatever you typed. Never navigates away from here.
+  function go(raw) {
+    if (!raw) { gInput.focus(); return; }
+    if (!armed && raw.toLowerCase() === CONFIG.secret) { unlock(); return; }
+    const url = asUrl(raw);
+    openSite(url || ("https://www.google.com/search?q=" + encodeURIComponent(raw)));
+  }
+
+  // Both buttons do the same thing; the secret works from either.
+  gform.addEventListener("submit", function (e) {
+    e.preventDefault();                     // never redirect to google.com
+    go((gInput.value || "").trim());
+  });
+  glucky.addEventListener("click", function () { go((gInput.value || "").trim()); });
 </script>
 </body>
 </html>
