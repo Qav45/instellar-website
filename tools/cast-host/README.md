@@ -1,7 +1,7 @@
-# Casting a machine to /cool-things/cast
+# Casting a machine to /cast
 
 Run `cast.cmd` on the machine you want to reach, then open
-`instellar.net/cool-things/cast` anywhere else and you have its screen, keyboard
+`instellar.net/cast` anywhere else and you have its screen, keyboard
 and mouse in a browser tab.
 
 ## Why it is built this way
@@ -81,7 +81,7 @@ tools\cast-host\cast.cmd --lan      also serve on the local network, much faster
 It prints a watch link with the access key in the fragment:
 
 ```
-Watch it at       https://go.instellar.net/cool-things/cast#<key>
+Watch it at       https://go.instellar.net/cast#<key>
 On this network   http://192.168.0.175:6080/          (with --lan)
 ```
 

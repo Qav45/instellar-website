@@ -1,4 +1,4 @@
-// Endpoint registry for the screen cast, driven by /cool-things/cast.
+// Endpoint registry for the screen cast, driven by /cast.
 //
 //   POST   /api/cast   {url, name, token}   host publishes where it is (also the heartbeat)
 //   GET    /api/cast?t=<token>              viewer asks where the host is

@@ -1,4 +1,4 @@
-// Host side of /cool-things/cast. Run this on the machine you want to control.
+// Host side of /cast. Run this on the machine you want to control.
 //
 //   node cast-host.mjs [--tunnel ngrok|cloudflared|none] [--port 6080]
 //                      [--vnc 127.0.0.1:5900] [--site https://go.instellar.net]
@@ -118,7 +118,7 @@ function viewerPage() {
 
 function viewerAsset(name) {
   try {
-    return fs.readFileSync(new URL("../../cool-things/cast/" + name, import.meta.url), "utf8");
+    return fs.readFileSync(new URL("../../cast/" + name, import.meta.url), "utf8");
   } catch (_) {
     return null;                     // script copied out of the repo on its own
   }
@@ -526,7 +526,7 @@ async function main() {
   }, 30000);
 
   console.log("\n  Casting \"" + NAME + "\".\n");
-  console.log("    Watch it at   " + SITE + "/cool-things/cast#" + TOKEN);
+  console.log("    Watch it at   " + SITE + "/cast#" + TOKEN);
   console.log("    Tunnel        " + base + "\n");
   if (LAN) {
     const ip = await lanAddress();
