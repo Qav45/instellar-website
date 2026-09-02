@@ -145,8 +145,20 @@ import RFB from "./novnc.js";
 const $ = (id) => document.getElementById(id);
 const screenEl = $("screen");
 
-let token = decodeURIComponent((location.hash || "").replace(/^#/, "")) ||
-            sessionStorage.getItem("castToken") || "";
+// Card bodies are built as HTML, and the messages put in them come off the RFB
+// wire (the host's own rejection reason) or out of an /api/cast error body.
+const esc = (s) => String(s).replace(/[&<>"]/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+// A key containing a bare % is not a valid escape and decodeURIComponent throws
+// on it. Up here that throw aborts the whole module, so the access-key card stays
+// on screen with nothing wired to its button - a dead page and no error.
+function hashToken() {
+  const raw = (location.hash || "").replace(/^#/, "");
+  try { return decodeURIComponent(raw); } catch (_) { return raw; }
+}
+
+let token = hashToken() || sessionStorage.getItem("castToken") || "";
 let password = sessionStorage.getItem("castPass") || "";
 // Served by the bridge itself on the LAN: the endpoint is this very host, and the
 // session key was injected into the page, so there is nothing to look up.
@@ -247,13 +259,32 @@ function fmtRate(mbps) {
 
 // One timer drives both the readout and the auto tier, so the page does no
 // per-frame work of its own.
+let lastTick = performance.now();
+
 setInterval(() => {
-  stats.mbps = (stats.window * 8) / 1e6;
+  // Divide by the time that actually passed. A hidden tab throttles this timer to
+  // once a minute while bytes keep arriving, and assuming one second turned that
+  // into a readout sixty times the real rate on the first tick back.
+  const now = performance.now();
+  const dt = (now - lastTick) / 1000;
+  lastTick = now;
+  stats.mbps = dt > 0 ? (stats.window * 8) / 1e6 / dt : 0;
   stats.window = 0;
 
   // Let the floor drift back up, or a single lucky sample early on becomes a
   // baseline the link can never live up to again and the tier sinks for good.
-  if (stats.floor && stats.rtt) stats.floor = Math.min(stats.floor * 1.02, stats.rtt);
+  // Only while the link is quiet, though: a floor measured with nothing in flight
+  // is the real one, and letting a busy link raise it lets sustained congestion
+  // slowly redefine itself as normal until the tier climbs back onto a link that
+  // never recovered.
+  if (stats.floor && stats.rtt && stats.mbps < 0.5) {
+    stats.floor = Math.min(stats.floor * 1.02, stats.rtt);
+  }
+
+  // The probe is a second socket and it dies on its own timetable - an idle
+  // timeout on the tunnel is enough. Left dead, the readout freezes on a stale
+  // number and the tier goes on trusting it.
+  if (rfb && (!pingSock || pingSock.readyState > 1)) openPing();
 
   const rtt = stats.rtt;
   hud.rtt.textContent = rtt ? Math.round(rtt) + " ms" : "–";
@@ -327,7 +358,7 @@ function askToken(message) {
   veil(
     "<h2>Access key</h2>" +
     "<p>Paste the key the host printed when it started casting.</p>" +
-    (message ? '<div class="err">' + message + "</div>" : "") +
+    (message ? '<div class="err">' + esc(message) + "</div>" : "") +
     '<input type="password" id="gateInput" placeholder="Access key" autocomplete="off" spellcheck="false">' +
     '<button id="gateGo">Connect</button>',
     (el) => {
@@ -350,7 +381,7 @@ function askPassword(message) {
   veil(
     "<h2>Screen password</h2>" +
     "<p>The VNC password set on the host machine.</p>" +
-    (message ? '<div class="err">' + message + "</div>" : "") +
+    (message ? '<div class="err">' + esc(message) + "</div>" : "") +
     '<input type="password" id="pw" placeholder="Password" autocomplete="off">' +
     '<button id="pwGo">Unlock</button>',
     (el) => {
@@ -371,7 +402,7 @@ function askPassword(message) {
 
 function problem(title, detail, retrying) {
   veil(
-    "<h2>" + title + "</h2><p>" + detail + "</p>" +
+    "<h2>" + esc(title) + "</h2><p>" + esc(detail) + "</p>" +
     (retrying ? '<div class="foot">Retrying every few seconds…</div>'
               : '<button id="retryGo">Try again</button>'),
     (el) => {
@@ -424,6 +455,11 @@ async function start() {
 function connect() {
   state("wait", "Connecting…");
   if (rfb) { try { rfb.disconnect(); } catch (_) {} rfb = null; }
+  // A reconnect can be to a different tunnel entirely. Carrying the old floor
+  // over would read the new host's distance as congestion for the minute or so
+  // the floor needs to catch up.
+  stats.rtt = 0;
+  stats.floor = 0;
 
   // Building the socket here rather than handing RFB a URL is what makes the link
   // readout possible: noVNC replaces the onmessage property, but a listener added
@@ -446,23 +482,36 @@ function connect() {
   // a real credential, so noVNC would attempt auth with it, get refused, and greet
   // a first-time viewer with "the host refused that password" before they typed
   // anything. With none supplied it asks properly instead.
-  rfb = new RFB(screenEl, sock,
+  const me = new RFB(screenEl, sock,
     password ? { credentials: { password: password } } : {});
-  rfb.background = "#000";
-  rfb.focusOnClick = true;
-  rfb.showDotCursor = true;
+  rfb = me;
+  me.background = "#000";
+  me.focusOnClick = true;
+  me.showDotCursor = true;
   applyQuality();
   applyFit();
-  rfb.viewOnly = $("look").classList.contains("on");
+  me.viewOnly = $("look").classList.contains("on");
 
-  rfb.addEventListener("connect", () => {
+  // Every handler below belongs to `me` and must refuse to speak for anything
+  // else. RFB.disconnect() is not synchronous - it closes the socket and the
+  // disconnect event arrives a task later - so a session we tore down still has
+  // one event left to fire, and by then `rfb` is its replacement. Without this
+  // guard the dead session nulls the live one: the toolbar goes inert, focus()
+  // throws inside the connect handler so the keyboard and the ping probe never
+  // start, and the phantom retry below builds a second session on top of the
+  // first. Reconnect made that happen every single time on the LAN path.
+  const current = () => rfb === me;
+
+  me.addEventListener("connect", () => {
+    if (!current()) return;
     hideVeil();
     state("live", "Connected");
-    rfb.focus();
+    me.focus();
     openPing();
   });
 
-  rfb.addEventListener("credentialsrequired", () => {
+  me.addEventListener("credentialsrequired", () => {
+    if (!current()) return;
     state("wait", "Password needed");
     needPassword = true;
     askPassword(password ? "That password was rejected." : "");
@@ -471,7 +520,8 @@ function connect() {
   // noVNC fires this and then immediately fails the connection, so without the
   // flag the disconnect handler below would replace the password card with
   // "Connection dropped" and start retrying - leaving nowhere to type.
-  rfb.addEventListener("securityfailure", (e) => {
+  me.addEventListener("securityfailure", (e) => {
+    if (!current()) return;
     sessionStorage.removeItem("castPass");
     password = "";
     needPassword = true;
@@ -479,7 +529,8 @@ function connect() {
     askPassword((e.detail && e.detail.reason) || "The host refused that password.");
   });
 
-  rfb.addEventListener("disconnect", (e) => {
+  me.addEventListener("disconnect", (e) => {
+    if (!current()) return;
     rfb = null;
     closePing();
     if (manualStop || needPassword) return;
@@ -492,7 +543,8 @@ function connect() {
     retry = setTimeout(start, 4000);
   });
 
-  rfb.addEventListener("clipboard", (e) => {
+  me.addEventListener("clipboard", (e) => {
+    if (!current()) return;
     if (e.detail && e.detail.text && navigator.clipboard) {
       navigator.clipboard.writeText(e.detail.text).catch(() => {});
     }
@@ -516,10 +568,10 @@ function refocus() {
 }
 
 // Cheaper than taking focus back afterwards: a toolbar button that never takes
-// focus cannot swallow the next Space or Enter either. Selects are left alone -
-// they need the default mousedown to drop open at all.
+// focus cannot swallow the next Space or Enter either. Only buttons - the selects
+// and the labels wrapping them need their default mousedown to drop open.
 $("bar").addEventListener("mousedown", (e) => {
-  if (e.target.tagName !== "SELECT") e.preventDefault();
+  if (e.target.closest("button")) e.preventDefault();
 });
 
 // "Fit" leaves black bars beside the desktop whenever the aspect ratios differ,
@@ -527,7 +579,13 @@ $("bar").addEventListener("mousedown", (e) => {
 // grabs focus for clicks on the canvas itself, so those clicks were silently
 // switching the keyboard off.
 screenEl.addEventListener("mousedown", (e) => {
-  if (e.target.tagName !== "CANVAS" && !e.target.closest("#veil")) refocus();
+  if (e.target.closest("#veil")) return;
+  // Moving focus is mousedown's own default action, and it runs after this
+  // listener - so focusing from in here just gets undone, which left the bug this
+  // was added to fix still live. preventDefault would stop that but would also
+  // kill scrollbar dragging on the 1:1 view, so let the browser finish and take
+  // focus back on the next task instead.
+  setTimeout(refocus, 0);
 });
 
 // Fullscreen moves focus to the element being promoted, and coming back from
