@@ -100,9 +100,9 @@
   <label>Quality
     <select id="quality" title="Auto watches the link and picks for you">
       <option value="auto" selected>Auto</option>
-      <option value="9,1">Sharp</option>
-      <option value="6,2">Balanced</option>
-      <option value="3,6">Fast</option>
+      <option value="9,3">Sharp</option>
+      <option value="6,5">Balanced</option>
+      <option value="3,7">Fast</option>
     </select>
   </label>
   <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
@@ -167,10 +167,16 @@ let needPassword = false;   // a password card is up; disconnect must not bury i
 // low-colour regions - which is most of a code editor - through zlib with a
 // palette, and only photographic areas through JPEG. Dropping quality blurs
 // wallpaper, not text.
+//
+// Compression is a separate dial and it is close to free here: zlib decompresses
+// at the same speed whatever level packed it, so a higher level costs the host a
+// little CPU - it is a desktop, it has some - and costs the viewer nothing while
+// meaningfully shrinking exactly the flat regions that dominate a screenful of
+// text. The old level 1 was leaving that on the table.
 const PRESETS = {
-  sharp:    { quality: 9, compression: 1 },
-  balanced: { quality: 6, compression: 2 },
-  fast:     { quality: 3, compression: 6 },
+  sharp:    { quality: 9, compression: 3 },
+  balanced: { quality: 6, compression: 5 },
+  fast:     { quality: 3, compression: 7 },
 };
 
 // Cheap proxy for "is this a weak machine": Chromebooks commonly report 2-4 cores
@@ -178,7 +184,7 @@ const PRESETS = {
 const WEAK = (navigator.hardwareConcurrency || 4) <= 4 ||
              (navigator.deviceMemory || 8) <= 4;
 
-const stats = { rtt: 0, window: 0, mbps: 0 };
+const stats = { rtt: 0, floor: 0, window: 0, mbps: 0 };
 const hud = {
   rtt: $("hRtt").querySelector("b"),
   rate: $("hRate").querySelector("b"),
@@ -196,23 +202,36 @@ function openPing() {
   } catch (_) { return; }
   pingSock.binaryType = "arraybuffer";
 
-  pingSock.addEventListener("open", () => {
-    pingTimer = setInterval(() => {
-      if (!pingSock || pingSock.readyState !== 1) return;
-      pingSock.send(new Float64Array([performance.now()]).buffer);
+  // The timer belongs to this socket. Reading it out of `pingTimer` instead
+  // meant a stale socket's close event - which lands after the replacement has
+  // already opened - cleared the *live* timer, freezing the ping readout and
+  // with it the auto tier, which is driven by that number.
+  const sock = pingSock;
+  let timer = null;
+  const stop = () => clearInterval(timer);
+
+  sock.addEventListener("open", () => {
+    timer = setInterval(() => {
+      if (sock.readyState !== 1) return;
+      sock.send(new Float64Array([performance.now()]).buffer);
     }, 1000);
+    if (sock === pingSock) pingTimer = timer;
   });
 
-  pingSock.addEventListener("message", (e) => {
+  sock.addEventListener("message", (e) => {
     if (!(e.data instanceof ArrayBuffer) || e.data.byteLength !== 8) return;
     const sample = performance.now() - new Float64Array(e.data)[0];
     // Smoothed, so one scheduling hiccup does not swing the readout or the tier.
     stats.rtt = stats.rtt ? stats.rtt * 0.7 + sample * 0.3 : sample;
+    // The lowest round trip seen is this link's own floor - distance and tunnel,
+    // nothing we can spend our way out of. What the tier cares about is delay on
+    // top of that, so keep the floor to subtract from later.
+    stats.floor = stats.floor ? Math.min(stats.floor, sample) : sample;
   });
 
   // The probe is a nicety; if it cannot connect the session carries on regardless.
-  pingSock.addEventListener("close", () => clearInterval(pingTimer));
-  pingSock.addEventListener("error", () => clearInterval(pingTimer));
+  sock.addEventListener("close", stop);
+  sock.addEventListener("error", stop);
 }
 
 function closePing() {
@@ -231,6 +250,10 @@ function fmtRate(mbps) {
 setInterval(() => {
   stats.mbps = (stats.window * 8) / 1e6;
   stats.window = 0;
+
+  // Let the floor drift back up, or a single lucky sample early on becomes a
+  // baseline the link can never live up to again and the tier sinks for good.
+  if (stats.floor && stats.rtt) stats.floor = Math.min(stats.floor * 1.02, stats.rtt);
 
   const rtt = stats.rtt;
   hud.rtt.textContent = rtt ? Math.round(rtt) + " ms" : "–";
@@ -252,15 +275,26 @@ let tuneHold = 0;
 
 function retune() {
   const rtt = stats.rtt;
-  if (!rtt) return;
+  if (!rtt || !stats.floor) return;
+
+  // Absolute thresholds answered the wrong question. A tunnel that idles at 25ms
+  // read as "plenty of headroom" and got the most expensive preset even while
+  // frames were visibly piling up, and a host two countries away idling at 120ms
+  // was pinned to the cheapest one even with the link half empty. Distance is not
+  // congestion. The delay we are adding on top of the link's own floor is.
+  const queued = rtt - stats.floor;
 
   let want;
-  if (rtt > 150) want = "fast";
-  else if (rtt > 70 || WEAK) want = "balanced";
+  if (queued > 120) want = "fast";
+  else if (queued > 40 || WEAK) want = "balanced";
   else want = "sharp";
 
   if (want === autoTier) { tuneHold = 0; return; }
-  if (++tuneHold < 3) return;               // three straight seconds before moving
+  // Asymmetric on purpose: a backed-up link is felt immediately, so give way
+  // quickly, but only climb back after the calm has clearly held.
+  const cheaper = ["fast", "balanced", "sharp"].indexOf(want) <
+                  ["fast", "balanced", "sharp"].indexOf(autoTier);
+  if (++tuneHold < (cheaper ? 2 : 6)) return;
   tuneHold = 0;
   autoTier = want;
   applyQuality();
@@ -467,13 +501,50 @@ function connect() {
 
 /* ------------------------------------------------------------ controls -- */
 
-// Clicking anything in the toolbar moves focus out of the canvas, and then typing
-// silently goes nowhere - which reads as "the cast froze". Hand focus back every
-// time, and blur the control so it does not keep eating arrow keys.
+// noVNC listens for keys on its canvas, so a canvas without DOM focus is a dead
+// keyboard - and nothing on screen says so, which is why it reads as "the cast
+// froze" or "it only works half the time". Every way focus can leave the canvas
+// has to put it back.
 function refocus() {
+  // A card is up: the access key or password field is where typing belongs, and
+  // pulling focus to the canvas would leave the viewer unable to type into it.
+  if (!rfb || $("veil")) return;
+  const canvas = screenEl.querySelector("canvas");
+  if (document.activeElement === canvas) return;
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-  if (rfb) rfb.focus();
+  rfb.focus();
 }
+
+// Cheaper than taking focus back afterwards: a toolbar button that never takes
+// focus cannot swallow the next Space or Enter either. Selects are left alone -
+// they need the default mousedown to drop open at all.
+$("bar").addEventListener("mousedown", (e) => {
+  if (e.target.tagName !== "SELECT") e.preventDefault();
+});
+
+// "Fit" leaves black bars beside the desktop whenever the aspect ratios differ,
+// and a click there lands on the container rather than the canvas. noVNC only
+// grabs focus for clicks on the canvas itself, so those clicks were silently
+// switching the keyboard off.
+screenEl.addEventListener("mousedown", (e) => {
+  if (e.target.tagName !== "CANVAS" && !e.target.closest("#veil")) refocus();
+});
+
+// Fullscreen moves focus to the element being promoted, and coming back from
+// another tab or window does not always restore it either.
+document.addEventListener("fullscreenchange", () => {
+  refocus();
+  // Ctrl+W, Ctrl+T, Alt+Tab and Escape never reach the canvas otherwise - the
+  // browser claims them first, so pressing Ctrl+W at the remote machine closes
+  // this tab instead. Keyboard lock hands them over, and browsers only allow it
+  // in fullscreen, which is why it lives here. Exiting still works: the toolbar
+  // stays on screen, and holding Escape is the browser's own way out.
+  if (!navigator.keyboard || !navigator.keyboard.lock) return;
+  if (document.fullscreenElement) navigator.keyboard.lock().catch(() => {});
+  else navigator.keyboard.unlock();
+});
+window.addEventListener("focus", refocus);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refocus(); });
 
 function applyQuality() {
   if (!rfb) return;
@@ -538,6 +609,7 @@ $("cad").addEventListener("click", () => { if (rfb) rfb.sendCtrlAltDel(); refocu
 $("full").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen().catch(() => {});
+  refocus();
 });
 
 $("again").addEventListener("click", () => {

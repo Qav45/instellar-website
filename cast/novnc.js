@@ -1,6 +1,10 @@
 // noVNC 1.6.0 (https://github.com/novnc/noVNC), MPL-2.0.
 // Bundled from the published CommonJS build into one ES module by
-// tools/cast-host builds - see scratchpad bundle-novnc.mjs. Do not edit.
+// tools/cast-host builds - see scratchpad bundle-novnc.mjs.
+//
+// Carries one local change, so a re-bundle has to reapply it: Display.imageRect
+// decodes JPEG/PNG rects through createImageBitmap instead of base64 in a data:
+// URL. Search this file for "LOCAL CHANGE".
 var __m = {}, __c = {};
 function __require(id) {
   var hit = __c[id];
@@ -14142,11 +14146,24 @@ var Display = exports["default"] = /*#__PURE__*/function () {
       if (width === 0 || height === 0) {
         return;
       }
-      var img = new Image();
-      img.src = "data: " + mime + ";base64," + _base["default"].encode(arr);
+      // LOCAL CHANGE (instellar /cast): upstream base64-encodes every JPEG rect
+      // into a data: URL and decodes it through an Image. Both halves run on the
+      // main thread - and the encoder is a string-concat loop building a string
+      // a third larger than the JPEG - so a screenful of Tight rects is a
+      // screenful of main-thread stalls on exactly the weak client this is for.
+      // A Blob needs no encoding at all and createImageBitmap decodes off-thread.
+      var pending = { bitmap: null, done: false };
+      pending.promise = createImageBitmap(new Blob([arr], { type: mime })).then(function (bmp) {
+        pending.bitmap = bmp;
+        pending.done = true;
+      }, function (e) {
+        // Must still settle, or the render queue stalls behind this rect forever.
+        Log.Error("Failed to decode " + mime + " rect: " + e);
+        pending.done = true;
+      });
       this._renderQPush({
-        'type': 'img',
-        'img': img,
+        'type': 'bitmap',
+        'pending': pending,
         'x': x,
         'y': y,
         'width': width,
@@ -14293,6 +14310,27 @@ var Display = exports["default"] = /*#__PURE__*/function () {
               break;
             case 'blit':
               _this2.blitImage(a.x, a.y, a.width, a.height, a.data, 0, true);
+              break;
+            case 'bitmap':
+              if (a.pending.done) {
+                var bmp = a.pending.bitmap;
+                if (bmp) {
+                  // Upstream bails out of the scan here without dropping the rect,
+                  // which wedges the queue and freezes the picture for good. One
+                  // bad rect is worth less than the rest of the session.
+                  if (bmp.width !== a.width || bmp.height !== a.height) {
+                    Log.Error("Decoded image has incorrect dimensions. Got " + bmp.width + "x" + bmp.height + ". Expected " + a.width + "x" + a.height + ".");
+                  } else {
+                    _this2.drawImage(bmp, a.x, a.y);
+                  }
+                  bmp.close();
+                }
+              } else {
+                a.pending.promise.then(function () {
+                  _this2._scanRenderQ();
+                });
+                ready = false;
+              }
               break;
             case 'img':
               if (a.img.complete) {

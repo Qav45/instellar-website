@@ -52,12 +52,15 @@ screen and both without restarting anything, and the whole desktop is restored
 when the cast stops.
 
 **link — how much data is actually arriving.** Quality defaults to **Auto**,
-which watches the measured ping and throughput and picks a preset, with three
-seconds of hysteresis so it does not flap on noisy wifi. It leans on lowering
-JPEG quality first, which costs less than it sounds: Tight sends flat and
-low-colour regions — most of a code editor — through zlib with a palette, and
-only photographic areas through JPEG. Dropping quality blurs wallpaper, not text.
-Override it with Sharp/Balanced/Fast if you would rather decide yourself.
+which picks a preset from how much delay the session is adding on top of the
+link's own floor, rather than from the raw ping — a host 100ms away is far, not
+congested, and the two want opposite answers. It gives way after two seconds and
+climbs back after six, because a stalled picture is felt at once and a premature
+climb just stalls it again. It leans on lowering JPEG quality first, which costs
+less than it sounds: Tight sends flat and low-colour regions — most of a code
+editor — through zlib with a palette, and only photographic areas through JPEG.
+Dropping quality blurs wallpaper, not text. Override it with Sharp/Balanced/Fast
+if you would rather decide yourself.
 
 ## Requirements on the host
 
@@ -116,6 +119,16 @@ start with `--share full` it will still read "Main screen" until you touch it.
 which is what you want for reading code. **Watch only** ignores your input,
 **Ctrl+Alt+Del** goes through, and the page reconnects itself when the tunnel
 rotates.
+
+**Fullscreen is also the keyboard mode.** Outside it the browser keeps its own
+shortcuts, so Ctrl+W closes this tab instead of a window on the remote machine.
+Fullscreen is the only state in which a page may ask for those keys, so that is
+where the cast claims them. Hold Escape, or click Fullscreen again, to leave.
+
+If typing ever seems to go nowhere, it is focus: the keyboard follows the remote
+screen, and clicking the black area beside it, or a toolbar control, used to hand
+focus away with nothing on screen saying so. It is handed straight back now, but
+one click on the picture always settles it.
 
 ## Security
 
