@@ -16,6 +16,13 @@
 // The bridge binds loopback only, so the tunnel is the sole way in. On top of that
 // the WS URL carries a per-run ?k= secret, so knowing the tunnel hostname alone is
 // not enough - and the TightVNC password is still the last gate.
+//
+// That second gate only holds because the viewer page, which carries the session
+// key inlined, is served only under --lan. The tunnel reverse-proxies every path,
+// so serving it unconditionally handed the key to anyone who learned the hostname.
+//
+// Publishing uses a different key from watching. The view key travels in the watch
+// link; the publish key never leaves this machine. See README, "The two keys".
 
 import net from "node:net";
 import dgram from "node:dgram";
@@ -46,12 +53,22 @@ const ADMIN_TOKEN = process.env.CAST_TOKEN || "";  // only if the site sets CAST
 
 const [VNC_HOST, VNC_PORT] = String(arg("vnc", "127.0.0.1:5900")).split(":");
 const SESSION_KEY = crypto.randomBytes(9).toString("base64url");
-const TOKEN = arg("token", process.env.CAST_VIEW_TOKEN || loadToken());
+// Two independent secrets. TOKEN goes in the watch link and is meant to be
+// shared; PUBLISH_KEY never leaves this machine. They used to be one key, which
+// meant anyone invited to watch could also repoint the registry at a machine of
+// their own and collect the VNC password from every other viewer.
+const TOKEN = arg("token", process.env.CAST_VIEW_TOKEN || loadSecret("token", 16));
+const PUBLISH_KEY = process.env.CAST_PUBLISH_KEY || loadSecret("publish-key", 24);
+// No tunnel means no reachable address, so there is nothing worth publishing -
+// and publishing a loopback URL shipped this run's session key to the registry
+// for an endpoint no viewer could ever open.
+const TUNNELLESS = TUNNEL === "none" && !FIXED_URL;
 
 /* -------------------------------------------------------------- ws bridge -- */
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const MAX_FRAME = 8 * 1024 * 1024;
+const MAX_PENDING = 4 * 1024 * 1024;   // client bytes held while VNC is connecting
 let live = 0;
 
 const server = http.createServer((req, res) => {
@@ -68,17 +85,24 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ error: "bad key" }));
     }
     const mode = url.searchParams.get("share") || "";
-    const applied = applyShare(mode);
-    res.writeHead(applied ? 200 : 400, { "content-type": "application/json" });
-    return res.end(JSON.stringify(applied ? { ok: true, share: mode }
-                                          : { error: "bad share mode" }));
+    return applyShareAsync(mode).then((applied) => {
+      res.writeHead(applied ? 200 : 400, { "content-type": "application/json" });
+      res.end(JSON.stringify(applied ? { ok: true, share: mode }
+                                     : { error: "bad share mode" }));
+    });
   }
 
   // On the LAN the page is served from here rather than from instellar.net. That
   // is not a convenience: a browser refuses ws:// from an https:// page, so going
   // through the site would force the traffic out to Cloudflare and back - 50ms of
   // round trip to reach a machine in the same room. Same origin, same page, ~1ms.
-  if (url.pathname === "/" || url.pathname === "/index.html") {
+  //
+  // Only under --lan, though. This page carries the session key inlined, and the
+  // tunnel reverse-proxies every path - so serving it unconditionally handed that
+  // key to anyone who learned the tunnel hostname, and the key is the only thing
+  // between them and a socket onto TightVNC. Without --lan there is nobody this
+  // route is for: viewers through the tunnel load the page from the site.
+  if (LAN && (url.pathname === "/" || url.pathname === "/index.html")) {
     const page = viewerPage();
     if (page) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
@@ -89,7 +113,7 @@ const server = http.createServer((req, res) => {
   // The page imports the bundle by relative path, so LAN mode has to serve it too
   // or the viewer loads and then cannot start. Only these two names are ever read
   // from disk - the path never comes from the request.
-  if (url.pathname === "/novnc.js") {
+  if (LAN && url.pathname === "/novnc.js") {
     const js = viewerAsset("novnc.js");
     if (js) {
       res.writeHead(200, {
@@ -124,10 +148,31 @@ function viewerAsset(name) {
   }
 }
 
+server.on("error", (e) => {
+  // Without this a busy port is an uncaught exception with a stack trace, which
+  // is not how anything else in this script fails.
+  console.error("\n  Bridge could not listen on port " + PORT + ": " + e.message);
+  if (e.code === "EADDRINUSE") {
+    console.error("  Something is already using it - most likely another cast still running.");
+    console.error("  Close it, or pass --port with a free one.");
+  }
+  console.error("");
+  restoreShare();
+  process.exit(1);
+});
+
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url, "http://localhost");
+  // Not a WebSocket at all: answer like the plain-HTTP handler does, so a health
+  // check sees a body rather than a bodiless 403.
+  if (String(req.headers.upgrade || "").toLowerCase() !== "websocket") {
+    socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n" +
+               "Content-Type: text/plain\r\n\r\ncast bridge up\n");
+    return;
+  }
   if (url.searchParams.get("k") !== SESSION_KEY || !handshake(req, socket)) {
-    socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+    socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n" +
+               "Content-Type: text/plain\r\n\r\nbad or missing key\n");
     return;
   }
   if (url.pathname === "/ping") pingProbe(socket, head);
@@ -232,6 +277,7 @@ function bridge(ws, head) {
   let open = false;
   let done = false;
   let pending = [];
+  let pendingBytes = 0;
 
   live++;
   log("viewer connected (" + live + " live)");
@@ -241,21 +287,35 @@ function bridge(ws, head) {
     done = true;
     live--;
     log("viewer gone" + (why ? " - " + why : "") + " (" + live + " live)");
-    ws.destroy();
+    // end(), not destroy(): the close frame the reader just queued is still in
+    // the write buffer, and destroy() threw it away - so a viewer closing its tab
+    // got a TCP reset and logged an abnormal 1006 close instead of a clean one.
+    if (!ws.destroyed) ws.end();
     vnc.destroy();
   };
 
   // Browser -> VNC. Anything the client sends before the VNC socket is up waits
   // in `pending` rather than being dropped.
   const feed = wsReader(ws, (payload) => {
-    if (!open) { pending.push(payload); return; }
+    if (!open) {
+      // Capped. If TightVNC is restarting the SYN goes unanswered rather than
+      // refused, and an unbounded queue let anyone holding the session key grow
+      // this process's memory 8MB at a time while waiting.
+      pendingBytes += payload.length;
+      if (pendingBytes > MAX_PENDING) return shut("vnc did not answer in time");
+      pending.push(payload);
+      return;
+    }
     if (!vnc.write(payload)) ws.pause();
   }, shut);
 
   vnc.on("connect", () => {
     open = true;
-    for (const p of pending) vnc.write(p);
+    // Honour backpressure on the replay too; ignoring it left vnc write-buffered
+    // with the browser still streaming into it.
+    for (const p of pending) { if (!vnc.write(p)) ws.pause(); }
     pending = [];
+    pendingBytes = 0;
   });
   vnc.on("error", (e) => shut("vnc: " + e.message));
   vnc.on("close", () => shut());
@@ -306,24 +366,60 @@ const TVN = [
 
 let shareChanged = false;
 
-function applyShare(mode) {
+// Resolves a share mode to the tvnserver argv, or null if it is not one we allow.
+// Keeping the whitelist here is what makes the /ctl query parameter safe to pass
+// through: nothing from the request ever reaches the command line unmatched.
+function shareCommand(mode) {
   const bin = TVN.find((p) => fs.existsSync(p));
-  if (!bin) return false;
+  if (!bin) return null;
+  if (mode === "primary") return [bin, ["-controlservice", "-shareprimary"]];
+  if (mode === "full") return [bin, ["-controlservice", "-sharefull"]];
+  if (/^[1-9][0-9]?$/.test(mode)) return [bin, ["-controlservice", "-sharedisplay", mode]];
+  return null;
+}
 
-  let flag;
-  if (mode === "primary") flag = ["-shareprimary"];
-  else if (mode === "full") flag = ["-sharefull"];
-  else if (/^[1-9][0-9]?$/.test(mode)) flag = ["-sharedisplay", mode];
-  else return false;
+// Async twin of applyShare, for /ctl. spawnSync there stalled the event loop for
+// as long as Windows took to start a process and reach the service - typically a
+// few hundred ms - during which no pixels moved and no input went the other way.
+// In a bridge that argues about 50ms of round trip, freezing the picture on a
+// button press is not a detail.
+function applyShareAsync(mode) {
+  const cmd = shareCommand(mode);
+  if (!cmd) return Promise.resolve(false);
+  return new Promise((done) => {
+    const proc = spawn(cmd[0], cmd[1], { stdio: "ignore", windowsHide: true });
+    proc.on("error", () => done(false));
+    proc.on("exit", (code) => {
+      if (code !== 0) return done(false);
+      noteShare(mode);
+      done(true);
+    });
+  });
+}
 
-  if (spawnSync(bin, ["-controlservice"].concat(flag), { stdio: "ignore" }).status !== 0) {
-    return false;
-  }
+function noteShare(mode) {
   shareChanged = mode !== "full";
   log("sharing " + (mode === "full" ? "the whole desktop"
                   : mode === "primary" ? "the primary display only"
                   : "display " + mode));
+}
+
+function applyShare(mode) {
+  const cmd = shareCommand(mode);
+  if (!cmd) return false;
+  if (spawnSync(cmd[0], cmd[1], { stdio: "ignore" }).status !== 0) return false;
+  noteShare(mode);
   return true;
+}
+
+// Every exit path has to run this, not just Ctrl+C. Leaving the server cropped to
+// one display is a surprise for whoever connects next, and startup can fail after
+// the crop in half a dozen ways - no cloudflared, a busy port, a scrape timeout,
+// a refused publish.
+function restoreShare() {
+  if (!shareChanged) return;
+  shareChanged = false;
+  applyShare("full");
 }
 
 /* ---------------------------------------------------------------- tunnel -- */
@@ -350,20 +446,27 @@ function startTunnel() {
     : ["tunnel", "--url", "http://127.0.0.1:" + PORT];
 
   log("starting " + kind + "...");
-  // An absolute path is spawned directly: going through the shell would break on
-  // the spaces in "Program Files". A bare name needs the shell to find the .exe.
-  tunnelProc = spawn(bin, args, {
-    shell: process.platform === "win32" && bin === kind,
-    windowsHide: true,
-  });
+  // findBin always hands back a full path now, so this never needs a shell - and
+  // must not have one. With shell:true on Windows the child was cmd.exe, so kill()
+  // killed the wrapper and left cloudflared running: an orphaned tunnel still
+  // holding its hostname open, its exit handler never firing, and - once a later
+  // run reused the port - that stale public URL proxying into the new bridge.
+  tunnelProc = spawn(bin, args, { windowsHide: true });
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(kind + " printed no URL in 45s")), 45000);
     let settled = false;
 
+    // A pipe delivers whatever bytes are ready, not whole lines, so the URL can
+    // arrive split across two chunks. Matching each chunk on its own then found
+    // nothing and the 45s timer fired while the tunnel was up and working.
+    let seen = "";
+
     const scan = (chunk) => {
-      const text = String(chunk);
+      seen += String(chunk);
+      if (seen.length > 65536) seen = seen.slice(-4096);   // a tail, not a transcript
+      const text = seen;
       // ngrok --log-format json prints "url":"https://..."; cloudflared prints it bare.
       let m = text.match(/https:\/\/[a-z0-9-]+\.(?:trycloudflare\.com|ngrok[-a-z.]*\.app|ngrok\.io)/i);
       if (!m && NGROK_DOMAIN) {
@@ -373,8 +476,8 @@ function startTunnel() {
         settled = true;
         clearTimeout(timer);
         resolve(m[0].replace(/^https:/, "wss:"));
-      } else if (!settled && /err_|error/i.test(text)) {
-        process.stderr.write(text);
+      } else if (!settled && /err_|error/i.test(String(chunk))) {
+        process.stderr.write(String(chunk));
       }
     };
 
@@ -394,7 +497,7 @@ function startTunnel() {
         log(kind + " exited (" + code + ") - the link is dead, shutting down");
         clearInterval(publishTimer);
         unpublish().then(() => {
-          if (shareChanged) applyShare("full");
+          restoreShare();
           process.exit(1);
         });
       }
@@ -402,8 +505,9 @@ function startTunnel() {
   });
 }
 
-// Returns the bare command if PATH has it, else an absolute path we know about,
-// else null. The fallback matters because winget's cloudflared MSI edits the
+// Returns a full path to the executable, or null. Always a path, never a bare
+// name, so the caller can spawn it directly instead of asking a shell to find it.
+// The WELL_KNOWN fallback matters because winget's cloudflared MSI edits the
 // machine PATH, which any terminal already open at install time will not see.
 const WELL_KNOWN = {
   cloudflared: [
@@ -414,7 +518,13 @@ const WELL_KNOWN = {
 
 function findBin(cmd) {
   const probe = process.platform === "win32" ? "where" : "which";
-  if (spawnSync(probe, [cmd], { shell: true, stdio: "ignore" }).status === 0) return cmd;
+  const r = spawnSync(probe, [cmd], { shell: true, encoding: "utf8" });
+  if (r.status === 0) {
+    // `where` can list several matches; the first is the one PATH would pick.
+    const hit = String(r.stdout || "").split(/\r?\n/)
+      .map((l) => l.trim()).filter(Boolean)[0];
+    if (hit) return hit;
+  }
   for (const p of WELL_KNOWN[cmd] || []) {
     if (fs.existsSync(p)) return p;
   }
@@ -432,7 +542,9 @@ async function publish(wsUrl) {
   const r = await fetch(SITE + "/api/cast", {
     method: "POST",
     headers,
-    body: JSON.stringify({ url: wsUrl, name: NAME, token: TOKEN }),
+    // token is what viewers present to read; publish is what proves this process
+    // owns the slot. Only the first is ever printed.
+    body: JSON.stringify({ url: wsUrl, name: NAME, token: TOKEN, publish: PUBLISH_KEY }),
     signal: AbortSignal.timeout(10000),
   });
   if (!r.ok) {
@@ -442,8 +554,10 @@ async function publish(wsUrl) {
 
 async function unpublish() {
   try {
-    await fetch(SITE + "/api/cast?t=" + encodeURIComponent(TOKEN), {
+    const headers = ADMIN_TOKEN ? { "x-admin-token": ADMIN_TOKEN } : {};
+    await fetch(SITE + "/api/cast?p=" + encodeURIComponent(PUBLISH_KEY), {
       method: "DELETE",
+      headers,
       signal: AbortSignal.timeout(5000),
     });
   } catch (_) {}
@@ -451,16 +565,16 @@ async function unpublish() {
 
 /* ------------------------------------------------------------------ boot -- */
 
-// One token per machine, kept on disk so the watch link stays the same between
-// runs even though the tunnel URL behind it does not.
-function loadToken() {
+// One set of secrets per machine, kept on disk so the watch link stays the same
+// between runs even though the tunnel URL behind it does not.
+function loadSecret(name, bytes) {
   const dir = path.join(os.homedir(), ".instellar-cast");
-  const file = path.join(dir, "token");
+  const file = path.join(dir, name);
   try {
     const saved = fs.readFileSync(file, "utf8").trim();
     if (saved) return saved;
   } catch (_) {}
-  const fresh = crypto.randomBytes(16).toString("base64url");
+  const fresh = crypto.randomBytes(bytes).toString("base64url");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(file, fresh, { mode: 0o600 });
   return fresh;
@@ -520,14 +634,36 @@ async function main() {
   const base = await startTunnel();
   const wsUrl = base + "/ws?k=" + SESSION_KEY;
 
-  await publish(wsUrl);
-  publishTimer = setInterval(() => {
-    publish(wsUrl).catch((e) => log("heartbeat: " + e.message));
-  }, 30000);
+  // With no tunnel there is no address a viewer could reach, so the registry has
+  // nothing to remember. Publishing anyway meant --tunnel none died on the site's
+  // wss:// check - taking the LAN cast, which needs the site for nothing at all,
+  // down with it - and on an offline network it died on the fetch instead.
+  if (!TUNNELLESS) {
+    await publish(wsUrl);
+    let missed = 0;
+    publishTimer = setInterval(() => {
+      publish(wsUrl).then(() => { missed = 0; }).catch((e) => {
+        missed++;
+        log("heartbeat: " + e.message);
+        // Three in a row is longer than the record's own TTL: viewers are seeing
+        // "nobody is casting" by now, and one quiet line among the connection
+        // noise was not enough to say so.
+        if (missed === 3) {
+          log("  ^ three failed in a row - the site has dropped this cast and");
+          log("    viewers cannot find it. The cast itself is still running.");
+        }
+      });
+    }, 30000);
+  }
 
   console.log("\n  Casting \"" + NAME + "\".\n");
-  console.log("    Watch it at   " + SITE + "/cast#" + TOKEN);
-  console.log("    Tunnel        " + base + "\n");
+  if (!TUNNELLESS) {
+    console.log("    Watch it at   " + SITE + "/cast#" + TOKEN);
+    console.log("    Tunnel        " + base);
+  } else {
+    console.log("    No tunnel (--tunnel none), so this cast is local only.");
+  }
+  console.log("");
   if (LAN) {
     const ip = await lanAddress();
     if (ip) console.log("    On this network  http://" + ip + ":" + PORT + "/   (much faster)");
@@ -536,22 +672,37 @@ async function main() {
     console.log("    which is worth about 50ms of round trip.");
   }
   console.log("");
-  console.log("  That link carries the access token, so treat it like a password -");
-  console.log("  anyone holding it reaches this machine's TightVNC password prompt.\n");
+  if (!TUNNELLESS) {
+    console.log("  That link carries the view key, so treat it like a password -");
+    console.log("  anyone holding it reaches this machine's TightVNC password prompt.");
+    console.log("  It does not let them move the cast: that needs the publish key,");
+    console.log("  which stays in ~/.instellar-cast and is never printed.\n");
+  }
   console.log("  Leave this window open. Ctrl+C stops the cast.\n");
 }
 
 let quitting = false;
-for (const sig of ["SIGINT", "SIGTERM"]) {
+// SIGTERM is never raised on Windows and closing the console window does not
+// arrive as SIGINT either; SIGBREAK and SIGHUP are what Node does deliver there.
+// Without them the only clean exit was Ctrl+C, and every other way of stopping
+// left the display cropped and the record advertised for its full TTL.
+for (const sig of ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"]) {
   process.on(sig, async () => {
-    if (quitting) process.exit(0);
+    if (quitting) {
+      // Second Ctrl+C, usually because unpublish() is sitting on its timeout and
+      // the window looks hung. Give up on the network, but still put the display
+      // back - that is local, instant, and the thing worth saving.
+      restoreShare();
+      if (tunnelProc) tunnelProc.kill();
+      process.exit(0);
+    }
     quitting = true;
     log("shutting down...");
     clearInterval(publishTimer);
-    await unpublish();
-    // Leaving the server cropped to one display would be a surprise the next
-    // time anyone connects, so put it back the way we found it.
-    if (shareChanged) applyShare("full");
+    // Restore first: it is a local call that always succeeds, where unpublish is
+    // a network round trip that can hang for its full 5s.
+    restoreShare();
+    if (!TUNNELLESS) await unpublish();
     if (tunnelProc) tunnelProc.kill();
     process.exit(0);
   });
@@ -559,6 +710,10 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
 
 main().catch((e) => {
   console.error("\n  " + (e.message || e) + "\n");
+  // Startup can fail in half a dozen ways after the display was already cropped -
+  // no cloudflared, a scrape timeout, a refused publish. None of them should
+  // leave TightVNC showing one monitor to whoever connects next.
+  restoreShare();
   if (tunnelProc) tunnelProc.kill();
   process.exit(1);
 });

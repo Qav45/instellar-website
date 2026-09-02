@@ -441,6 +441,15 @@ async function start() {
       return;
     }
     if (!res.ok) throw new Error(body.error || "HTTP " + res.status);
+    // The registry is meant to hand back a tunnel, and the page is about to send
+    // it the VNC password. Check the shape before trusting it: /api/cast enforces
+    // this too, but nothing costs less than refusing to open a socket the site
+    // should never have named.
+    if (!/^wss:\/\//i.test(String(body.url || ""))) {
+      state("bad", "Bad endpoint");
+      return problem("The site returned an address to refuse",
+        "A cast endpoint must be a wss:// tunnel. Restart the host and try again.", false);
+    }
     endpoint = body.url;
     if (body.name) document.title = "Cast - " + body.name;
   } catch (e) {

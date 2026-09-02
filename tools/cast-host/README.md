@@ -92,9 +92,12 @@ Open either. The page asks for the TightVNC password, then you are in. On the LA
 URL there is no access key to type — the page is served by the bridge itself, so
 it already knows where to connect. Ctrl+C in the console stops the cast.
 
-The access key is generated once and kept in
-`%USERPROFILE%\.instellar-cast\token`, so the watch link stays the same run to
-run even though the tunnel URL behind it does not.
+There are two keys, and only one of them is ever printed. The **view key** in the
+watch link is generated once and kept in `%USERPROFILE%\.instellar-cast\token`, so
+the link stays the same run to run even though the tunnel URL behind it does not.
+The **publish key** sits beside it in `publish-key` and never leaves the machine;
+it is what proves to `/api/cast` that this process owns the slot. Delete either
+file to roll it.
 
 ### Flags
 
@@ -102,7 +105,7 @@ run even though the tunnel URL behind it does not.
 | --- | --- | --- |
 | `--lan` | off | Also listen on the local network and serve the viewer page |
 | `--share` | `primary` | `primary`, `full`, or a display number |
-| `--tunnel` | `auto` | `cloudflared`, `ngrok`, or `none` for LAN-only |
+| `--tunnel` | `auto` | `cloudflared`, `ngrok`, or `none` for LAN-only (publishes nothing) |
 | `--url wss://…` | — | You already have a tunnel; publish this instead of starting one |
 | `--port` | `6080` | Bridge port |
 | `--vnc` | `127.0.0.1:5900` | Where the VNC server is |
@@ -142,18 +145,55 @@ Three gates stand between the internet and this machine:
    and the same key guards the display-switching endpoint.
 3. TightVNC's own password.
 
-`/api/cast` stores only the SHA-256 of the access key, never the key. The record
-carries a 90-second TTL, so a host that dies stops being advertised on its own
-rather than leaving a stale URL behind, and whoever holds the slot keeps it until
-that lapses — nobody else can point your watch link somewhere else.
+Gate 2 only holds because the bridge serves the viewer page — which has that key
+inlined — **only under `--lan`**. It used to serve it on every run, and the tunnel
+reverse-proxies every path, so anyone who learned the tunnel hostname could read
+the key straight out of `GET /` and open a socket onto TightVNC with it. Under
+`--lan` the page is reachable from your own network, which is the same audience
+that can already reach the bridge port.
 
-Two things worth knowing:
+### The two keys
+
+Reading and publishing are separate secrets, and keeping them separate is what
+stops a viewer becoming a host:
+
+* **The view key** is in the watch link and is meant to be shared. It reads the
+  endpoint out of `/api/cast`. That is all it does.
+* **The publish key** never leaves the host. `/api/cast` will only move or delete
+  the record for whoever presents it.
+
+They used to be one key. That meant anyone you invited to watch could POST an
+address of their own, and every other viewer's page would then connect to it and
+hand over the VNC password — a full man-in-the-middle of the screen and every
+keystroke, with the real host heartbeating underneath, none the wiser. The same
+key could also delete the record on a timer and keep the cast down.
+
+`/api/cast` stores only the SHA-256 of each key, never the key. The record carries
+a 90-second TTL, so a host that dies stops being advertised on its own rather than
+leaving a stale URL behind, and the slot is claimed atomically so two hosts cannot
+both believe they hold it.
+
+Three things worth knowing:
 
 * **The watch link is a password.** Anyone holding it reaches this machine's VNC
-  password prompt.
+  password prompt. It does not let them move the cast.
 * **VNC auth truncates passwords at 8 characters** — a protocol limitation, not a
   TightVNC one. Make those 8 count, and do not reuse a password from anywhere
   else.
+* **Claiming an empty slot is open** unless you set `CAST_TOKEN`. The site and the
+  host share no other secret to authenticate a first publish with, so without it a
+  stranger can squat the slot while nobody is casting and keep the real host out
+  (it will refuse to start, saying another host holds the slot). Set `CAST_TOKEN`
+  in the Vercel environment and in the host's environment under the same name; it
+  gates publishing and unpublishing both.
 
-Set `CAST_TOKEN` in the Vercel environment to additionally gate publishing; the
-host script picks it up from its own environment under the same name.
+### Tests
+
+Two suites, plain `node`, no install:
+
+```
+node tools\cast-host\test\registry.test.mjs    the /api/cast auth split, against a fake KV
+node tools\cast-host\test\bridge.test.mjs      boots the real bridge against a stand-in VNC
+```
+
+The bridge suite binds ports 60811 and 59011 on loopback and publishes nothing.
