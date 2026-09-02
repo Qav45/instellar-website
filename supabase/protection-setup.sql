@@ -85,7 +85,7 @@ language sql stable security definer set search_path = public as $$
     select 1 from protected_players
      where name_lc = lower(trim(p_name))
        and (expires_at is null or expires_at > now())
-       and p_type = any(blocks)
+       and (case when p_type = 'IpBan' then 'Ban' else p_type end) = any(blocks)
   )
 $$;
 

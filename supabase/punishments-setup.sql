@@ -111,30 +111,48 @@ begin
   end if;
 
   return (
-    with visible as (
+    with matched_uuids as (
+      select distinct player_uuid
+      from punishments
+      where lower(player_name) = n and player_uuid is not null
+    ),
+    visible as (
       select public_id,
              case when type = 'warn' then 'Warn'
                   when wiped then 'Wipeban'
-                  else 'Ban' end                      as kind,
-             reason, server, created_at, expires_at, revoked_at,
+                  else 'Ban' end as kind,
+             reason, server, player_name, player_uuid, created_at, expires_at, revoked_at,
+             case
+               when revoked_at is not null then 'lifted'
+               when active and (expires_at is null or expires_at > now()) then 'active'
+               else 'expired'
+             end as state,
              case
                when expires_at is null then 'Permanent'
-               else trim(both from
-                      regexp_replace(
-                        justify_interval(expires_at - created_at)::text,
-                        '\s*\d+:\d+:\d+(\.\d+)?$', ''))
-             end                                      as duration
+               else (
+                 with span as (
+                   select greatest(0, floor(extract(epoch from (expires_at - created_at))))::bigint as seconds
+                 )
+                 select case
+                   when seconds >= 86400 then (seconds / 86400)::text || ' ' || case when seconds / 86400 = 1 then 'day' else 'days' end
+                   when seconds >= 3600 then (seconds / 3600)::text || ' ' || case when seconds / 3600 = 1 then 'hour' else 'hours' end
+                   when seconds >= 60 then (seconds / 60)::text || ' ' || case when seconds / 60 = 1 then 'minute' else 'minutes' end
+                   else greatest(1, seconds)::text || ' ' || case when greatest(1, seconds) = 1 then 'second' else 'seconds' end
+                 end
+                 from span
+               )
+             end as duration
       from punishments
-      where lower(player_name) = n
-        and not silent
+      where not silent
         and type in ('ban', 'ipban', 'blacklist', 'warn')
+        and (
+          lower(player_name) = n
+          or (player_uuid is not null and player_uuid in (select player_uuid from matched_uuids))
+        )
     )
     select json_build_object(
       'blocked', false,
-      'name', coalesce(
-        (select player_name from punishments
-          where lower(player_name) = n order by created_at desc limit 1),
-        trim(p_name)),
+      'name', coalesce((select player_name from visible order by created_at desc limit 1), trim(p_name)),
       'warns',  (select count(*) from visible where kind = 'Warn'),
       'bans',   (select count(*) from visible where kind <> 'Warn' and revoked_at is null),
       'lifted', (select count(*) from visible where kind <> 'Warn' and revoked_at is not null),
@@ -151,8 +169,8 @@ begin
       'entries', coalesce((
         select json_agg(json_build_object(
                  'id', e.public_id, 'type', e.kind, 'reason', e.reason,
-                 'duration', case when e.duration = '' then 'Permanent' else e.duration end,
-                 'server', e.server, 'at', e.created_at, 'lifted_at', e.revoked_at)
+                 'duration', e.duration, 'server', e.server, 'at', e.created_at,
+                 'expires_at', e.expires_at, 'lifted_at', e.revoked_at, 'state', e.state)
                order by e.created_at desc)
         from (select * from visible order by created_at desc limit 100) e
       ), '[]'::json)

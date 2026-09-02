@@ -55,6 +55,7 @@
   .tag.Warn { color: #4C9AF0; background: rgba(76,154,240,.13); }
   .tag.Ban { color: #EF6461; background: rgba(239,100,97,.13); }
   .tag.Lifted { color: #6ee7a8; background: rgba(110,231,168,.13); }
+  .tag.Expired { color: #a8a8b3; background: rgba(168,168,179,.13); }
   .row.lifted .r { color: #9c9ca8; text-decoration: line-through; text-decoration-color: #4a4a58; }
   .row .id { font-family: ui-monospace, monospace; font-size: 12px; color: #9c9ca8; background: #15151c; border: 1px solid #232330; border-radius: 8px; padding: 2px 7px; }
   .row .top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -147,10 +148,11 @@
       $('per').textContent = per.length ? per.join(' · ') : 'Clean record: no warnings or bans.';
       $('list').innerHTML = (d.entries || []).map(function (e) {
         var wiped = e.type === 'Wipeban';
-        var lifted = !!e.lifted_at;
-        var label = lifted ? 'Lifted' : wiped ? 'Ban' : e.type;
+        var lifted = !!e.lifted_at || e.state === 'lifted';
+        var expired = !lifted && e.state === 'expired' && e.type !== 'Warn';
+        var label = lifted ? 'Lifted' : expired ? 'Expired' : wiped ? 'Ban' : e.type;
         var meta = [SERVER_NAMES[e.server] || e.server, wiped ? 'Permanent' : e.duration, wiped ? 'account wiped' : null, when(e.at),
-                    lifted ? 'unbanned ' + when(e.lifted_at) : null].filter(Boolean).join(' · ');
+                    lifted ? 'unbanned ' + when(e.lifted_at) : expired ? 'expired ' + when(e.expires_at) : (e.expires_at && e.type !== 'Warn') ? 'until ' + when(e.expires_at) : null].filter(Boolean).join(' · ');
         return '<div class="row' + (lifted ? ' lifted' : '') + '">'
           + '<span class="tag ' + esc(label) + '">' + esc(label) + '</span>'
           + '<div><div class="top"><span class="r">' + esc(e.reason) + '</span>'

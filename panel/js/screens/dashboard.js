@@ -1,7 +1,7 @@
 /* =========================================================================
    Dashboard (Owner / Moderator overview) — every number is computed from
-   P.state.data (recent30, presenceAll, staffAll, actions, anns, serverStatus).
-   Range chips (Today / 7 days / 30 days) filter recent30 by created_at and
+   P.state.data (punishments30, recent30 queue, presenceAll, staffAll, actions, anns, serverStatus).
+   Range chips (Today / 7 days / 30 days) filter ledger rows by created_at and
    by the current server. The 14-day chart ignores the range.
    ========================================================================= */
 (function () {
@@ -9,10 +9,10 @@
   var P = window.P;
   var esc = P.esc;
   var DAY = 86400000;
-  var PUNISH = ['Ban', 'Wipeban', 'Mute', 'Warn', 'Kick'];   // Unban is not a punishment
+  var PUNISH = ['Ban', 'IP ban', 'Blacklist', 'Wipeban', 'Mute', 'Warn', 'Kick'];   // Unban/Unmute are not punishments
 
   function ui() { return P.ui('dashboard', { range: 7, ann: '' }); }
-  function isPunish(a) { return PUNISH.indexOf(a.type) > -1 && (a.status === 'Executed' || a.status === 'Pending'); }
+  function isPunish(a) { return PUNISH.indexOf(a.type) > -1 && ['Active', 'Expired', 'Lifted', 'Executed', 'Pending'].indexOf(a.status) > -1; }
   function ts(iso) { var t = new Date(iso).getTime(); return isNaN(t) ? 0 : t; }
   function startOfToday() { var d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
@@ -35,10 +35,10 @@
     for (var i = 0; i < tps.length; i++) { if (rl.indexOf(tps[i].name.toLowerCase()) === 0) return tps[i].name; }
     return r || '(no reason)';
   }
-  function verb(t) { return ({ Ban: 'banned', Wipeban: 'wipebanned', Mute: 'muted', Warn: 'warned', Kick: 'kicked', Unban: 'unbanned' })[t] || String(t || '').toLowerCase(); }
+  function verb(t) { return ({ Ban: 'banned', 'IP ban': 'IP banned', Blacklist: 'blacklisted', Wipeban: 'wipebanned', Mute: 'muted', Warn: 'warned', Kick: 'kicked', Unban: 'unbanned', Unmute: 'unmuted' })[t] || String(t || '').toLowerCase(); }
   function lastSeenOf(st, byActs) {
     var t = st.last_seen_at ? ts(st.last_seen_at) : 0;
-    var acts = byActs[st.id] || 0;
+    var acts = Math.max(byActs[st.id] || 0, byActs[st.display_name] || 0);
     return Math.max(t, acts);
   }
 
@@ -128,10 +128,11 @@
   /* ---------------- render ---------------- */
   function render(root, s) {
     var u = ui(), d = s.data, server = s.server, srvName = P.serverName(server);
-    var recent = d.recent30 || [], actions = d.actions || [], staff = d.staff || [];
+    var queue = d.recent30 || [], recent = d.punishments30 ? P.ledgerRows(d.punishments30) : queue, actions = d.actions || [], staff = d.staff || [];
     var w = windows(u.range);
     var cur = inWin(recent, w.from, w.to, server);
     var prev = inWin(recent, w.pFrom, w.pTo, server);
+    var queueCur = inWin(queue, w.from, w.to, server);
     var rl = rangeLabel(u.range);
 
     // --- tiles
@@ -147,10 +148,10 @@
     var approvals = actions.filter(function (a) { return a.status === 'Approval'; });
     var oldest = approvals.reduce(function (m, a) { var t = ts(a.created_at); return (!m || t < m) ? t : m; }, 0);
 
-    var activeIds = {}; cur.forEach(function (a) { if (a.by_id) activeIds[a.by_id] = 1; });
+    var activeIds = {}; cur.forEach(function (a) { if (a.by_id) activeIds[a.by_id] = 1; else if (a.by_name) activeIds[a.by_name] = 1; });
     var activeCount = Object.keys(activeIds).length;
     var lastActBy = {};
-    recent.forEach(function (a) { var t = ts(a.created_at); if (a.by_id && t > (lastActBy[a.by_id] || 0)) lastActBy[a.by_id] = t; });
+    recent.forEach(function (a) { var t = ts(a.created_at); if (a.by_id && t > (lastActBy[a.by_id] || 0)) lastActBy[a.by_id] = t; if (a.by_name && t > (lastActBy[a.by_name] || 0)) lastActBy[a.by_name] = t; });
     var unused = staff.filter(function (st) { return lastSeenOf(st, lastActBy) < Date.now() - 30 * DAY; });
 
     var tiles = '<div class="d-stats">'
@@ -174,11 +175,11 @@
       }).join('') + '</div>' : '<div class="empty">No punishments ' + esc(rl) + '.</div>') + '</div>';
 
     // --- needs your attention
-    var failed = cur.filter(function (a) { return a.status === 'Failed'; }).length;
+    var failed = queueCur.filter(function (a) { return a.status === 'Failed'; }).length;
     var blocks24 = (d.blocks || []).filter(function (b) { return ts(b.created_at) > Date.now() - DAY; }).length;
     var attn = [];
     if (approvals.length) attn.push('<div class="d-attn-row"><i class="d-attn-dot is-warn"></i><span class="d-attn-txt"><b>' + plural(approvals.length, 'punishment') + '</b> ' + (approvals.length === 1 ? 'is' : 'are') + ' waiting for approval</span><button type="button" class="gl-btn gl-btn-primary gl-btn-sm" data-goto="approvals">Review</button></div>');
-    if (failed) attn.push('<div class="d-attn-row"><i class="d-attn-dot is-danger"></i><span class="d-attn-txt"><b>' + plural(failed, 'command') + ' failed</b> ' + esc(rl) + ' and never reached the server</span><button type="button" class="gl-btn gl-btn-sm" data-action="seeFailed">See</button></div>');
+    if (failed) attn.push('<div class="d-attn-row"><i class="d-attn-dot is-danger"></i><span class="d-attn-txt"><b>' + plural(failed, 'command') + ' failed</b> ' + esc(rl) + ' because the server could not execute ' + (failed === 1 ? 'it' : 'them') + '</span><button type="button" class="gl-btn gl-btn-sm" data-action="seeFailed">See</button></div>');
     if (unused.length) attn.push('<div class="d-attn-row"><i class="d-attn-dot is-muted"></i><span class="d-attn-txt"><b>' + plural(unused.length, 'staff account') + '</b> ' + (unused.length === 1 ? 'has' : 'have') + ' not been used for 30 days</span><button type="button" class="gl-btn gl-btn-sm" data-goto="staff">View staff</button></div>');
     if (P.isSupervisor() && blocks24) attn.push('<div class="d-attn-row"><i class="d-attn-dot is-warn"></i><span class="d-attn-txt"><b>' + plural(blocks24, 'punishment') + '</b> ' + (blocks24 === 1 ? 'was' : 'were') + ' blocked by protection in the last 24 hours</span><button type="button" class="gl-btn gl-btn-sm" data-goto="protection">See</button></div>');
     var attention = '<div class="gl-glass d-card d-attn"><div class="d-card-head"><h3>Needs your attention</h3></div>'
@@ -226,7 +227,7 @@
       }).join('') + '</div>' : '<div class="empty">No announcements.</div>') + '</div>';
 
     // --- latest activity
-    var latest = actions.slice(0, 6);
+    var latest = (d.punishments30 ? P.ledgerRows(d.punishments30).filter(function (a) { return a.server === server; }) : actions).slice(0, 6);
     var act = '<div class="list gl-glass d-act" style="--cols:26px minmax(0,1fr) auto auto"><div class="list-top"><h3>Latest activity</h3><span class="gl-spacer"></span><a class="ghost-link" href="#audit" data-goto="audit">See all history →</a></div>'
       + (latest.length ? '<div class="list-body">' + latest.map(function (a) {
         var sub = [a.reason, a.duration].filter(Boolean).map(esc).join(' · ');

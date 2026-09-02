@@ -89,10 +89,11 @@
   }
   function manual(u, target) {
     var off = target ? '' : ' p-off';
-    var acts = ['Warn', 'Mute', 'Kick', 'Ban', 'Unban'].concat(P.canWipeban() ? ['Wipeban'] : []);
+    var rec = target ? P.playerRecord(target) : null;
+    var acts = ['Warn', 'Mute', 'Kick', 'Ban', 'IpBan', 'Unban'].concat(rec && rec.status === 'Muted' ? ['Unmute'] : []).concat(P.canWipeban() ? ['Wipeban'] : []);
     var h = '<div class="p-actions">';
     acts.forEach(function (t) {
-      h += '<button type="button" class="p-act ' + P.actionClass(t) + (t === 'Ban' ? ' is-key' : '') + off + '" data-action="manual" data-type="' + t + '">' + t + '</button>';
+      h += '<button type="button" class="p-act ' + P.actionClass(t) + (t === 'Ban' ? ' is-key' : '') + off + '" data-action="manual" data-type="' + t + '">' + esc(P.actionLabel(t)) + '</button>';
     });
     h += '</div><p class="hint-line p-actions-hint">' + (target
       ? 'Pick an action for ' + esc(target) + ' — you add a reason and proof next.'

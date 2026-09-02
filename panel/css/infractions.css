@@ -39,8 +39,8 @@
 .p-reasons{display:flex;flex-wrap:wrap;gap:8px}
 .p-reasons .chip{height:34px;padding:0 15px 0 12px;font-size:13px;font-weight:600}
 .p-tchip{--tint:var(--t-warn)}
-.p-tchip.ban{--tint:var(--t-ban)}.p-tchip.wipeban{--tint:var(--t-wipeban)}.p-tchip.mute{--tint:var(--t-mute)}
-.p-tchip.warn{--tint:var(--t-warn)}.p-tchip.kick{--tint:var(--t-kick)}.p-tchip.unban{--tint:var(--t-unban)}
+.p-tchip.ban{--tint:var(--t-ban)}.p-tchip.ipban{--tint:var(--t-ipban)}.p-tchip.blacklist{--tint:var(--t-blacklist)}.p-tchip.wipeban{--tint:var(--t-wipeban)}.p-tchip.mute{--tint:var(--t-mute)}
+.p-tchip.warn{--tint:var(--t-warn)}.p-tchip.kick{--tint:var(--t-kick)}.p-tchip.unban,.p-tchip.unmute{--tint:var(--t-unban)}
 .p-tchip .p-dot{color:rgb(var(--tint))}
 .p-tchip.is-active,.p-tchip.is-active:hover{color:#fff;background:rgba(var(--tint),.16);border-color:rgba(var(--tint),.55)}
 
@@ -54,8 +54,8 @@
 .p-rung{--tint:var(--t-warn);display:inline-flex;align-items:center;height:36px;padding:0 15px;border-radius:12px;
   font:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;
   color:rgb(var(--tint));background:rgba(var(--tint),.11);border:1px solid rgba(var(--tint),.34)}
-.p-rung.ban{--tint:var(--t-ban)}.p-rung.wipeban{--tint:var(--t-wipeban)}.p-rung.mute{--tint:var(--t-mute)}
-.p-rung.warn{--tint:var(--t-warn)}.p-rung.kick{--tint:var(--t-kick)}.p-rung.unban{--tint:var(--t-unban)}
+.p-rung.ban{--tint:var(--t-ban)}.p-rung.ipban{--tint:var(--t-ipban)}.p-rung.blacklist{--tint:var(--t-blacklist)}.p-rung.wipeban{--tint:var(--t-wipeban)}.p-rung.mute{--tint:var(--t-mute)}
+.p-rung.warn{--tint:var(--t-warn)}.p-rung.kick{--tint:var(--t-kick)}.p-rung.unban,.p-rung.unmute{--tint:var(--t-unban)}
 .p-rung:hover{background:rgba(var(--tint),.20)}
 .p-rung.is-next{color:#0b0b0f;background:rgb(var(--tint));border-color:rgb(var(--tint));box-shadow:0 0 0 3px rgba(var(--tint),.25)}
 .p-tpl-note{font-size:12px;color:var(--gl-warn);margin-top:12px;line-height:1.5}
@@ -66,8 +66,8 @@
 .p-act{--tint:var(--t-warn);display:inline-flex;align-items:center;justify-content:center;height:42px;padding:0 12px;
   border-radius:12px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;transition:filter .15s,background-color .15s,border-color .15s;
   color:rgb(var(--tint));background:rgba(var(--tint),.12);border:1px solid rgba(var(--tint),.30)}
-.p-act.ban{--tint:var(--t-ban)}.p-act.wipeban{--tint:var(--t-wipeban)}.p-act.mute{--tint:var(--t-mute)}
-.p-act.warn{--tint:var(--t-warn)}.p-act.kick{--tint:var(--t-kick)}.p-act.unban{--tint:var(--t-unban)}
+.p-act.ban{--tint:var(--t-ban)}.p-act.ipban{--tint:var(--t-ipban)}.p-act.blacklist{--tint:var(--t-blacklist)}.p-act.wipeban{--tint:var(--t-wipeban)}.p-act.mute{--tint:var(--t-mute)}
+.p-act.warn{--tint:var(--t-warn)}.p-act.kick{--tint:var(--t-kick)}.p-act.unban,.p-act.unmute{--tint:var(--t-unban)}
 .p-act:hover{background:rgba(var(--tint),.20);border-color:rgba(var(--tint),.50)}
 /* the primary action (Ban) reads as the main button without being a giant slab */
 .p-act.is-key{color:#12070a;background:rgb(var(--tint));border-color:transparent;font-weight:700}
@@ -103,11 +103,14 @@
 
 /* ---- punish confirm modal --------------------------------------------- */
 .p-ttype{--tint:var(--t-warn);color:rgb(var(--tint))}
-.p-ttype.ban{--tint:var(--t-ban)}.p-ttype.wipeban{--tint:var(--t-wipeban)}.p-ttype.mute{--tint:var(--t-mute)}
-.p-ttype.warn{--tint:var(--t-warn)}.p-ttype.kick{--tint:var(--t-kick)}.p-ttype.unban{--tint:var(--t-unban)}
+.p-ttype.ban{--tint:var(--t-ban)}.p-ttype.ipban{--tint:var(--t-ipban)}.p-ttype.blacklist{--tint:var(--t-blacklist)}.p-ttype.wipeban{--tint:var(--t-wipeban)}.p-ttype.mute{--tint:var(--t-mute)}
+.p-ttype.warn{--tint:var(--t-warn)}.p-ttype.kick{--tint:var(--t-kick)}.p-ttype.unban,.p-ttype.unmute{--tint:var(--t-unban)}
 .p-protected{margin-top:14px}
 .p-protected .protected-pill{height:26px;font-size:12px}
 .modal .p-protected .note-line{margin-top:10px;color:#F5C542;border-color:rgba(245,197,66,.28);background:rgba(245,197,66,.07)}
+/* "already banned" warning state: the form is replaced by the ban that would be overwritten */
+.modal .p-rebans .note-line{margin:0 0 12px;color:#F5C542;border-color:rgba(245,197,66,.28);background:rgba(245,197,66,.07)}
+.p-rebans .pl-kv:last-child{border-bottom:1px solid var(--f-line)}
 .modal .file-chip{max-width:100%}
 .modal .file-chip button:hover{background:rgba(255,255,255,.22)}
 .modal .proof-row{margin-bottom:8px}

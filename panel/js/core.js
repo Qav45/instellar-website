@@ -52,9 +52,9 @@
     booting: true,
     data: {
       // current server
-      actions: [], staff: [], notes: [], presence: [], logs: [], guides: [], anns: [], blacklist: [], templates: [],
+      actions: [], staff: [], notes: [], presence: [], logs: [], guides: [], anns: [], blacklist: [], templates: [], punishments: null,
       // both servers (dashboards / protection)
-      recent30: [], presenceAll: [], staffAll: [], protected: [], blocks: [], staffAudit: [], serverStatus: [],
+      recent30: [], punishments30: null, presenceAll: [], staffAll: [], protected: [], blocks: [], staffAudit: [], serverStatus: [],
       protectionError: null, auditError: null
     },
     ui: {}
@@ -109,8 +109,12 @@
     return '<span class="avatar ' + P.avClass(name) + (extra ? ' ' + extra : '') + '" aria-hidden="true">' + P.esc(P.initials(name)) + '</span>';
   };
 
-  P.actionClass = function (t) { return ({ Ban: 'ban', Wipeban: 'wipeban', Kick: 'kick', Mute: 'mute', Warn: 'warn', Unban: 'unban' })[t] || 'warn'; };
-  P.typePill = function (t) { return '<span class="type-pill ' + P.actionClass(t) + '">' + P.esc(t) + '</span>'; };
+  P.actionClass = function (t) {
+    return ({ Ban: 'ban', IpBan: 'ipban', 'IP ban': 'ipban', Blacklist: 'blacklist', Wipeban: 'wipeban',
+      Kick: 'kick', Mute: 'mute', Warn: 'warn', Unban: 'unban', Unmute: 'unmute' })[t] || 'warn';
+  };
+  P.actionLabel = function (t) { return ({ IpBan: 'IP ban', ipban: 'IP ban', blacklist: 'Blacklist' })[t] || t; };
+  P.typePill = function (t) { return '<span class="type-pill ' + P.actionClass(t) + '">' + P.esc(P.actionLabel(t)) + '</span>'; };
   P.roleClass = function (r) {
     return ({ Supervisor: 'supervisor', Owner: 'owner', Management: 'management', 'Sr Admin': 'admin', Admin: 'admin', 'Jr Admin': 'admin',
       'Sr Moderator': 'moderator', Moderator: 'moderator', 'Jr Moderator': 'moderator', Helper: 'helper', Trainee: 'helper' })[r] || 'helper';
@@ -124,6 +128,9 @@
     if (st === 'Failed') return { cls: 'danger', text: 'Failed' };
     if (st === 'Denied') return /^PROTECTED:/.test(err || '') ? { cls: 'danger', text: 'Blocked (protected)' } : { cls: 'muted', text: 'Denied' };
     if (st === 'Approved') return { cls: 'ok', text: 'Approved' };
+    if (st === 'Active') return { cls: 'ok', text: 'Active' };
+    if (st === 'Expired') return { cls: 'muted', text: 'Expired' };
+    if (st === 'Lifted') return { cls: 'muted', text: 'Lifted' };
     return { cls: 'muted', text: st || '—' };
   };
   P.statusPill = function (st, err) { var l = P.statusLabel(st, err); return '<span class="status ' + l.cls + '">' + P.esc(l.text) + '</span>'; };
@@ -134,8 +141,8 @@
      --------------------------------------------------------------------- */
   P.rank = function (role) { return ({ Trainee: 1, Helper: 2, 'Jr Moderator': 3, Moderator: 4, 'Sr Moderator': 5, 'Jr Admin': 6, Admin: 7, 'Sr Admin': 8, Management: 9, Owner: 10, Supervisor: 11 })[role] || 0; };
   P.roleList = function () { return ['Trainee', 'Helper', 'Jr Moderator', 'Moderator', 'Sr Moderator', 'Jr Admin', 'Admin', 'Sr Admin', 'Management', 'Owner']; };
-  P.PERMS = ['Warn', 'Mute', 'Kick', 'Ban', 'Unban', 'Wipeban', 'Guides', 'Staff management', 'Server config', 'Simplification'];
-  P.ROLE_DEFAULT_PERMS = { Trainee: ['Mute', 'Kick'], Helper: ['Mute', 'Kick', 'Warn'], 'Jr Moderator': ['Mute', 'Kick', 'Warn'], Moderator: ['Ban', 'Mute', 'Kick', 'Warn'], 'Sr Moderator': ['Ban', 'Mute', 'Kick', 'Warn'], 'Jr Admin': ['Ban', 'Unban', 'Mute', 'Kick', 'Warn'], Admin: ['Ban', 'Unban', 'Mute', 'Kick', 'Warn', 'Staff management'], 'Sr Admin': ['Ban', 'Unban', 'Mute', 'Kick', 'Warn', 'Staff management', 'Server config'], Management: ['Ban', 'Unban', 'Mute', 'Kick', 'Warn', 'Staff management', 'Server config'], Owner: ['All permissions'] };
+  P.PERMS = ['Warn', 'Mute', 'Unmute', 'Kick', 'Ban', 'IpBan', 'Unban', 'Wipeban', 'Guides', 'Staff management', 'Server config', 'Simplification'];
+  P.ROLE_DEFAULT_PERMS = { Trainee: ['Mute', 'Kick'], Helper: ['Mute', 'Kick', 'Warn'], 'Jr Moderator': ['Mute', 'Kick', 'Warn'], Moderator: ['Ban', 'IpBan', 'Mute', 'Kick', 'Warn'], 'Sr Moderator': ['Ban', 'IpBan', 'Mute', 'Kick', 'Warn'], 'Jr Admin': ['Ban', 'IpBan', 'Unban', 'Unmute', 'Mute', 'Kick', 'Warn'], Admin: ['Ban', 'IpBan', 'Unban', 'Unmute', 'Mute', 'Kick', 'Warn', 'Staff management'], 'Sr Admin': ['Ban', 'IpBan', 'Unban', 'Unmute', 'Mute', 'Kick', 'Warn', 'Staff management', 'Server config'], Management: ['Ban', 'IpBan', 'Unban', 'Unmute', 'Mute', 'Kick', 'Warn', 'Staff management', 'Server config'], Owner: ['All permissions'] };
 
   P.durationDays = function (d) {
     if (!d) return Infinity;
@@ -145,16 +152,16 @@
     return Number(m[1]) * per;
   };
   P.requiredRole = function (type, duration) {
-    if (type === 'Unban') return 'Admin';
+    if (type === 'Unban' || type === 'Unmute') return 'Admin';
     if (type === 'Wipeban') return 'Admin';
-    if (type === 'Ban' && P.durationDays(duration) > 30) return 'Admin';
-    if (type === 'Ban') return 'Moderator';
+    if ((type === 'Ban' || type === 'IpBan') && P.durationDays(duration) > 30) return 'Admin';
+    if (type === 'Ban' || type === 'IpBan') return 'Moderator';
     return 'Helper';
   };
   P.currentRole = function () { return P.state.me ? P.state.me.role : 'Helper'; };
   P.myName = function () { return P.state.me ? P.state.me.display_name : ''; };
   P.needsApproval = function (type, duration) { return P.rank(P.currentRole()) < P.rank(P.requiredRole(type, duration)); };
-  P.isPermBan = function (a) { return a.type === 'Wipeban' || (a.type === 'Ban' && P.durationDays(a.duration) > 30); };
+  P.isPermBan = function (a) { return a.type === 'Wipeban' || ((a.type === 'Ban' || a.type === 'IpBan' || a.type === 'IP ban' || a.type === 'Blacklist') && P.durationDays(a.duration) > 30); };
   P.hasPerm = function (p) {
     var me = P.state.me; if (!me) return false;
     var perms = me.perms || [];
@@ -258,9 +265,12 @@
   P.suggestedStep = function (target, tp) {
     if (!target) return 0;
     var t = target.toLowerCase(), n = tp.name.toLowerCase();
-    var prior = (P.state.data.actions || []).filter(function (r) {
-      return String(r.target || '').toLowerCase() === t && r.status === 'Executed'
-        && ['Warn', 'Mute', 'Ban', 'Wipeban'].indexOf(r.type) > -1 && String(r.reason || '').toLowerCase().indexOf(n) === 0;
+    var source = P.state.data.punishments ? P.playerRecord(target).history.map(function (h) { return h.row; }) : (P.state.data.actions || []);
+    var prior = source.filter(function (r) {
+      var targetOk = P.state.data.punishments ? true : String(r.target || '').toLowerCase() === t;
+      var stateOk = P.state.data.punishments ? true : r.status === 'Executed';
+      return targetOk && stateOk
+        && ['Warn', 'Mute', 'Ban', 'IpBan', 'IP ban', 'Blacklist', 'Wipeban'].indexOf(r.type) > -1 && String(r.reason || '').toLowerCase().indexOf(n) === 0;
     }).length;
     return Math.min(prior, tp.steps.length - 1);
   };
@@ -298,13 +308,16 @@
   // The old replay is kept as the fallback for a panel whose database has not run
   // punishments-setup.sql yet: wrong for in-game bans, but far better than reporting everybody
   // clean. api.loadData leaves S.data.punishments null in exactly that case.
-  P.playerRecord = function (name) {
+  P.playerRecord = function (name, uuid) {
     var n = String(name || '').toLowerCase();
     var rows = (P.state.data.actions || []).filter(function (a) { return String(a.target || '').toLowerCase() === n; });
     var ledger = P.state.data.punishments;
     if (!ledger) return P.playerRecordFromActions(name, rows);
 
-    var mine = ledger.filter(function (p) { return String(p.player_name || '').toLowerCase() === n; });
+    var pr = uuid ? null : P.presenceOf(name);
+    var u = String(uuid || (pr && pr.uuid) || '').toLowerCase();
+    var byUuid = u ? ledger.filter(function (p) { return String(p.player_uuid || '').toLowerCase() === u; }) : [];
+    var mine = byUuid.length ? byUuid : ledger.filter(function (p) { return String(p.player_name || '').toLowerCase() === n; });
     var now = Date.now(), status = 'Clear', history = [];
     mine.forEach(function (p) {
       var inForce = p.active && (!p.expires_at || new Date(p.expires_at).getTime() > now);
@@ -313,7 +326,7 @@
       if (p.type === 'ban' || p.type === 'ipban' || p.type === 'blacklist') status = 'Banned';
       else if (p.type === 'mute' && status !== 'Banned') status = 'Muted';
     });
-    return { status: status, history: history, all: rows, ledger: mine };
+    return { status: status, history: history, all: history.map(function (h) { return h.row; }), ledger: mine, queue: rows };
   };
 
   // A ledger row wearing the shape the record and infractions views already render, so the two
@@ -335,8 +348,15 @@
     return 'under a minute';
   };
 
+  P.punishmentState = function (p) {
+    if (p.revoked_at) return 'Lifted';
+    if (!p.active) return 'Expired';
+    if (p.expires_at && new Date(p.expires_at).getTime() <= Date.now()) return 'Expired';
+    return 'Active';
+  };
+
   P.punishmentAsRow = function (p) {
-    var TYPES = { ban: 'Ban', ipban: 'Ban', blacklist: 'Ban', mute: 'Mute', kick: 'Kick', warn: 'Warn' };
+    var TYPES = { ban: 'Ban', ipban: 'IP ban', blacklist: 'Blacklist', mute: 'Mute', kick: 'Kick', warn: 'Warn' };
     return {
       id: p.public_id,
       server: p.server,
@@ -346,7 +366,7 @@
       duration: P.spanLabel(p.created_at, p.expires_at),
       expires_at: p.expires_at,
       by_name: p.staff_name,
-      status: 'Executed',
+      status: P.punishmentState(p),
       error: null,
       created_at: p.created_at,
       revoked_at: p.revoked_at,
@@ -354,6 +374,7 @@
       silent: p.silent
     };
   };
+  P.ledgerRows = function (rows) { return (rows || []).map(P.punishmentAsRow); };
 
   // The pre-ledger derivation, kept for a database without the punishments table.
   P.playerRecordFromActions = function (name, rows) {

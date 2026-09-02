@@ -31,7 +31,7 @@
   }
   function agoLower(iso) { var t = P.timeAgo(iso); return t === 'Just now' ? 'just now' : t; }
   function hasProof(a) { return list(a.proof).some(function (u) { return typeof u === 'string' && !!u; }); }
-  function isBanish(a) { return a.type === 'Ban' || a.type === 'Wipeban'; }
+  function isBanish(a) { return a.type === 'Ban' || a.type === 'IpBan' || a.type === 'IP ban' || a.type === 'Blacklist' || a.type === 'Wipeban'; }
   function isDeniedReal(a) { return a.status === 'Denied' && !P.isProtectedError(a.error); }
   function isApprovedReq(a) { return a.status === 'Pending' || a.status === 'Executed' || a.status === 'Failed'; }
   function byStaff(a, s) { return a.by_id ? a.by_id === s.id : (!!a.by_name && a.by_name === s.display_name); }
@@ -43,7 +43,7 @@
     return !!au && P.rank(P.requiredRole(a.type, a.duration)) > P.rank(au.role);
   }
   function serverTag(server) { return '<span class="s-srv-tag">' + esc(P.serverName(server)) + '</span>'; }
-  function verb(type) { return ({ Ban: 'banned', Wipeban: 'wipebanned', Mute: 'muted', Kick: 'kicked', Warn: 'warned', Unban: 'unbanned' })[type] || String(type || '').toLowerCase(); }
+  function verb(type) { return ({ Ban: 'banned', 'IP ban': 'IP banned', Blacklist: 'blacklisted', Wipeban: 'wipebanned', Mute: 'muted', Kick: 'kicked', Warn: 'warned', Unban: 'unbanned', Unmute: 'unmuted' })[type] || String(type || '').toLowerCase(); }
   function short(text, n) { var t = String(text || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; }
   function pctText(a, b) { return b ? P.pct(a, b) + '%' : '—'; }
 
@@ -79,12 +79,13 @@
   function blockSentence(b) { return '<b>' + esc(b.by_name || 'Someone') + '</b> tried to ' + esc(String(b.type || 'punish').toLowerCase()) + ' <b>' + esc(b.target) + '</b>'; }
 
   // per-staff numbers inside the range
-  function staffStats(s, rows, blocks, byId, allRows) {
+  function staffStats(s, rows, blocks, byId, allRows, queueRows) {
     var mine = rows.filter(function (a) { return byStaff(a, s); });
-    var reqs = mine.filter(function (a) { return isRequest(a, byId); });
+    var qMine = queueRows.filter(function (a) { return byStaff(a, s); });
+    var reqs = qMine.filter(function (a) { return isRequest(a, byId); });
     var denied = reqs.filter(isDeniedReal).length;
     var bans = mine.filter(isBanish).length;
-    var noProof = mine.filter(function (a) { return P.isPermBan(a) && !hasProof(a); }).length;
+    var noProof = qMine.filter(function (a) { return P.isPermBan(a) && !hasProof(a); }).length;
     var myBlocks = blocks.filter(function (b) { return byStaff(b, s); }).length;
     var lastAct = newestFirst(list(allRows).filter(function (a) { return byStaff(a, s); }))[0];
     var lastOn = s.last_seen_at || (lastAct ? lastAct.created_at : null);
@@ -111,13 +112,15 @@
   function collect(s) {
     var d = s.data, r = ui().range;
     var byId = staffMap(d.staffAll);
-    var all = list(d.recent30);
+    var queueAll = list(d.recent30);
+    var all = d.punishments30 ? P.ledgerRows(d.punishments30) : queueAll;
     var rows = inRange(all, r);
+    var queueRows = inRange(queueAll, r);
     var team = list(d.staffAll).filter(function (m) { return m.role !== 'Supervisor'; });
     var blocksR = inRange(d.blocks, r);
-    var stats = team.map(function (m) { return staffStats(m, rows, blocksR, byId, all); })
+    var stats = team.map(function (m) { return staffStats(m, rows, blocksR, byId, all, queueRows); })
       .sort(function (a, b) { return (b.flag - a.flag) || (b.actions - a.actions) || (b.bans - a.bans); });
-    return { d: d, r: r, byId: byId, all: all, rows: rows, team: team, stats: stats, blocksR: blocksR, label: rangeLabel(r) };
+    return { d: d, r: r, byId: byId, all: all, rows: rows, queueAll: queueAll, queueRows: queueRows, team: team, stats: stats, blocksR: blocksR, label: rangeLabel(r) };
   }
 
   /* ---------------- blocks ---------------- */
@@ -136,7 +139,7 @@
   }
   function criticalItems(c) {
     var d = c.d, items = [];
-    var permNoProof = sinceMidnight(c.all).filter(function (a) { return P.isPermBan(a) && !hasProof(a); }).length;
+    var permNoProof = sinceMidnight(c.queueAll).filter(function (a) { return P.isPermBan(a) && !hasProof(a); }).length;
     if (permNoProof) items.push(critRow('is-danger', '<b>' + esc(plural(permNoProof, 'permanent ban')) + ' today</b> ' + (permNoProof === 1 ? 'has' : 'have') + ' no proof', { label: 'Review', goto: 'audit', primary: true }));
     var newest = newestFirst(younger(d.staffAudit, DAY))[0];
     if (newest) items.push(critRow('is-gold', staffSentence(newest) + ' · ' + esc(P.timeAgo(newest.created_at)), { label: 'View staff', goto: 'staff' }));
@@ -152,7 +155,7 @@
       var txt = hb.at ? (hb.fromPresence ? 'no player update for ' : 'has not checked in for ') + durText(age) : 'has never checked in';
       items.push(critRow('is-warn', '<b>' + esc(sv[1]) + '</b> ' + esc(txt), { label: 'Players', goto: 'players' }));
     });
-    var failed = c.all.filter(function (a) { return a.status === 'Failed'; }).length;
+    var failed = c.queueAll.filter(function (a) { return a.status === 'Failed'; }).length;
     if (failed) items.push(critRow('is-danger', '<b>' + esc(plural(failed, 'command')) + ' failed</b> in the last 30 days', { label: 'History', goto: 'audit' }));
     return items.slice(0, 5);
   }
@@ -168,16 +171,16 @@
   function renderStats(c) {
     var d = c.d, rows = c.rows;
     var on1 = onlineOn(d, 'instellar1'), on2 = onlineOn(d, 'instellar2');
-    var perm = rows.filter(P.isPermBan), permNoProof = perm.filter(function (a) { return !hasProof(a); }).length;
+    var perm = rows.filter(P.isPermBan), permNoProof = c.queueRows.filter(function (a) { return P.isPermBan(a) && !hasProof(a); }).length;
     var wipe = rows.filter(function (a) { return a.type === 'Wipeban'; }).length;
-    var ap = approvalSplit(rows, c.byId);
+    var ap = approvalSplit(c.queueRows, c.byId);
     var prot = P.activeProtected().length, blocked30 = list(d.blocks).length ? inRange(d.blocks, 30).length : 0;
     var staffN = list(d.staffAll).length;
     return '<div class="s-stats">'
       + tile('Players online', '<i class="s-live' + (on1 + on2 ? '' : ' is-off') + '"></i>' + (on1 + on2), on1 + ' + ' + on2 + ' on the two servers')
       + tile('Permanent bans', String(perm.length), c.label + ' · ' + permNoProof + ' with no proof')
       + tile('Wipebans', String(wipe), c.label)
-      + tile('Approvals denied', pctText(ap.denied, ap.total), c.label + ' · about ' + ap.denied + ' of ' + ap.total + ' requests', ap.total && P.pct(ap.denied, ap.total) >= 20 ? 'is-warn' : '')
+      + tile('Approvals denied', pctText(ap.denied, ap.total), c.label + ' · about ' + ap.denied + ' of ' + ap.total + ' queue requests', ap.total && P.pct(ap.denied, ap.total) >= 20 ? 'is-warn' : '')
       + tile('Protected players', String(prot), blocked30 + ' blocked attempts in 30 days')
       + tile('Staff accounts', String(staffN), unusedCount(d.staffAll, c.all) + ' unused 30 days')
       + '</div>';
@@ -219,7 +222,7 @@
   }
 
   function punishRow(a) {
-    var canUndo = a.status === 'Executed' && isBanish(a);
+    var canUndo = a.status === 'Active' && isBanish(a);
     return '<div class="s-pu">' + P.typePill(a.type)
       + '<span class="s-pu-txt"><b>' + esc(a.target) + '</b> · ' + esc(a.reason || '—') + ' · by ' + esc(a.by_name || 'unknown') + ' · ' + esc(P.serverName(a.server)) + '</span>'
       + '<span class="s-pu-btns">' + (canUndo ? '<button type="button" class="gl-btn gl-btn-ghost gl-btn-sm" data-action="undo" data-id="' + esc(a.id) + '">Undo</button>' : '')
@@ -227,9 +230,9 @@
       + '<span class="s-pu-meta">' + (hasProof(a) ? '<span class="s-proof is-ok">proof ✓</span>' : '<span class="s-proof is-bad">no proof</span>') + P.statusPill(a.status, a.error) + '<span class="s-pu-when">' + esc(P.timeAgo(a.created_at)) + '</span></span></div>';
   }
   function renderBig(c) {
-    var big = newestFirst(c.rows.filter(function (a) { return P.isPermBan(a) || a.type === 'Unban'; })).slice(0, 8);
+    var big = newestFirst(c.rows.filter(function (a) { return P.isPermBan(a); })).slice(0, 8);
     return '<div class="gl-glass s-card"><div class="s-card-head"><h3>Big punishments · ' + esc(c.label) + '</h3><span class="gl-spacer"></span><span class="ghost-link" data-goto="audit">See all →</span></div>'
-      + (big.length ? '<div class="s-punish">' + big.map(punishRow).join('') + '</div>' : '<div class="empty">No permanent bans or unbans ' + esc(c.label) + '.</div>') + '</div>';
+      + (big.length ? '<div class="s-punish">' + big.map(punishRow).join('') + '</div>' : '<div class="empty">No permanent bans ' + esc(c.label) + '.</div>') + '</div>';
   }
   function renderChanges(c) {
     var d = c.d;
@@ -260,7 +263,7 @@
     var d = c.d, hb = heartbeat(d, sv[0]);
     var age = hb.at ? Date.now() - hb.at : Infinity;
     var cls = age < 2 * MIN ? 'is-ok' : age < 5 * MIN ? 'is-warn' : 'is-danger';
-    var mine = c.all.filter(function (a) { return a.server === sv[0]; });
+    var mine = c.queueAll.filter(function (a) { return a.server === sv[0]; });
     var waiting = mine.filter(function (a) { return a.status === 'Pending'; }).length;
     var failed = mine.filter(function (a) { return a.status === 'Failed'; }).length;
     var ap = approvalSplit(inRange(mine, c.r), c.byId);
@@ -274,7 +277,7 @@
       + '</div>';
   }
   function renderServers(c) {
-    var ap = approvalSplit(c.rows, c.byId);
+    var ap = approvalSplit(c.queueRows, c.byId);
     return '<div class="s-row s-row-two">'
       + '<div class="gl-glass s-card"><div class="s-card-head"><h3>Servers &amp; queue</h3></div><div class="s-srv-list">' + P.cfg.SERVERS.map(function (sv) { return serverRow(c, sv); }).join('') + '</div></div>'
       + '<div class="gl-glass s-card"><div class="s-card-head"><h3>Approvals · ' + esc(c.label) + '</h3><span class="gl-spacer"></span><span class="ghost-link" data-goto="audit">History →</span></div><div class="s-appr">'
@@ -288,6 +291,10 @@
     newestFirst(c.all).slice(0, 40).forEach(function (a) {
       ev.push({ t: ts(a.created_at), kind: P.typePill(a.type), server: a.server, status: P.statusPill(a.status, a.error),
         html: '<b>' + esc(a.by_name || 'Someone') + '</b> ' + esc(verb(a.type)) + ' <b>' + esc(a.target) + '</b>' + (a.reason ? ' · ' + esc(a.reason) : '') + (a.duration ? ' · ' + esc(a.duration) : '') });
+    });
+    newestFirst(c.queueAll).filter(function (a) { return a.status !== 'Executed'; }).slice(0, 20).forEach(function (a) {
+      ev.push({ t: ts(a.created_at), kind: '<span class="s-kind is-punish">Queue</span>', server: a.server, status: P.statusPill(a.status, a.error),
+        html: '<b>' + esc(a.by_name || 'Someone') + '</b> queued ' + P.typePill(a.type) + ' <b>' + esc(a.target) + '</b>' + (a.error ? ' · ' + esc(a.error) : '') });
     });
     list(d.staffAudit).forEach(function (r) { ev.push({ t: ts(r.created_at), kind: '<span class="s-kind is-role">Staff</span>', server: r.server, status: '', html: staffSentence(r) }); });
     list(d.blocks).forEach(function (b) { ev.push({ t: ts(b.created_at), kind: '<span class="s-kind is-punish">Blocked</span>', server: b.server, status: '<span class="status danger">Blocked</span>', html: blockSentence(b) + (b.reason ? ' · ' + esc(b.reason) : '') }); });
@@ -318,7 +325,7 @@
       if (action === 'range') { ui().range = Number(el.getAttribute('data-v')) || 7; P.rerender(); return; }
       if (action === 'undo') {
         var id = el.getAttribute('data-id');
-        var a = list(s.data.recent30).filter(function (r) { return String(r.id) === id; })[0];
+        var a = P.ledgerRows(list(s.data.punishments30)).filter(function (r) { return String(r.id) === id; })[0];
         if (!a) { P.toast('fail', 'That punishment is not loaded any more.'); return; }
         P.openPunish({ type: 'Unban', target: a.target, reason: 'Undo by Supervisor', server: a.server });
       }

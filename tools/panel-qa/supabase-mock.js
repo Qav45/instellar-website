@@ -83,6 +83,13 @@
   proto.exec = function () {
     var self = this;
     var tbl = M.db[self.table];
+    if (!tbl && self.table === 'punishments_staff' && M.db.punishments) {
+      tbl = M.db.punishments.map(function (p) {
+        var c = clone(p);
+        c.in_force = !!(c.active && (!c.expires_at || new Date(c.expires_at) > new Date()));
+        return c;
+      });
+    }
     if (!tbl) return { data: null, error: { message: 'relation "public.' + self.table + '" does not exist', code: '42P01' } };
     M.log.push(self.mode + ' ' + self.table);
     var res;

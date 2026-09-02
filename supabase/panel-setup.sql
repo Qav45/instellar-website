@@ -17,7 +17,7 @@ create table if not exists public.staff (
 -- 2) Moderation actions / audit log --------------------------
 create table if not exists public.mod_actions (
   id bigint generated always as identity primary key,
-  type text not null check (type in ('Ban','Kick','Mute','Warn','Unban')),
+  type text not null check (type in ('Ban','IpBan','Kick','Mute','Warn','Unban','Unmute','Wipeban')),
   target text not null,
   reason text not null,
   duration text,
@@ -37,16 +37,37 @@ language sql immutable as $$
                 when 'Admin' then 3 when 'Owner' then 4 else 0 end
 $$;
 
+create or replace function public.duration_days(d text) returns numeric
+language sql immutable as $$
+  select case
+    when d is null then null
+    when lower(trim(d)) !~ '^[0-9]+\s*(second|minute|hour|day|week|month|year)s?$' then null
+    else (regexp_match(lower(trim(d)), '^([0-9]+)'))[1]::numeric *
+         case (regexp_match(lower(trim(d)), '(second|minute|hour|day|week|month|year)'))[1]
+           when 'second' then 1.0/86400 when 'minute' then 1.0/1440 when 'hour' then 1.0/24
+           when 'day' then 1 when 'week' then 7 when 'month' then 30 else 365 end
+  end
+$$;
+
+create or replace function public.valid_panel_duration(d text) returns boolean
+language sql immutable as $$
+  select d is null or lower(trim(d)) = 'permanent' or public.duration_days(d) is not null
+$$;
+
 -- Which rank an action requires (mirrors the panel UI)
 create or replace function public.required_rank(a_type text, a_duration text) returns int
 language sql immutable as $$
   select case
-    when a_type = 'Unban' then 3
-    when a_type = 'Ban' and a_duration = 'Permanent' then 3
-    when a_type = 'Ban' then 2
+    when a_type in ('Unban','Unmute','Wipeban') then 3
+    when a_type in ('Ban','IpBan') and coalesce(public.duration_days(a_duration), 999999) > 30 then 3
+    when a_type in ('Ban','IpBan') then 2
     else 1
   end
 $$;
+
+alter table public.mod_actions drop constraint if exists mod_actions_duration_chk;
+alter table public.mod_actions add constraint mod_actions_duration_chk
+  check (public.valid_panel_duration(duration));
 
 create or replace function public.my_role() returns text
 language sql stable security definer set search_path = public as $$
@@ -85,6 +106,21 @@ create policy staff_delete on public.staff
 
 drop policy if exists actions_select on public.mod_actions;
 create policy actions_select on public.mod_actions
+  for select to authenticated using (public.is_staff());
+
+create table if not exists public.player_presence (
+  uuid text not null,
+  server text not null default 'instellar1'
+    check (server in ('instellar1','instellar2')),
+  name text not null,
+  last_seen timestamptz not null default now(),
+  unique (uuid, server)
+);
+create index if not exists player_presence_server_seen on public.player_presence(server, last_seen desc);
+alter table public.player_presence enable row level security;
+
+drop policy if exists player_presence_select on public.player_presence;
+create policy player_presence_select on public.player_presence
   for select to authenticated using (public.is_staff());
 
 -- Staff can create actions, but the status is FORCED server-side:
@@ -143,6 +179,9 @@ end $$;
 -- (If either line errors with "already member of publication", ignore it.)
 alter publication supabase_realtime add table public.mod_actions;
 alter publication supabase_realtime add table public.staff;
+do $$ begin
+  alter publication supabase_realtime add table public.player_presence;
+exception when duplicate_object then null; end $$;
 
 -- 7) Bootstrap the first Owner ---------------------------------
 -- a) Dashboard -> Authentication -> Users -> "Add user":

@@ -7,7 +7,8 @@
   var esc = P.esc;
 
   var PERM_LABEL = {
-    Warn: 'Warn players', Mute: 'Mute players', Kick: 'Kick players', Ban: 'Ban players', Unban: 'Unban players',
+    Warn: 'Warn players', Mute: 'Mute players', Unmute: 'Unmute players', Kick: 'Kick players', Ban: 'Ban players',
+    IpBan: 'IP ban players', Unban: 'Unban players',
     Wipeban: 'Wipeban players', Guides: 'Edit guides', 'Staff management': 'Add and remove staff', 'Server config': 'Change server settings',
     Simplification: 'Simple view (only the basic tabs)'
   };

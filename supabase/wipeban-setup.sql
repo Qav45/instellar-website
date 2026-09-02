@@ -2,7 +2,7 @@
 -- Instellar: WIPEBAN FROM THE PANEL
 -- Paste into the Supabase SQL editor and RUN, after
 -- panel-upgrade.sql and two-servers-upgrade.sql. Safe to run again.
--- Then RE-RUN punishment-lookup-setup.sql (it now counts Wipebans as bans).
+-- Then RE-RUN punishments-setup.sql (it owns the ledger-backed public lookup).
 --
 -- Adds a "Wipeban" action to the panel: a permanent ban whose
 -- disconnect screen also says the account was wiped, the same as
@@ -21,17 +21,15 @@
 -- 1) Allow the new type
 alter table public.mod_actions drop constraint if exists mod_actions_type_check;
 alter table public.mod_actions add constraint mod_actions_type_check
-  check (type in ('Ban','Kick','Mute','Warn','Unban','Wipeban'));
+  check (type in ('Ban','IpBan','Kick','Mute','Warn','Unban','Unmute','Wipeban'));
 
 -- 2) Rank: same as a permanent ban
 create or replace function public.required_rank(a_type text, a_duration text) returns int
 language sql immutable as $$
   select case
-    when a_type = 'Unban' then 7
-    when a_type = 'Wipeban' then 7
-    when a_type = 'Ban' and coalesce(a_duration,'') not in
-         ('1 hour','1 day','7 days','30 days') then 7
-    when a_type = 'Ban' then 4
+    when a_type in ('Unban','Unmute','Wipeban') then 7
+    when a_type in ('Ban','IpBan') and coalesce(public.duration_days(a_duration), 999999) > 30 then 7
+    when a_type in ('Ban','IpBan') then 4
     else 2
   end
 $$;

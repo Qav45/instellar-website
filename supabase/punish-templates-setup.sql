@@ -38,10 +38,10 @@ $$;
 create or replace function public.required_rank(a_type text, a_duration text) returns int
 language sql immutable as $$
   select case
-    when a_type = 'Unban' then 7
+    when a_type in ('Unban','Unmute') then 7
     when a_type = 'Wipeban' then 7
-    when a_type = 'Ban' and coalesce(public.duration_days(a_duration), 999999) > 30 then 7
-    when a_type = 'Ban' then 4
+    when a_type in ('Ban','IpBan') and coalesce(public.duration_days(a_duration), 999999) > 30 then 7
+    when a_type in ('Ban','IpBan') then 4
     else 2
   end
 $$;

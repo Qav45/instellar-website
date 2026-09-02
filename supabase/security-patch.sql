@@ -9,6 +9,23 @@
 -- PART A — fixes to the panel side (mod_actions)
 -- ------------------------------------------------------------
 
+create or replace function public.duration_days(d text) returns numeric
+language sql immutable as $$
+  select case
+    when d is null then null
+    when lower(trim(d)) !~ '^[0-9]+\s*(second|minute|hour|day|week|month|year)s?$' then null
+    else (regexp_match(lower(trim(d)), '^([0-9]+)'))[1]::numeric *
+         case (regexp_match(lower(trim(d)), '(second|minute|hour|day|week|month|year)'))[1]
+           when 'second' then 1.0/86400 when 'minute' then 1.0/1440 when 'hour' then 1.0/24
+           when 'day' then 1 when 'week' then 7 when 'month' then 30 else 365 end
+  end
+$$;
+
+create or replace function public.valid_panel_duration(d text) returns boolean
+language sql immutable as $$
+  select d is null or lower(trim(d)) = 'permanent' or public.duration_days(d) is not null
+$$;
+
 -- A1) Permanent-ban rank gate.
 -- Before: only duration = 'Permanent' required Admin. A Moderator could
 -- send duration = null / garbage and the plugin would ban permanently
@@ -17,10 +34,9 @@
 create or replace function public.required_rank(a_type text, a_duration text) returns int
 language sql immutable as $$
   select case
-    when a_type = 'Unban' then 3
-    when a_type = 'Ban' and coalesce(a_duration,'') not in
-         ('1 hour','1 day','7 days','30 days') then 3
-    when a_type = 'Ban' then 2
+    when a_type in ('Unban','Unmute','Wipeban') then 3
+    when a_type in ('Ban','IpBan') and coalesce(public.duration_days(a_duration), 999999) > 30 then 3
+    when a_type in ('Ban','IpBan') then 2
     else 1
   end
 $$;
@@ -28,8 +44,7 @@ $$;
 -- A2) Only allow real duration values in the first place.
 alter table public.mod_actions drop constraint if exists mod_actions_duration_chk;
 alter table public.mod_actions add constraint mod_actions_duration_chk
-  check (duration is null or duration in
-         ('Permanent','1 hour','1 day','7 days','30 days'));
+  check (public.valid_panel_duration(duration));
 
 -- A3) retry_action must respect rank (before: any Helper could re-queue
 --     ANY failed action, including a permaban/unban).

@@ -24,17 +24,41 @@ language sql immutable as $$
 $$;
 
 -- Same thresholds as the panel UI, on the new scale:
--- Unban / permanent ban -> Admin (7), temp ban -> Moderator (4), rest -> Helper (2)
+-- Unban/Unmute/permanent ban -> Admin (7), temp ban -> Moderator (4), rest -> Helper (2)
+create or replace function public.duration_days(d text) returns numeric
+language sql immutable as $$
+  select case
+    when d is null then null
+    when lower(trim(d)) !~ '^[0-9]+\s*(second|minute|hour|day|week|month|year)s?$' then null
+    else (regexp_match(lower(trim(d)), '^([0-9]+)'))[1]::numeric *
+         case (regexp_match(lower(trim(d)), '(second|minute|hour|day|week|month|year)'))[1]
+           when 'second' then 1.0/86400 when 'minute' then 1.0/1440 when 'hour' then 1.0/24
+           when 'day' then 1 when 'week' then 7 when 'month' then 30 else 365 end
+  end
+$$;
+
+create or replace function public.valid_panel_duration(d text) returns boolean
+language sql immutable as $$
+  select d is null or lower(trim(d)) = 'permanent' or public.duration_days(d) is not null
+$$;
+
 create or replace function public.required_rank(a_type text, a_duration text) returns int
 language sql immutable as $$
   select case
-    when a_type = 'Unban' then 7
-    when a_type = 'Ban' and coalesce(a_duration,'') not in
-         ('1 hour','1 day','7 days','30 days') then 7
-    when a_type = 'Ban' then 4
+    when a_type in ('Unban','Unmute','Wipeban') then 7
+    when a_type in ('Ban','IpBan') and coalesce(public.duration_days(a_duration), 999999) > 30 then 7
+    when a_type in ('Ban','IpBan') then 4
     else 2
   end
 $$;
+
+alter table public.mod_actions drop constraint if exists mod_actions_type_check;
+alter table public.mod_actions add constraint mod_actions_type_check
+  check (type in ('Ban','IpBan','Kick','Mute','Warn','Unban','Unmute','Wipeban'));
+
+alter table public.mod_actions drop constraint if exists mod_actions_duration_chk;
+alter table public.mod_actions add constraint mod_actions_duration_chk
+  check (public.valid_panel_duration(duration));
 
 -- Staff management now requires Admin (rank 7) on the new scale
 drop policy if exists staff_insert on public.staff;

@@ -6,7 +6,7 @@ screen can be checked without staff credentials.
 - `dev.html` — the panel with `supabase-mock.js` + `fixtures.js` in front of the real `panel/js` files.
   Open it via `file://` (Chrome needs `--allow-file-access-from-files`) or any static server from the repo root.
   Query params: `?as=<username>` signs in directly (`kai.mod` Moderator, `qav45` Supervisor, `ash.vellum` Sr Admin,
-  `rin.helper` Helper, `lia.admin` Admin on Instellar 2), `&server=instellar2`, `&open=<data-action|punish|punish-protected|player>`
+  `rin.helper` Helper, `lia.admin` Admin on Instellar 2), `&server=instellar2`, `&open=<data-action|punish|punish-protected|punish-banned|player>`
   opens a modal, and `#<screen>` / `#<screen>/<param>` picks the screen. A hidden `<pre id="__dbg">` holds JS errors,
   the auth state and the mock query log (grep it from `chrome --headless=new --dump-dom`).
 - `flow.html` — an end-to-end scripted flow (`flow-body.js`) that punishes, protects, approves, manages staff, switches

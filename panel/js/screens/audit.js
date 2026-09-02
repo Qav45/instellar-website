@@ -1,7 +1,7 @@
 /* =========================================================================
    History ('audit') + Approvals ('approvals') screens.
-   History: every mod_actions row on the current server, newest first, with
-   search + status chips; #audit/<name> pre-fills the search.
+   History: every ledger punishment on the current server, newest first.
+   Queue/Audit: every mod_actions row with workflow status.
    Approvals: rows with status Approval; Approve / Deny when P.canDecide(a).
    ========================================================================= */
 (function () {
@@ -9,10 +9,12 @@
   var P = window.P;
   var esc = P.esc;
 
-  var FILTERS = [['All', 'All'], ['Executed', 'Done'], ['Pending', 'Waiting'], ['Approval', 'Needs approval'], ['Failed', 'Failed'], ['Denied', 'Denied']];
+  var LEDGER_FILTERS = [['All', 'All'], ['Active', 'Active'], ['Expired', 'Expired'], ['Lifted', 'Lifted']];
+  var QUEUE_FILTERS = [['All', 'All'], ['Executed', 'Done'], ['Pending', 'Waiting'], ['Approval', 'Needs approval'], ['Failed', 'Failed'], ['Denied', 'Denied']];
 
-  function ui() { return P.ui('audit', { q: '', filter: 'All', paramSeen: null }); }
+  function ui() { return P.ui('audit', { q: '', filter: 'All', view: 'history', paramSeen: null }); }
   function actions() { return P.state.data.actions || []; }
+  function ledgerRows(s) { return s.data.punishments ? P.ledgerRows(s.data.punishments) : actions(); }
   function has(v, q) { return String(v || '').toLowerCase().indexOf(q) > -1; }
   function what(a) {
     return '<span class="x-what">' + P.typePill(a.type) + '<span class="a-what-txt" title="' + esc(['#' + a.id, a.reason, a.duration].filter(Boolean).join(' · ')) + '">' + esc(a.reason || '—')
@@ -30,7 +32,9 @@
     // route param pre-fills the search (once per param value)
     if (s.param && u.paramSeen !== s.param) { u.q = s.param; u.paramSeen = s.param; }
     if (!s.param) u.paramSeen = null;
-    var all = actions();
+    var queueView = u.view === 'queue';
+    var all = queueView ? actions() : ledgerRows(s);
+    var filters = queueView || !s.data.punishments ? QUEUE_FILTERS : LEDGER_FILTERS;
     // '#774' is the id players see on the public punishment lookup
     var q = String(u.q || '').trim().toLowerCase().replace(/^#/, '');
     var rows = all.filter(function (a) {
@@ -38,7 +42,9 @@
         && (!q || has(a.target, q) || has(a.by_name, q) || has(a.reason, q) || String(a.id) === q);
     });
 
-    var chips = FILTERS.map(function (f) {
+    var mode = '<div class="x-chips"><button type="button" class="chip x-chip' + (!queueView ? ' is-active' : '') + '" data-action="view" data-v="history" aria-pressed="' + (!queueView) + '">Punishment history</button>'
+      + '<button type="button" class="chip x-chip' + (queueView ? ' is-active' : '') + '" data-action="view" data-v="queue" aria-pressed="' + queueView + '">Queue / audit</button></div>';
+    var chips = filters.map(function (f) {
       var n = f[0] === 'All' ? all.length : all.filter(function (a) { return a.status === f[0]; }).length;
       return '<button type="button" class="chip x-chip' + (u.filter === f[0] ? ' is-active' : '') + '" data-action="filter" data-v="' + f[0] + '" aria-pressed="' + (u.filter === f[0]) + '">' + f[1]
         + (n && f[0] !== 'All' ? ' <span class="a-chip-n">' + n + '</span>' : '') + '</button>';
@@ -50,8 +56,8 @@
       var st = P.statusPill(a.status, a.error);
       if (a.status === 'Failed' && a.error) st += '<span class="x-dim a-err" title="' + esc(a.error) + '">' + esc(a.error) + '</span>';
       var acts = '';
-      if (a.status === 'Failed') acts = '<button type="button" class="gl-btn gl-btn-ghost gl-btn-sm x-mini" data-action="retry" data-id="' + esc(a.id) + '">Retry</button>';
-      else if (a.status === 'Approval') acts = P.canDecide(a) ? decideBtns(a) : needs(a);
+      if (queueView && a.status === 'Failed') acts = '<button type="button" class="gl-btn gl-btn-ghost gl-btn-sm x-mini" data-action="retry" data-id="' + esc(a.id) + '">Retry</button>';
+      else if (queueView && a.status === 'Approval') acts = P.canDecide(a) ? decideBtns(a) : needs(a);
       var proof = P.proofLinks(a.proof);
       return '<div class="list-row x-tr a-tr">'
         + '<span class="x-num x-dim a-when">' + esc(P.timeAgo(a.created_at)) + '</span>'
@@ -64,7 +70,8 @@
         + '</div>';
     }).join('');
 
-    root.innerHTML = '<div class="page-head x-head"><div><h2>History</h2><p class="sub x-sub">Every punishment on ' + esc(P.serverName(s.server)) + ', newest first.</p></div></div>'
+    root.innerHTML = '<div class="page-head x-head"><div><h2>' + (queueView ? 'Queue / Audit' : 'History') + '</h2><p class="sub x-sub">' + (queueView ? 'Panel requests and plugin execution statuses on ' : 'Every server punishment on ') + esc(P.serverName(s.server)) + ', newest first.</p></div></div>'
+      + mode
       + '<div class="filter-row x-filters"><div class="gl-search"><span class="gl-search-icon">⌕</span><input class="gl-input" type="search" placeholder="Type a player, staff name, reason or #id…" data-field="q" value="' + esc(u.q) + '" aria-label="Search history"></div>'
       + '<div class="x-chips">' + chips + '</div></div>'
       + '<div class="tbl-scroll"><div class="gl-glass x-tbl a-tbl">'
@@ -74,6 +81,7 @@
 
   function onAuditAction(action, el) {
     var u = ui();
+    if (action === 'view') { u.view = el.getAttribute('data-v') || 'history'; u.filter = 'All'; P.rerender(); return; }
     if (action === 'filter') { u.filter = el.getAttribute('data-v') || 'All'; P.rerender(); return; }
     if (action === 'player') { var n = el.getAttribute('data-name'); if (n) P.openPlayer(n); return; }
     if (action === 'retry') { P.api.retry(el.getAttribute('data-id')); return; }

@@ -74,6 +74,7 @@
   function clearData() {
     var d = S.data;
     ['actions', 'staff', 'notes', 'presence', 'logs', 'guides', 'anns', 'blacklist', 'templates', 'recent30', 'presenceAll', 'staffAll', 'protected', 'blocks', 'staffAudit', 'serverStatus'].forEach(function (k) { d[k] = []; });
+    d.punishments = null; d.punishments30 = null;
     d.protectionError = null; d.auditError = null;
   }
   // Still on the staff list? Role/perm/name changes apply live.
@@ -98,7 +99,7 @@
         var payload = msg && msg.payload;
         if (S.me && payload && payload.uid === S.me.id) api.forceLogout('Your staff access has been revoked.');
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'punishments' }, function () { api.loadData(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'punishments' }, function () { api.loadData(); api.loadRecent30(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'player_notes' }, function () { api.loadData(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_logs' }, function () { api.loadLogs(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'guides' }, function () { api.loadGuides(); })
@@ -154,7 +155,7 @@
       sb.from('player_presence').select('*').eq('server', srv).order('last_seen', { ascending: false }).limit(2000),
       // The punishment ledger the game server publishes. mod_actions above is the queue of what
       // this panel ASKED for; this is what actually happened, including every ban typed in game.
-      sb.from('punishments').select('*').eq('server', srv).order('created_at', { ascending: false }).limit(1000)
+      sb.from('punishments_staff').select('*').eq('server', srv).order('created_at', { ascending: false }).limit(1000)
     ]).then(function (r) {
       var a = r[0], st = r[1], n = r[2], pr = r[3], pu = r[4];
       if (a.error || st.error) { S.data.auditError = (a.error || st.error).message; P.toast('fail', 'Could not load data: ' + (a.error || st.error).message); return; }
@@ -207,13 +208,15 @@
       P.rerender();
     });
   };
-  // both servers, last 30 days — dashboards
+  // both servers, last 30 days: mod_actions is the queue/audit stream; punishments_staff is the ledger.
   // PostgREST caps a request at 1000 rows, so page until a short page comes back (max 5 pages).
   api.loadRecent30 = function () {
     var since = new Date(Date.now() - 30 * 86400000).toISOString();
-    var PAGE = 1000, rows = [], page = 0;
-    function next() {
-      return api.sb().from('mod_actions').select('id,server,type,target,reason,duration,by_id,by_name,status,error,proof,created_at')
+    var PAGE = 1000;
+    function pages(table, select) {
+      var rows = [], page = 0;
+      function next() {
+        return api.sb().from(table).select(select)
         .gte('created_at', since).order('created_at', { ascending: false }).range(page * PAGE, page * PAGE + PAGE - 1).then(function (r) {
           if (r.error || !r.data) return rows.length ? rows : null;
           rows = rows.concat(r.data);
@@ -221,10 +224,16 @@
           if (r.data.length < PAGE || page >= 5) return rows;
           return next();
         });
+      }
+      return next();
     }
-    return next().then(function (all) {
-      if (!all) return;
-      S.data.recent30 = all; P.rerender();
+    return Promise.all([
+      pages('mod_actions', 'id,server,type,target,reason,duration,by_id,by_name,status,error,proof,created_at'),
+      pages('punishments_staff', '*')
+    ]).then(function (r) {
+      if (r[0]) S.data.recent30 = r[0];
+      S.data.punishments30 = r[1] || null;
+      P.rerender();
     });
   };
   api.loadPresenceAll = function () {

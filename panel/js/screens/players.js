@@ -32,7 +32,7 @@
     var st = { note: '', saving: false };
     function body() {
       var pr = P.presenceOf(name);
-      var rec = P.playerRecord(name);
+      var rec = P.playerRecord(name, pr && pr.uuid);
       var notes = (P.state.data.notes || []).filter(function (n) { return String(n.target || '').toLowerCase() === name.toLowerCase(); });
       var h = '<div class="pl-status">' + (rec.status === 'Banned' ? '<span class="status danger">Banned</span>' : rec.status === 'Muted' ? '<span class="status warn">Muted</span>' : '<span class="status ok">Not banned</span>')
         + (pr && P.isOnline(pr) ? '<span class="status ok"><i class="dot"></i>Online</span>' : '') + '</div>'
@@ -40,9 +40,9 @@
         + '<div class="pl-kv"><span class="pl-k">UUID</span>' + (pr && pr.uuid ? '<span class="pl-mono">' + esc(pr.uuid) + '</span>' : '<span class="x-dim">Not seen online yet</span>') + '</div>';
 
       h += '<div class="pl-sec">Quick actions</div><div class="chip-wrap pl-quick">';
-      ['Warn', 'Mute', 'Kick', 'Ban', 'Unban'].concat(P.canWipeban() ? ['Wipeban'] : []).forEach(function (t) {
-        var danger = t === 'Ban' || t === 'Wipeban';
-        h += '<button type="button" class="gl-btn gl-btn-sm' + (danger ? ' gl-btn-danger' : '') + '" data-action="punish" data-type="' + t + '">' + t + '</button>';
+      ['Warn', 'Mute', 'Kick', 'Ban', 'IpBan', 'Unban'].concat(rec.status === 'Muted' ? ['Unmute'] : []).concat(P.canWipeban() ? ['Wipeban'] : []).forEach(function (t) {
+        var danger = t === 'Ban' || t === 'IpBan' || t === 'Wipeban';
+        h += '<button type="button" class="gl-btn gl-btn-sm' + (danger ? ' gl-btn-danger' : '') + '" data-action="punish" data-type="' + t + '">' + esc(P.actionLabel(t)) + '</button>';
       });
       h += '</div><a class="pl-link" href="#infractions/' + esc(encodeURIComponent(name)) + '" data-goto="infractions/' + esc(name) + '">Use a template → Punish a player</a>';
       h += '<div class="pl-sec">Notes <span class="hint">visible to all staff</span></div>';
@@ -86,7 +86,7 @@
       var u = ui();
       var online = P.onlinePlayers();
       var q = u.q.trim().toLowerCase();
-      var rows = online.map(function (p) { return { p: p, status: P.playerRecord(p.name).status }; }).filter(function (r) {
+      var rows = online.map(function (p) { return { p: p, status: P.playerRecord(p.name, p.uuid).status }; }).filter(function (r) {
         if (u.filter !== 'All' && r.status !== u.filter) return false;
         if (!q) return true;
         return String(r.p.name || '').toLowerCase().indexOf(q) > -1 || String(r.p.uuid || '').toLowerCase().indexOf(q) > -1;

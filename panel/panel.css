@@ -642,7 +642,7 @@ body.gl-body{
   --r-pill:999px; --r-lg:24px; --r-md:16px; --r-sm:12px;
   --av-1:#5661D6; --av-2:#2FA97E; --av-3:#C9863B;
   --av-4:#7C6FE8; --av-5:#3E86C9; --av-6:#C95D5D;
-  --t-ban:255,107,107; --t-wipeban:167,139,250; --t-kick:240,155,76;
+  --t-ban:255,107,107; --t-ipban:255,107,107; --t-blacklist:167,139,250; --t-wipeban:167,139,250; --t-kick:240,155,76;
   --t-mute:255,196,107; --t-warn:107,168,255; --t-unban:110,231,168;
 }
 
@@ -823,11 +823,14 @@ h1,h2,h3,p{margin:0}
   white-space:nowrap;color:rgb(var(--tint));background:rgba(var(--tint),.14);
   border:1px solid rgba(var(--tint),.30)}
 .type-pill.ban{--tint:var(--t-ban)}
+.type-pill.ipban{--tint:var(--t-ipban)}
+.type-pill.blacklist{--tint:var(--t-blacklist)}
 .type-pill.wipeban{--tint:var(--t-wipeban)}
 .type-pill.kick{--tint:var(--t-kick)}
 .type-pill.mute{--tint:var(--t-mute)}
 .type-pill.warn{--tint:var(--t-warn)}
 .type-pill.unban{--tint:var(--t-unban)}
+.type-pill.unmute{--tint:var(--t-unban)}
 
 .status{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 11px;
   border-radius:var(--r-pill);font-size:11px;font-weight:700;white-space:nowrap;
@@ -1147,4 +1150,3 @@ body.gl-body{font-size:14px}
 .chip{font-size:13px;height:32px}
 .gl-input,.gl-textarea{font-size:14px}
 body.is-supervisor #meRole{color:#F5C542;font-weight:700}
-

@@ -92,6 +92,7 @@ window.P.boot();
     try{
       if(o==='punish') P.openPunish({type:'Ban',target:'Sn0wF0x_',reason:'Cheating / Hacking',duration:'7 days'});
       else if(o==='punish-protected') P.openPunish({type:'Ban',target:'Nova_Tide',reason:'Cheating / Hacking',duration:'7 days'});
+      else if(o==='punish-banned'){ P.openPunish({type:'Ban',target:'iron_ivy',reason:'Cheating / Hacking',duration:'7 days'}); setTimeout(function(){ var b=document.querySelector('#modal-root [data-action="submit"]'); if(b) b.click(); },50); }
       else if(o==='player') P.openPlayer('Sn0wF0x_');
       else { var el=document.querySelector('[data-action="'+o+'"]'); if(el) el.click(); else console.warn('no [data-action='+o+']'); }
     }catch(e){ console.error(e); }
