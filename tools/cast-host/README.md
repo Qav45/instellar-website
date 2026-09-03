@@ -189,11 +189,21 @@ Three things worth knowing:
 
 ### Tests
 
-Two suites, plain `node`, no install:
+Four suites, plain `node`, no install:
 
 ```
 node tools\cast-host\test\registry.test.mjs    the /api/cast auth split, against a fake KV
 node tools\cast-host\test\bridge.test.mjs      boots the real bridge against a stand-in VNC
+node tools\cast-host\test\framing.test.mjs     RFC 6455 framing, backpressure, socket lifetime
+node tools\cast-host\test\render.test.mjs      the local bitmap change in cast\novnc.js
 ```
 
-The bridge suite binds ports 60811 and 59011 on loopback and publishes nothing.
+The bridge and framing suites bind loopback ports in the 59000 and 60800 ranges
+and publish nothing. Framing takes about fifteen seconds, most of it deliberately
+spent watching a stalled viewer to prove the host stalls with it.
+
+What they are for: the framing, the slot ownership and the render queue are all
+hand-rolled here, and their failures are the quiet kind. A wedged render queue
+freezes the picture while input keeps working. A missed backpressure pause shows
+up as memory rather than as an error. Both read as "the cast is being weird" and
+neither throws anything a log would catch.
