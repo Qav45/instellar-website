@@ -400,16 +400,33 @@ function askPassword(message) {
   );
 }
 
-function problem(title, detail, retrying) {
+// Every dead end here is recoverable and none of them are the viewer's fault -
+// a tunnel rotating, a lid closing, wifi changing its mind - so all of them
+// retry. The button is still there to skip the wait rather than to start the
+// only attempt that will ever happen.
+function problem(title, detail) {
+  const wait = scheduleRetry();
   veil(
     "<h2>" + esc(title) + "</h2><p>" + esc(detail) + "</p>" +
-    (retrying ? '<div class="foot">Retrying every few seconds…</div>'
-              : '<button id="retryGo">Try again</button>'),
+    '<button id="retryGo">Try now</button>' +
+    '<div class="foot">Reconnecting in ' + Math.round(wait / 1000) + "s…</div>",
     (el) => {
-      const b = el.querySelector("#retryGo");
-      if (b) b.addEventListener("click", start);
+      el.querySelector("#retryGo").addEventListener("click", start);
     }
   );
+}
+
+// Backing off matters because a host that is simply off stays off for hours, and
+// a fixed 4s meant a page left open overnight asked the API twenty thousand
+// times. Starts quick, because most drops are a blip that is already over.
+let backoff = 4000;
+
+function scheduleRetry() {
+  const wait = backoff;
+  clearTimeout(retry);
+  retry = setTimeout(start, wait);
+  backoff = Math.min(Math.round(backoff * 1.6), 30000);
+  return wait;
 }
 
 /* ------------------------------------------------------------- connect -- */
@@ -436,9 +453,7 @@ async function start() {
     }
     if (res.status === 404) {
       state("wait", "Host offline");
-      problem("Nobody is casting", "Run the host script on the machine you want to reach.", true);
-      retry = setTimeout(start, 5000);
-      return;
+      return problem("Nobody is casting", "Run the host script on the machine you want to reach.");
     }
     if (!res.ok) throw new Error(body.error || "HTTP " + res.status);
     // The registry is meant to hand back a tunnel, and the page is about to send
@@ -448,13 +463,16 @@ async function start() {
     if (!/^wss:\/\//i.test(String(body.url || ""))) {
       state("bad", "Bad endpoint");
       return problem("The site returned an address to refuse",
-        "A cast endpoint must be a wss:// tunnel. Restart the host and try again.", false);
+        "A cast endpoint must be a wss:// tunnel. Restart the host and try again.");
     }
     endpoint = body.url;
     if (body.name) document.title = "Cast - " + body.name;
   } catch (e) {
+    // Almost always the viewer's own network rather than the site: a lid closing,
+    // wifi handing over, a tunnel mid-rotation. Giving up here was what turned a
+    // three-second blip into a dead page waiting for a click.
     state("bad", "Lookup failed");
-    problem("Could not reach the site API", String(e.message || e), false);
+    problem("Could not reach the site API", String(e.message || e));
     return;
   }
 
@@ -480,7 +498,7 @@ function connect() {
     sock = new WebSocket(endpoint, ["binary"]);
   } catch (e) {
     state("bad", "Bad endpoint");
-    return problem("Could not open the connection", String(e.message || e), false);
+    return problem("Could not open the connection", String(e.message || e));
   }
   sock.binaryType = "arraybuffer";
   sock.addEventListener("message", (e) => {
@@ -515,6 +533,7 @@ function connect() {
     if (!current()) return;
     hideVeil();
     state("live", "Connected");
+    backoff = 4000;          // this link works; the next blip starts patient again
     me.focus();
     openPing();
   });
@@ -548,8 +567,7 @@ function connect() {
     state("bad", "Disconnected");
     problem("Connection dropped",
       (e.detail && e.detail.clean) ? "The host ended the session."
-                                   : "Lost the link to the host.", true);
-    retry = setTimeout(start, 4000);
+                                   : "Lost the link to the host.");
   });
 
   me.addEventListener("clipboard", (e) => {
@@ -610,8 +628,37 @@ document.addEventListener("fullscreenchange", () => {
   if (document.fullscreenElement) navigator.keyboard.lock().catch(() => {});
   else navigator.keyboard.unlock();
 });
+// The other side of keyboard lock. Handing the Windows key to the remote machine
+// is the point, but two of the combos it unlocks put Windows into Snipping Tool:
+// the screen dims, the pointer becomes a crosshair, and every key is swallowed
+// until Escape. Win+Shift+S is easy to hit reaching for Shift+S, and Windows 11
+// maps bare PrintScreen to the same thing. Neither is worth reaching the host -
+// to capture the remote screen, screenshot this window instead.
+//
+// Capture phase on document, so this runs before noVNC's own handler on the
+// canvas. keyup is swallowed with it: sending a keyup for a key the host never
+// saw pressed is how modifiers get stuck down.
+function isSnipKey(e) {
+  return e.key === "PrintScreen" ||
+         (e.metaKey && e.shiftKey && (e.key === "s" || e.key === "S"));
+}
+for (const type of ["keydown", "keyup"]) {
+  document.addEventListener(type, (e) => {
+    if (!isSnipKey(e)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+}
+
 window.addEventListener("focus", refocus);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) refocus(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  refocus();
+  // A hidden tab has its timers throttled to about once a minute, so a drop that
+  // happened while you were elsewhere is still sitting on a retry that has not
+  // fired. Coming back is the moment to stop waiting.
+  if (!rfb && !manualStop && !needPassword) start();
+});
 
 function applyQuality() {
   if (!rfb) return;
