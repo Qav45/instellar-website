@@ -404,14 +404,20 @@ function askPassword(message) {
 // a tunnel rotating, a lid closing, wifi changing its mind - so all of them
 // retry. The button is still there to skip the wait rather than to start the
 // only attempt that will ever happen.
-function problem(title, detail) {
-  const wait = scheduleRetry();
+// `final` is for the one answer that retrying cannot improve: the owner has
+// blocked this device. Everything else here is a blip worth waiting out, so it
+// keeps the countdown and the button.
+function problem(title, detail, final) {
+  if (final) clearTimeout(retry);
+  const wait = final ? 0 : scheduleRetry();
   veil(
     "<h2>" + esc(title) + "</h2><p>" + esc(detail) + "</p>" +
-    '<button id="retryGo">Try now</button>' +
-    '<div class="foot">Reconnecting in ' + Math.round(wait / 1000) + "s…</div>",
+    (final ? "" :
+      '<button id="retryGo">Try now</button>' +
+      '<div class="foot">Reconnecting in ' + Math.round(wait / 1000) + "s…</div>"),
     (el) => {
-      el.querySelector("#retryGo").addEventListener("click", start);
+      const b = el.querySelector("#retryGo");
+      if (b) b.addEventListener("click", start);
     }
   );
 }
@@ -450,6 +456,10 @@ async function start() {
       token = "";
       state("bad", "Wrong key");
       return askToken("That key does not match the host.");
+    }
+    if (res.status === 403) {
+      state("bad", "Blocked");
+      return problem("Blocked", body.detail || "The owner has blocked this device.", true);
     }
     if (res.status === 404) {
       state("wait", "Host offline");
