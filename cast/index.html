@@ -296,6 +296,21 @@ setInterval(() => {
     ? canvas.width + "×" + canvas.height : "–";
 
   if ($("quality").value === "auto") retune();
+
+  // Every named way focus can leave the canvas already puts it back, but a dead
+  // keyboard that needs a Reconnect to clear means at least one way is not named
+  // - a print dialog dismissed, an extension popup, a window manager handing
+  // focus somewhere on its own. None of those fire anything we listen for. So
+  // stop enumerating causes and check the state itself: if there is a session,
+  // nothing on screen asking to be typed into, and focus is not on the canvas or
+  // the toolbar, that is a keyboard nobody can use and no reason for it.
+  // Only while this tab is the one in front: reaching for focus behind the
+  // user's back, while they are in another tab, is how a page becomes the thing
+  // that steals your address bar.
+  if (rfb && !document.hidden && !$("veil")) {
+    const el = document.activeElement;
+    if (!(el && el.closest && el.closest("#bar"))) refocus();
+  }
 }, 1000);
 
 // Auto quality, driven by latency alone. Throughput looks like a tempting second
