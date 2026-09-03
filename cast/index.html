@@ -693,8 +693,13 @@ window.addEventListener("beforeunload", () => {
 
 /* ---------------------------------------------------------------- boot -- */
 
-// Keep the key out of the address bar once we have it.
-if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+// Keep the key out of the address bar once we have it. It still has to survive
+// a reload, though: stripped from the URL and saved nowhere, every F5 on a watch
+// link came back to the access-key card.
+if (location.hash) {
+  if (token) sessionStorage.setItem("castToken", token);
+  history.replaceState(null, "", location.pathname + location.search);
+}
 
 $("gateGo").addEventListener("click", () => {
   const v = $("gateInput").value.trim();

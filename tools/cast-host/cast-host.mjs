@@ -267,6 +267,7 @@ function wsReader(sock, onData, onClose) {
 function pingProbe(ws, head) {
   const feed = wsReader(ws, (p) => frame(ws, 0x02, p), () => ws.destroy());
   ws.on("error", () => ws.destroy());
+  ws.on("end", () => ws.destroy());
   ws.on("data", feed);
   if (head && head.length) feed(head);
 }
@@ -321,6 +322,11 @@ function bridge(ws, head) {
   vnc.on("close", () => shut());
   ws.on("error", () => shut("socket error"));
   ws.on("close", () => shut());
+  // http.Server hands out sockets with allowHalfOpen, so a viewer that vanishes
+  // with a bare FIN and no close frame - a tunnel dropping it, a laptop lid -
+  // never reaches "close" on its own. Left alone, TightVNC kept encoding frames
+  // for a socket nobody was reading.
+  ws.on("end", () => shut("viewer hung up"));
 
   ws.on("data", feed);
   if (head && head.length) feed(head);
@@ -548,7 +554,39 @@ async function publish(wsUrl) {
     signal: AbortSignal.timeout(10000),
   });
   if (!r.ok) {
-    throw new Error("publish failed " + r.status + ": " + (await r.text()).slice(0, 200));
+    const e = new Error("publish failed " + r.status + ": " + (await r.text()).slice(0, 200));
+    e.status = r.status;   // 409 is "somebody else holds the slot", which is worth waiting out
+    throw e;
+  }
+}
+
+// The first publish is the only one that can lose to a record on its way out. A
+// record written before the view/publish split carries no owner, so nothing can
+// overwrite it and it has to lapse on its own - which means the first run against
+// a freshly deployed API would otherwise die on a 409 that clears itself within
+// the record's 90s TTL. Wait it out rather than making that the user's problem.
+async function claimSlot(wsUrl) {
+  const deadline = Date.now() + 100000;
+  let waited = false;
+  for (;;) {
+    try {
+      return await publish(wsUrl);
+    } catch (e) {
+      if (e.status !== 409) throw e;
+      if (Date.now() > deadline) {
+        console.error("");
+        console.error("  The cast slot has been held by someone else for the last 100s.");
+        console.error("  If that is another copy of this script, or another machine, stop");
+        console.error("  it first. If it is nobody you know of, set CAST_TOKEN on the site");
+        console.error("  and here: without it anyone can claim an empty slot and keep you out.");
+        throw new Error("could not claim the cast slot");
+      }
+      if (!waited) {
+        log("slot is held by an older record - waiting for it to lapse (up to 90s)");
+        waited = true;
+      }
+      await new Promise((r) => setTimeout(r, 10000));
+    }
   }
 }
 
@@ -639,7 +677,7 @@ async function main() {
   // wss:// check - taking the LAN cast, which needs the site for nothing at all,
   // down with it - and on an offline network it died on the fetch instead.
   if (!TUNNELLESS) {
-    await publish(wsUrl);
+    await claimSlot(wsUrl);
     let missed = 0;
     publishTimer = setInterval(() => {
       publish(wsUrl).then(() => { missed = 0; }).catch((e) => {
