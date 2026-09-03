@@ -31,6 +31,11 @@ const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST
 const CAST_TOKEN = process.env.CAST_TOKEN || "";
 const KEY = "cast:ep";
 const TTL = 90;               // seconds; the host heartbeats every 30
+// The same blocked-IP hash the proxy reads and /cool-things/ip writes, so one
+// block switch covers both. Deliberately shared rather than a second list:
+// somebody you have shut out of the proxy is not somebody you want watching
+// your screen, and two lists would drift the moment you used one of them.
+const IP_HASH = "pxbip";
 
 export default { fetch: handle };
 
@@ -50,6 +55,13 @@ async function handle(request) {
 
   try {
     if (request.method === "GET") {
+      // Checked before the key, so a blocked viewer cannot even probe for whether
+      // a cast is running. Only on GET: POST and DELETE are the host talking
+      // about itself, and blocking the owner's own IP would be a strange way to
+      // lock yourself out of your own machine.
+      if (await ipBlocked(clientIp(request))) {
+        return json(403, { error: "blocked", detail: "The owner has blocked this device." });
+      }
       const given = url.searchParams.get("t") || request.headers.get("x-cast-token") || "";
       const rec = await getRecord();
       if (!rec) return json(404, { error: "offline", detail: "No host is casting right now." });
@@ -126,6 +138,20 @@ async function cmd(args) {
   });
   if (!r.ok) throw new Error("kv " + r.status);
   return (await r.json()).result;
+}
+
+// Same shape as the proxy's, including that a KV hiccup fails OPEN. A blocklist
+// that locks everyone out - the owner included - the moment Upstash is slow is
+// worse than one that lets a blocked viewer through for a few seconds, and the
+// access key is still in front of them either way.
+async function ipBlocked(ip) {
+  if (!ip) return false;
+  try { return !!(await cmd(["HGET", IP_HASH, ip])); } catch (_) { return false; }
+}
+
+function clientIp(request) {
+  const xff = request.headers.get("x-forwarded-for") || "";
+  return xff.split(",")[0].trim();
 }
 
 async function getRecord() {

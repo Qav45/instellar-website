@@ -3,6 +3,7 @@ process.env.KV_REST_API_URL = "https://kv.test";
 process.env.KV_REST_API_TOKEN = "kv-token";
 
 let store = new Map();
+let hashes = new Map();          // hash name -> Map(field -> value), for pxbip
 globalThis.fetch = async (url, init) => {
   const [op, key, val, , , nx] = JSON.parse(init.body);
   let result = null;
@@ -11,9 +12,17 @@ globalThis.fetch = async (url, init) => {
   else if (op === "SET") {
     if (nx === "NX" && store.has(key)) result = null;
     else { store.set(key, val); result = "OK"; }
+  } else if (op === "HGET") {
+    result = (hashes.get(key) || new Map()).get(val) ?? null;
   }
   return new Response(JSON.stringify({ result }), { status: 200 });
 };
+
+const blockIp = (ip) => {
+  if (!hashes.has("pxbip")) hashes.set("pxbip", new Map());
+  hashes.get("pxbip").set(ip, "1");
+};
+const unblockIp = (ip) => (hashes.get("pxbip") || new Map()).delete(ip);
 
 const api = (await import(new URL("../../../api/cast.mjs", import.meta.url).href)).default;
 
@@ -23,7 +32,8 @@ const PUBLISH = "publish-key-kept-on-the-host";
 const post = (body) => api.fetch(new Request("https://s/api/cast", {
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
 }));
-const get = (t) => api.fetch(new Request("https://s/api/cast?t=" + encodeURIComponent(t)));
+const get = (t, ip) => api.fetch(new Request("https://s/api/cast?t=" + encodeURIComponent(t),
+  ip ? { headers: { "x-forwarded-for": ip } } : undefined));
 const del = (p) => api.fetch(new Request("https://s/api/cast?p=" + encodeURIComponent(p), { method: "DELETE" }));
 
 let failed = 0;
@@ -53,6 +63,28 @@ await check("endpoint is still the real host after that attempt",
   await get(VIEW), 200, REAL);
 await check("VIEWER CANNOT UNPUBLISH", await del(VIEW), 401);
 await check("cast survived the unpublish attempt", await get(VIEW), 200, REAL);
+
+// Blocking from /cool-things/ip has to reach the cast, not just the proxy.
+blockIp("203.0.113.9");
+await check("a blocked IP is refused even with a valid key",
+  await get(VIEW, "203.0.113.9"), 403);
+await check("a blocked IP cannot even probe for whether a cast exists",
+  await get("wrong-key-entirely", "203.0.113.9"), 403);
+await check("everyone else is unaffected",
+  await get(VIEW, "198.51.100.4"), 200, REAL);
+// x-forwarded-for is a list; the client is the first entry.
+await check("the client IP is read from the front of x-forwarded-for",
+  await get(VIEW, "203.0.113.9, 70.41.3.18"), 403);
+await check("a proxy hop in the chain is not what gets matched",
+  await get(VIEW, "198.51.100.4, 203.0.113.9"), 200, REAL);
+unblockIp("203.0.113.9");
+await check("unblocking lets them back in",
+  await get(VIEW, "203.0.113.9"), 200, REAL);
+// The host publishes from its own IP and must never be blocked by this.
+blockIp("203.0.113.9");
+await check("blocking never stops the host publishing",
+  await post({ url: REAL, token: VIEW, publish: PUBLISH }), 200);
+unblockIp("203.0.113.9");
 
 // The host itself must still work.
 const MOVED = "wss://real-host-2.trycloudflare.com/ws?k=def";
