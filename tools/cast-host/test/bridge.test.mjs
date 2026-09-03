@@ -19,7 +19,9 @@ const ok = (name, cond, detail) => {
 };
 
 // Stand-in for TightVNC: greets like RFB and echoes whatever it is sent.
+const vncClosed = [];   // one promise per connection, settled when the bridge lets go
 const vnc = net.createServer((sock) => {
+  vncClosed.push(new Promise((r) => sock.on("close", r)));
   sock.write("RFB 003.008\n");
   sock.on("data", (d) => sock.write(d));
   sock.on("error", () => {});
@@ -125,6 +127,26 @@ const WSH = { Upgrade: "websocket", Connection: "Upgrade",
   ok("correct key upgrades and reaches VNC",
      /^HTTP\/1\.1 101/.test(good) && good.includes("RFB 003.008"), good.split("\r\n")[0]);
   ok("binary subprotocol is echoed back", /Sec-WebSocket-Protocol: binary/i.test(good));
+
+  // A viewer that sends a bare FIN - no close frame - must still take its VNC
+  // connection down with it, or TightVNC keeps encoding for a dead socket.
+  const before = vncClosed.length;
+  await new Promise((resolve) => {
+    const sock = net.connect(PORT, "127.0.0.1", () => {
+      sock.write("GET /ws?k=" + key + " HTTP/1.1\r\nHost: x\r\n" +
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n" +
+        "Sec-WebSocket-Key: " + WSKEY + "\r\nSec-WebSocket-Version: 13\r\n\r\n");
+    });
+    sock.on("data", (c) => { if (String(c).includes("RFB")) sock.end(); });   // half-close only
+    sock.on("close", resolve);
+    sock.on("error", resolve);
+    setTimeout(resolve, 3000);
+  });
+  const released = await Promise.race([
+    (vncClosed[before] || Promise.resolve(false)).then(() => true),
+    new Promise((r) => setTimeout(() => r(false), 3000)),
+  ]);
+  ok("a half-closed viewer socket releases its VNC connection", released);
 
 
   proc.kill();
