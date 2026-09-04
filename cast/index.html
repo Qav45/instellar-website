@@ -77,6 +77,8 @@
   .card button { width:100%; background:var(--accent); color:#0b0d12; border:0; border-radius:9px;
           padding:10px; font-size:14px; font-weight:600; font-family:inherit; cursor:pointer; }
   .card .err { color:#ff8080; font-size:13px; margin-bottom:12px; }
+  .card button + button { margin-top:8px; }
+  .card button:disabled { opacity:.6; cursor:default; }
   .card .foot { color:var(--muted); font-size:12px; margin-top:14px; line-height:1.5; }
 </style>
 </head>
@@ -110,6 +112,7 @@
   <button id="cad" title="Send Ctrl+Alt+Delete to the remote machine">Ctrl+Alt+Del</button>
   <button id="full" title="Fullscreen">Fullscreen</button>
   <button id="again" title="Reconnect">Reconnect</button>
+  <button id="stop" title="Ask the host machine to stop casting">Stop cast</button>
 </div>
 
 <div id="screen">
@@ -158,8 +161,18 @@ function hashToken() {
   try { return decodeURIComponent(raw); } catch (_) { return raw; }
 }
 
-let token = hashToken() || sessionStorage.getItem("castToken") || "";
-let password = sessionStorage.getItem("castPass") || "";
+// A browser set to block site data - a managed Chromebook, a private window on
+// some phones - throws on the mere mention of sessionStorage, and up here that
+// throw is the same dead page as the bad hash above. The key and password are
+// conveniences for a reload; a session that has to ask again is not broken.
+const store = {
+  get: (k) => { try { return sessionStorage.getItem(k) || ""; } catch (_) { return ""; } },
+  set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (_) {} },
+  drop: (k) => { try { sessionStorage.removeItem(k); } catch (_) {} },
+};
+
+let token = hashToken() || store.get("castToken");
+let password = store.get("castPass");
 // Served by the bridge itself on the LAN: the endpoint is this very host, and the
 // session key was injected into the page, so there is nothing to look up.
 const DIRECT = typeof window.CAST_DIRECT === "string" ? window.CAST_DIRECT : "";
@@ -169,6 +182,7 @@ let endpoint = DIRECT
   : "";
 let rfb = null;
 let retry = null;
+let hostName = "";          // whatever the registry last called the host
 let manualStop = false;
 let needPassword = false;   // a password card is up; disconnect must not bury it
 
@@ -204,10 +218,16 @@ const hud = {
 };
 let pingSock = null;
 let pingTimer = null;
+let pingRetryAt = 0;
 let autoTier = WEAK ? "balanced" : "sharp";
 
 function openPing() {
   if (!endpoint) return;
+  // A handshake a second, for as long as the probe cannot connect, is what the
+  // tick below was doing - through the very tunnel this session depends on, and
+  // it is exactly the shape of traffic a tunnel throttles. The probe is a
+  // readout; it can wait five seconds.
+  pingRetryAt = performance.now() + 5000;
   closePing();
   try {
     pingSock = new WebSocket(endpoint.replace("/ws?", "/ping?"), ["binary"]);
@@ -242,7 +262,14 @@ function openPing() {
   });
 
   // The probe is a nicety; if it cannot connect the session carries on regardless.
-  sock.addEventListener("close", stop);
+  // But a dead probe must not leave its last number behind: the tick reopens it,
+  // and until a fresh sample lands the readout says so and the tier holds where
+  // it is. Otherwise the floor drifts up to meet the stale figure, "queued" reads
+  // zero, and auto quality climbs to sharp on a link nobody is measuring.
+  sock.addEventListener("close", () => {
+    stop();
+    if (sock === pingSock) stats.rtt = 0;
+  });
   sock.addEventListener("error", stop);
 }
 
@@ -284,7 +311,7 @@ setInterval(() => {
   // The probe is a second socket and it dies on its own timetable - an idle
   // timeout on the tunnel is enough. Left dead, the readout freezes on a stale
   // number and the tier goes on trusting it.
-  if (rfb && (!pingSock || pingSock.readyState > 1)) openPing();
+  if (rfb && (!pingSock || pingSock.readyState > 1) && performance.now() >= pingRetryAt) openPing();
 
   const rtt = stats.rtt;
   hud.rtt.textContent = rtt ? Math.round(rtt) + " ms" : "–";
@@ -382,7 +409,7 @@ function askToken(message) {
         const v = input.value.trim();
         if (!v) return;
         token = v;
-        sessionStorage.setItem("castToken", v);
+        store.set("castToken", v);
         start();
       };
       el.querySelector("#gateGo").addEventListener("click", go);
@@ -403,7 +430,7 @@ function askPassword(message) {
       const input = el.querySelector("#pw");
       const go = () => {
         password = input.value;
-        sessionStorage.setItem("castPass", password);
+        store.set("castPass", password);
         needPassword = false;
         if (rfb) { hideVeil(); rfb.sendCredentials({ password: password }); }
         else start();
@@ -422,38 +449,129 @@ function askPassword(message) {
 // `final` is for the one answer that retrying cannot improve: the owner has
 // blocked this device. Everything else here is a blip worth waiting out, so it
 // keeps the countdown and the button.
-function problem(title, detail, final) {
-  if (final) clearTimeout(retry);
+// `extra` is markup for a card that can do more than wait - the one that can
+// wake the host - and `onReady` wires it once it is on screen.
+function problem(title, detail, final, extra, onReady) {
+  if (final) { clearTimeout(retry); retry = null; }
   const wait = final ? 0 : scheduleRetry();
   veil(
     "<h2>" + esc(title) + "</h2><p>" + esc(detail) + "</p>" +
+    (extra || "") +
     (final ? "" :
       '<button id="retryGo">Try now</button>' +
-      '<div class="foot">Reconnecting in ' + Math.round(wait / 1000) + "s…</div>"),
+      '<div class="foot"></div>'),
     (el) => {
+      if (onReady) onReady(el);
       const b = el.querySelector("#retryGo");
       if (b) b.addEventListener("click", start);
+      if (final) return;
+      // A number that does not move reads as a page that has given up, which is
+      // the exact impression a drop nobody can explain does not need. Count it
+      // down, and say how many goes it has had: the difference between a blip
+      // and a host that has been off for an hour is in that figure.
+      const foot = el.querySelector(".foot");
+      const due = Date.now() + wait;
+      const tick = () => {
+        if (!el.isConnected) return clearInterval(t);
+        foot.textContent = retryFoot(due - Date.now(), attempts);
+      };
+      const t = setInterval(tick, 1000);
+      tick();
     }
   );
 }
 
 // Backing off matters because a host that is simply off stays off for hours, and
 // a fixed 4s meant a page left open overnight asked the API twenty thousand
-// times. Starts quick, because most drops are a blip that is already over.
+// times. Starts quick, because most drops are a blip that is already over, and
+// never stops: the only dead end is being blocked, and every other card retries
+// for as long as the tab is open.
 let backoff = 4000;
+let attempts = 0;             // retries since the link last worked
+
+const nextBackoff = (ms) => Math.min(Math.round(ms * 1.6), 30000);
+const retryFoot = (left, n) =>
+  "Reconnecting in " + Math.max(0, Math.ceil(left / 1000)) + "s…" +
+  (n > 1 ? " (attempt " + n + ")" : "");
 
 function scheduleRetry() {
   const wait = backoff;
   clearTimeout(retry);
   retry = setTimeout(start, wait);
-  backoff = Math.min(Math.round(backoff * 1.6), 30000);
+  backoff = nextBackoff(backoff);
+  attempts++;
   return wait;
+}
+
+/* -------------------------------------------------------- remote start -- */
+
+// What the "nobody is casting" card says depends on what the site knows about
+// the host. It only knows anything for the right key: an agent on the host
+// checking in, and whether a wake has already been asked for. `agent` is the
+// host's name, which may be blank, so the test is for presence, not truth.
+function offlineCard(body) {
+  if (body.agent == null) {
+    return { detail: "Run the host script on the machine you want to reach.", button: "" };
+  }
+  const name = body.agent || "the host";
+  if (body.want === "start") return { detail: "Waking " + name + "…", button: "" };
+  return { detail: "The machine is on and listening. Start it from here.",
+           button: "Start casting on " + name };
+}
+
+// Ask the site to pass a wish to the host's agent. The view key is the whole
+// credential: it cannot move the cast anywhere, so the worst it can do is
+// switch the owner's own screen on and off.
+async function wish(want) {
+  const res = await fetch("/api/cast?t=" + encodeURIComponent(token) + "&want=" + want, {
+    method: "PUT",
+    cache: "no-store",
+    signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || body.error || "HTTP " + res.status);
+  return body;
+}
+
+function offline(body) {
+  const card = offlineCard(body);
+  if (body.agent != null) hostName = body.agent || "";
+  problem("Nobody is casting", card.detail, false,
+    card.button ? '<div class="err" hidden></div><button id="wakeGo">' + esc(card.button) + "</button>" : "",
+    (el) => {
+      const b = el.querySelector("#wakeGo");
+      if (!b) return;
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        b.textContent = "Asking…";
+        try {
+          await wish("start");
+        } catch (e) {
+          // The agent may have gone since the card was drawn, or the network
+          // with it. Say so on this card and leave the button to try again.
+          const err = el.querySelector(".err");
+          err.textContent = String(e.message || e);
+          err.hidden = false;
+          b.disabled = false;
+          b.textContent = card.button;
+          return;
+        }
+        // The host takes ten seconds or so to appear. The retry loop is what
+        // will find it, so start it patient again rather than leave it sitting
+        // on a thirty-second wait it earned while the host was off, and let the
+        // next lookup redraw this card as "Waking…" from what the site now says.
+        backoff = 4000;
+        attempts = 0;
+        start();
+      });
+    });
 }
 
 /* ------------------------------------------------------------- connect -- */
 
 async function start() {
   clearTimeout(retry);
+  retry = null;
   manualStop = false;
   needPassword = false;
   hideVeil();
@@ -463,11 +581,18 @@ async function start() {
 
   state("wait", "Looking for the host…");
   try {
-    const res = await fetch("/api/cast?t=" + encodeURIComponent(token), { cache: "no-store" });
+    // A lookup that never answers - a laptop half awake, a captive portal
+    // swallowing the request - is a page stuck on "Looking for the host…" with
+    // no retry armed and nothing to bring it back. Give it a deadline, and the
+    // failure lands on the same card and the same backoff as every other.
+    const res = await fetch("/api/cast?t=" + encodeURIComponent(token), {
+      cache: "no-store",
+      signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
+    });
     const body = await res.json().catch(() => ({}));
 
     if (res.status === 401) {
-      sessionStorage.removeItem("castToken");
+      store.drop("castToken");
       token = "";
       state("bad", "Wrong key");
       return askToken("That key does not match the host.");
@@ -478,7 +603,7 @@ async function start() {
     }
     if (res.status === 404) {
       state("wait", "Host offline");
-      return problem("Nobody is casting", "Run the host script on the machine you want to reach.");
+      return offline(body);
     }
     if (!res.ok) throw new Error(body.error || "HTTP " + res.status);
     // The registry is meant to hand back a tunnel, and the page is about to send
@@ -491,6 +616,7 @@ async function start() {
         "A cast endpoint must be a wss:// tunnel. Restart the host and try again.");
     }
     endpoint = body.url;
+    hostName = body.name || "";
     if (body.name) document.title = "Cast - " + body.name;
   } catch (e) {
     // Almost always the viewer's own network rather than the site: a lid closing,
@@ -530,6 +656,16 @@ function connect() {
     stats.window += (e.data && e.data.byteLength) || 0;
   });
 
+  // noVNC's disconnect event says only clean or not, and "not clean" covers both
+  // the host hanging up rudely and the link being cut underneath us. The socket's
+  // own close code separates them - 1006 with no reason is nothing on either end
+  // deciding anything, it is the tunnel or the network - and a drop nobody can
+  // find a pattern in is the case that most needs that written down.
+  let closeInfo = "";
+  sock.addEventListener("close", (e) => {
+    closeInfo = e.code ? " (" + e.code + (e.reason ? ": " + e.reason : "") + ")" : "";
+  });
+
   // Only hand over a password we actually have. Passing an empty string counts as
   // a real credential, so noVNC would attempt auth with it, get refused, and greet
   // a first-time viewer with "the host refused that password" before they typed
@@ -559,6 +695,7 @@ function connect() {
     hideVeil();
     state("live", "Connected");
     backoff = 4000;          // this link works; the next blip starts patient again
+    attempts = 0;
     me.focus();
     openPing();
   });
@@ -575,7 +712,7 @@ function connect() {
   // "Connection dropped" and start retrying - leaving nowhere to type.
   me.addEventListener("securityfailure", (e) => {
     if (!current()) return;
-    sessionStorage.removeItem("castPass");
+    store.drop("castPass");
     password = "";
     needPassword = true;
     state("bad", "Rejected");
@@ -591,8 +728,8 @@ function connect() {
     // rotating out from under us, which a fresh /api/cast lookup fixes.
     state("bad", "Disconnected");
     problem("Connection dropped",
-      (e.detail && e.detail.clean) ? "The host ended the session."
-                                   : "Lost the link to the host.");
+      ((e.detail && e.detail.clean) ? "The host ended the session."
+                                    : "Lost the link to the host.") + closeInfo);
   });
 
   me.addEventListener("clipboard", (e) => {
@@ -676,14 +813,24 @@ for (const type of ["keydown", "keyup"]) {
 }
 
 window.addEventListener("focus", refocus);
+// A hidden tab has its timers throttled to about once a minute, so a drop that
+// happened while you were elsewhere is still sitting on a retry that has not
+// fired. Coming back is the moment to stop waiting. The same goes for the network
+// coming back: the retry it interrupted may have half a minute left to run.
+//
+// Only when a retry is actually pending, though. "No session" also describes a
+// page sitting on the access-key card, and restarting that from under someone
+// who switched tabs to copy the key wiped what they had typed - and a lookup
+// already in flight is not improved by a second one racing it.
+function hurry() {
+  if (retry) start();
+}
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
   refocus();
-  // A hidden tab has its timers throttled to about once a minute, so a drop that
-  // happened while you were elsewhere is still sitting on a retry that has not
-  // fired. Coming back is the moment to stop waiting.
-  if (!rfb && !manualStop && !needPassword) start();
+  hurry();
 });
+window.addEventListener("online", hurry);
 
 function applyQuality() {
   if (!rfb) return;
@@ -757,6 +904,38 @@ $("again").addEventListener("click", () => {
   start();
 });
 
+// The other half of the remote start. Not on the LAN page: that is served by
+// the bridge itself, which has no /api/cast, and Ctrl+C is right there anyway.
+$("stop").hidden = !!DIRECT;
+$("stop").addEventListener("click", async () => {
+  if (!token) return;
+  const who = hostName || "the host";
+  if (!confirm("Stop casting on " + who + "? The screen goes away for everyone watching.")) {
+    refocus();
+    return;
+  }
+  state("wait", "Stopping…");
+  let body;
+  try {
+    body = await wish("stop");
+  } catch (e) {
+    state("bad", "Could not stop");
+    if (rfb) { refocus(); return; }
+    // Nothing on screen to fall back to, so the error gets the card.
+    problem("Could not stop the cast", String(e.message || e));
+    return;
+  }
+  // The host takes up to ten seconds to go, and the first retry fires before
+  // that. Start the wait long enough that it does not walk straight back into
+  // the session it just asked to end.
+  manualStop = true;
+  closePing();
+  if (rfb) { try { rfb.disconnect(); } catch (_) {} rfb = null; }
+  backoff = 15000;
+  state("wait", "Host offline");
+  problem("Nobody is casting", "Stopping " + (body.name || who) + "… the host takes about ten seconds to go.");
+});
+
 window.addEventListener("beforeunload", () => {
   manualStop = true;
   closePing();
@@ -769,7 +948,7 @@ window.addEventListener("beforeunload", () => {
 // a reload, though: stripped from the URL and saved nowhere, every F5 on a watch
 // link came back to the access-key card.
 if (location.hash) {
-  if (token) sessionStorage.setItem("castToken", token);
+  if (token) store.set("castToken", token);
   history.replaceState(null, "", location.pathname + location.search);
 }
 
@@ -777,7 +956,7 @@ $("gateGo").addEventListener("click", () => {
   const v = $("gateInput").value.trim();
   if (!v) return;
   token = v;
-  sessionStorage.setItem("castToken", v);
+  store.set("castToken", v);
   start();
 });
 $("gateInput").addEventListener("keydown", (e) => {

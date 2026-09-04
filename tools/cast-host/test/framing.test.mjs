@@ -22,11 +22,11 @@ const ok = (name, cond, detail) => {
   console.log((cond ? "PASS " : "FAIL ") + name + (detail ? "  [" + detail + "]" : ""));
 };
 
-function boot(vncPort, port) {
+function boot(vncPort, port, env) {
   const proc = spawn(process.execPath, [
     HOST_SCRIPT, "--tunnel", "none", "--lan", "--port", String(port),
     "--vnc", "127.0.0.1:" + vncPort, "--share", "nope",
-  ], { cwd: REPO, windowsHide: true });
+  ], { cwd: REPO, windowsHide: true, env: Object.assign({}, process.env, env || {}) });
   return new Promise((resolve, reject) => {
     let out = "";
     const t = setTimeout(() => reject(new Error("bridge did not start:\n" + out)), 15000);
@@ -59,26 +59,26 @@ function upgrade(port, key) {
   return sock;
 }
 
-// A client frame: FIN set, masked, whichever length form the size calls for.
-function clientFrame(op, payload) {
+// A client frame: FIN set, normally masked, whichever length form the size calls for.
+function clientFrame(op, payload, masked = true) {
   const n = payload.length;
-  const mask = crypto.randomBytes(4);
+  const mask = masked ? crypto.randomBytes(4) : Buffer.alloc(0);
   let head;
   if (n < 126) {
     head = Buffer.allocUnsafe(2);
-    head[1] = 0x80 | n;
+    head[1] = (masked ? 0x80 : 0) | n;
   } else if (n < 65536) {
     head = Buffer.allocUnsafe(4);
-    head[1] = 0x80 | 126;
+    head[1] = (masked ? 0x80 : 0) | 126;
     head.writeUInt16BE(n, 2);
   } else {
     head = Buffer.allocUnsafe(10);
-    head[1] = 0x80 | 127;
+    head[1] = (masked ? 0x80 : 0) | 127;
     head.writeBigUInt64BE(BigInt(n), 2);
   }
   head[0] = 0x80 | op;
   const body = Buffer.allocUnsafe(n);
-  for (let i = 0; i < n; i++) body[i] = payload[i] ^ mask[i & 3];
+  for (let i = 0; i < n; i++) body[i] = masked ? payload[i] ^ mask[i & 3] : payload[i];
   return Buffer.concat([head, mask, body]);
 }
 
@@ -247,6 +247,80 @@ function clientFrame(op, payload) {
   });
   ok("an upgraded socket outlives the server's request timeout", survived);
   srv.close();
+}
+
+/* ---- 4. A silent session must be kept alive, not left to time out -------- */
+{
+  // Nothing crosses the socket while the shared screen is still, and a tunnel
+  // hangs up on a connection it has seen no bytes on. The bridge has to make the
+  // noise itself, because the browser cannot: the WebSocket API has no way to
+  // send a ping. Real interval is 20s, shrunk here through the env override.
+  const VNC_PORT = 59023, PORT = 60823;
+
+  let vncInput = 0;
+  const vnc = net.createServer((sock) => {
+    sock.write("RFB 003.008" + String.fromCharCode(10));   // then stay quiet
+    sock.on("data", (d) => (vncInput += d.length));
+    sock.on("error", () => {});
+  });
+  await new Promise((r) => vnc.listen(VNC_PORT, "127.0.0.1", r));
+
+  const proc = await boot(VNC_PORT, PORT, { CAST_KEEPALIVE_MS: "300" });
+  const key = await sessionKey(PORT);
+  const sock = upgrade(PORT, key);
+
+  // Server-to-client frames are never masked, so the header is 2, 4 or 10 bytes.
+  const ops = [];
+  let buf = Buffer.alloc(0);
+  let upgraded = false;
+  sock.on("data", (c) => {
+    buf = Buffer.concat([buf, c]);
+    if (!upgraded) {
+      const end = buf.indexOf(Buffer.from([13, 10, 13, 10]));   // CRLF CRLF
+      if (end < 0) return;
+      buf = buf.subarray(end + 4);
+      upgraded = true;
+    }
+    for (;;) {
+      if (buf.length < 2) return;
+      let len = buf[1] & 0x7f, off = 2;
+      if (len === 126) { if (buf.length < 4) return; len = buf.readUInt16BE(2); off = 4; }
+      else if (len === 127) { if (buf.length < 10) return; len = Number(buf.readBigUInt64BE(2)); off = 10; }
+      if (buf.length < off + len) return;
+      ops.push(buf[0] & 0x0f);
+      buf = buf.subarray(off + len);
+    }
+  });
+
+  await new Promise((r) => setTimeout(r, 200));
+  // Pongs may carry an application payload and the reader is deliberately
+  // tolerant of an unmasked one too. Neither is VNC data.
+  sock.write(clientFrame(0x0a, Buffer.from("alive")));
+  sock.write(clientFrame(0x0a, Buffer.alloc(0), false));
+  const ponging = setInterval(() => sock.write(clientFrame(0x0a, Buffer.alloc(0))), 200);
+  await new Promise((r) => setTimeout(r, 1500));
+  const pings = ops.filter((o) => o === 0x9).length;
+  ok("a silent session is pinged rather than left idle", pings >= 2, pings + " pings in 1.5s");
+  ok("masked and unmasked pongs, with and without payload, keep the session alive",
+     !sock.destroyed && sock.writable);
+  ok("pong payloads are not handed to VNC", vncInput === 0, vncInput + " bytes");
+  clearInterval(ponging);
+
+  // A tunnel rebuild can leave the old TCP connection half-open. It must stop
+  // occupying a TightVNC client slot when its pings go unanswered.
+  const dead = upgrade(PORT, key);
+  dead.resume();
+  const dropped = await new Promise((resolve) => {
+    dead.on("close", () => resolve(true));
+    dead.on("error", () => resolve(true));
+    setTimeout(() => resolve(false), 1800);
+  });
+  ok("an unresponsive viewer is dropped after bounded missed pongs", dropped);
+
+  sock.destroy();
+  proc.kill();
+  await new Promise((r) => proc.on("exit", r));
+  vnc.close();
 }
 
 console.log(failed ? "\n" + failed + " FAILED" : "\nall passed");
