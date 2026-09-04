@@ -156,7 +156,12 @@ async function handle(request) {
 
   if ((isHtml || isCss) && len <= MAX_REWRITE) {
     const raw = await readAll(upstream.stream, MAX_REWRITE);
-    if (raw) {
+    if (raw.overflow) {
+      // Chunked and over the cap, found out only after consuming the head of it.
+      // The bytes already read plus the rest of the socket stream through below
+      // as one body, unrewritten, the way a large content-length body would.
+      upstream.stream = raw.overflow;
+    } else {
       const buf = inflate(raw, upstream.headers["content-encoding"]);
       const body = decodeBody(buf, ct);
       // Rewriting changes the length, so none of these can survive.
@@ -220,13 +225,20 @@ function upstreamRequest(target, { method, headers, body }) {
   });
 }
 
+// Returns the whole body as a Buffer, or { overflow } when it grew past `cap`
+// with no content-length to warn us. Destroying the stream there and falling
+// back to "stream it through" streamed a socket that was already dead, so a big
+// chunked page came out as an empty response. The consumed chunks are stitched
+// back in front of what is still arriving instead.
 async function readAll(stream, cap) {
   const chunks = [];
   let size = 0;
-  for await (const c of stream) {
+  for await (const c of stream.iterator({ destroyOnReturn: false })) {
     size += c.length;
-    if (size > cap) { stream.destroy(); return null; }   // too big to rewrite
     chunks.push(c);
+    if (size > cap) {
+      return { overflow: Readable.from((async function* () { yield* chunks; yield* stream; })()) };
+    }
   }
   return Buffer.concat(chunks);
 }
