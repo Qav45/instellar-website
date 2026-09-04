@@ -121,8 +121,12 @@
     $("count").textContent = ids.length + (ids.length === 1 ? " visitor" : " visitors");
     $("empty").hidden = ids.length > 0;
 
-    list.innerHTML = ids.map(function (id) {
-      const v = visitors[id];
+    list.innerHTML = ids.map(function (rawId) {
+      const v = visitors[rawId];
+      // The id is whatever the visitor's browser put in the proxy path, so it is
+      // theirs to choose. Every other field was escaped; this one went into the
+      // data- attributes verbatim.
+      const id = esc(rawId);
       const log = (v.log || []).map(function (e) {
         return '<div class="logrow"><span class="when">' + ago(e.t) + '</span>' +
                '<span class="what">' + pretty(e.u) + "</span></div>";
@@ -143,7 +147,7 @@
           "</span>" +
         "</div>" +
         '<div class="meta">' + esc(v.ip || "?") + " · last seen " + (v.last ? ago(v.last) : "?") + "</div>" +
-        '<div class="vid">' + esc(id) + "</div>" +
+        '<div class="vid">' + id + "</div>" +
         '<div class="log" id="log-' + id + '">' + log + "</div>" +
       "</div>";
     }).join("");

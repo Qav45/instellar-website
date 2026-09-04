@@ -231,6 +231,13 @@
     // peeker leaning past a doorway, a face the model briefly loses) keeps the
     // page hidden instead of blinking uncovered.
     detectWindowMs: 700,
+
+    // Floor between detection passes. A MediaStream's currentTime never stops
+    // moving, so the "new frame?" check passes on every animation frame and a
+    // fast machine ran inference 60 times a second, pinning the main thread for
+    // nothing: the window above only needs a few looks per second. A slow
+    // machine is already slower than this and is unaffected.
+    detectEveryMs: 66,
   };
 
   const real     = document.getElementById("real");
@@ -325,7 +332,14 @@
   }
 
   // The unlock trigger: start the webcam, load the models, reveal content, run the guard.
+  // `armed` only flips once the models are up, seconds after the first submit,
+  // so it cannot stop a second Enter in the meantime - that ran all of this
+  // twice: two camera streams, two sets of models and two guard loops for good.
+  let unlocking = false;
   async function unlock() {
+    if (unlocking) return;
+    unlocking = true;
+
     // Start the WASM runtime loading immediately — it's independent of the camera,
     // so it overlaps the (often slow) permission prompt instead of stacking after it.
     const filesetPromise = FilesetResolver.forVisionTasks("./vendor/wasm").catch(function (e) {
@@ -344,9 +358,15 @@
     video.srcObject = stream;
     await video.play();
     const camTrack = stream.getVideoTracks()[0] || null;
+    // Fail-open with no guard loop to feed: release the camera rather than leave
+    // it running (and its light on) for nothing.
+    const dropCamera = function () {
+      stream.getTracks().forEach(function (t) { t.stop(); });
+      video.srcObject = null;
+    };
 
     const fileset = await filesetPromise;
-    if (!fileset) { reveal(); return; }   // fail-open
+    if (!fileset) { dropCamera(); reveal(); return; }   // fail-open
 
     // Build both detectors concurrently — they only depend on the fileset. The
     // face model is required (fail open on error); the body model is optional
@@ -379,6 +399,7 @@
     } catch (e) {
       console.warn("[cool-things] face model load failed:", e);
       bodyPromise.then(function (d) { if (d) d.close(); });   // don't leak the body detector we built in parallel
+      dropCamera();
       reveal();   // fail-open
       return;
     }
@@ -386,7 +407,7 @@
 
     reveal();   // arm: wipe passphrase, show content + status pill, start the loop
 
-    let lastTs = -1, tick = 0;
+    let lastTs = -1, lastRun = 0, tick = 0;
     let lastFaces = [], lastPersons = [];   // freshest result of each detector
     const samples = [];   // rolling {t, hide, reason} over the last detectWindowMs
 
@@ -406,8 +427,9 @@
       }
 
       // detectForVideo needs a fresh frame + strictly increasing timestamp
-      if (video.currentTime !== lastTs) {
+      if (video.currentTime !== lastTs && now - lastRun >= CONFIG.detectEveryMs) {
         lastTs = video.currentTime;
+        lastRun = now;
 
         // Run ONE detector per frame (alternating) to keep CPU down; assess uses
         // the freshest cached result of each. With no body detector, run faces
