@@ -1,4 +1,8 @@
 @echo off
+REM Install the cast agent as a hidden logon task for the current user, so the
+REM site can start a cast on this machine with nobody at the keyboard.
+REM Any extra arguments are passed to the agent, and through it to cast-host
+REM (so install-agent.cmd --lan gives every cast the LAN link too).
 setlocal
 set "TASK=InstellarCastAgent"
 set "AGENT=%~dp0cast-agent.mjs"
@@ -8,16 +12,20 @@ if not defined NODE (
   echo Could not find node.exe on PATH. Install Node 18 or newer first.
   exit /b 1
 )
-REM schtasks wants the quotes inside /tr escaped with backslashes, and a
-REM quoted set keeps the backslashes and inner quotes literal - carets did not
-REM survive the trip and split the path at "Program Files".
-set "RUN=\"%NODE%\" \"%AGENT%\" %ARGS%"
 
-schtasks /create /tn "%TASK%" /sc onlogon /rl limited /f /tr "%RUN%" >nul || goto :fail
-powershell -NoProfile -Command "$s=New-ScheduledTaskSettingsSet -Hidden -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1); Set-ScheduledTask -TaskName '%TASK%' -Settings $s | Out-Null" || goto :fail
+REM Register-ScheduledTask rather than schtasks /create: a logon trigger through
+REM schtasks is "Access is denied" from an ordinary prompt, and this must not
+REM need an elevated one. No execution time limit, or Windows ends the agent
+REM after three days for the crime of still running.
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$a = New-ScheduledTaskAction -Execute '%NODE%' -Argument ('\"%AGENT%\" ' + '%ARGS%').Trim();" ^
+  "$t = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME;" ^
+  "$s = New-ScheduledTaskSettingsSet -Hidden -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero);" ^
+  "Register-ScheduledTask -TaskName '%TASK%' -Action $a -Trigger $t -Settings $s -Force | Out-Null" || goto :fail
 schtasks /run /tn "%TASK%" >nul || goto :fail
 echo Installed and started %TASK%.
-echo It will run hidden at logon as %USERNAME% and restart after failures.
+echo It runs hidden at logon as %USERNAME% and restarts after failures.
+echo Logs: %USERPROFILE%\.instellar-cast\agent.log and cast.log
 exit /b 0
 
 :fail
