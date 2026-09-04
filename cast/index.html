@@ -732,6 +732,8 @@ function connect() {
                                     : "Lost the link to the host.") + closeInfo);
   });
 
+  // Copying on the remote machine puts it on this device's clipboard. The other
+  // direction is the paste handler further down.
   me.addEventListener("clipboard", (e) => {
     if (!current()) return;
     if (e.detail && e.detail.text && navigator.clipboard) {
@@ -811,6 +813,58 @@ for (const type of ["keydown", "keyup"]) {
     e.stopImmediatePropagation();
   }, true);
 }
+
+/* ------------------------------------------------------------ clipboard -- */
+
+// Copy here, paste there. Ctrl+V has to do two things in order - put the text on
+// the host's clipboard, then ask the host to paste - and the host must not see
+// the keystroke until the text has arrived, or it pastes whatever it had before.
+//
+// So the key is taken away from noVNC and sent back synthetically once the text
+// is on its way. The `paste` event is what carries the text: reading the
+// clipboard through navigator.clipboard.readText() needs a permission prompt,
+// while the event hands the same string over for free - but only if the key is
+// left to do its normal job, which is why nothing here calls preventDefault on
+// the keydown.
+function isPasteKey(e) {
+  if (e.shiftKey && e.key === "Insert") return true;
+  return (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "v" || e.key === "V");
+}
+
+// Capture on document, ahead of noVNC's own handler on the canvas. keyup goes
+// with it for symmetry; noVNC ignores a release for a key it never saw pressed.
+for (const type of ["keydown", "keyup"]) {
+  document.addEventListener(type, (e) => {
+    if (!rfb || $("veil") || !isPasteKey(e)) return;
+    e.stopImmediatePropagation();
+  }, true);
+}
+
+document.addEventListener("paste", (e) => {
+  // A card is up: that paste belongs in the password field.
+  if (!rfb || $("veil")) return;
+  const text = e.clipboardData && e.clipboardData.getData("text/plain");
+  if (!text) return;
+  e.preventDefault();
+  rfb.clipboardPasteFrom(text);
+
+  // Both messages travel this one socket in order, but TightVNC hands the text
+  // to Windows on another thread, so a keystroke sent in the same breath can
+  // beat it there and paste the previous contents. A beat costs nothing on a
+  // paste and turns an intermittent wrong-text bug into no bug.
+  //
+  // The whole combo is synthesised rather than leaning on the Ctrl the viewer is
+  // physically holding: by the time this fires they may have let go, and a lone
+  // "v" would be typed into their document instead. The cost is that the host
+  // sees Ctrl released here, so a Ctrl held down for something else afterwards
+  // needs pressing again.
+  setTimeout(() => {
+    if (!rfb) return;
+    rfb.sendKey(0xffe3, "ControlLeft", true);
+    rfb.sendKey(0x76, "KeyV");
+    rfb.sendKey(0xffe3, "ControlLeft", false);
+  }, 60);
+});
 
 window.addEventListener("focus", refocus);
 // A hidden tab has its timers throttled to about once a minute, so a drop that

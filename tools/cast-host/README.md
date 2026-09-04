@@ -43,6 +43,24 @@ laptop loads it from `http://<lan-ip>:6080/` — same origin, no mixed content, 
 Cloudflare. Measured from the host itself the round trip drops to 0 ms; over real
 wifi expect a couple of ms rather than fifty.
 
+**polling — how often the host notices the screen changed.** This one is not in
+the browser at all, and it dwarfs the others when it bites. TightVNC hears about
+changes two ways: hooks, which only cover the old GDI drawing path, and a
+full-screen poll for everything else. Chrome, Electron apps, video and anything
+composited are "everything else", and the poll ships at **1000 ms**. One frame a
+second is not a slow link, it is a slow camera, and nothing tunable in the page
+can make up for it.
+
+```
+tools\cast-host\tune-host.cmd          100 ms
+tools\cast-host\tune-host.cmd 50       smoother, more host CPU
+```
+
+It asks for administrator rights, because the setting lives under HKLM where
+only an administrator may even read it, and reloads the service rather than
+restarting it so a cast in progress survives. TightVNC's own floor is 30 ms.
+Nothing else in this tool needs elevation.
+
 **screen — every pixel is decode work.** Two 1080p monitors is a 3840×1080
 framebuffer, twice what anyone needs to read code on, and on a weak laptop that
 is the difference between smooth and not. So the host tells TightVNC to share one
@@ -168,6 +186,17 @@ alone, which is the same key that could read the cast anyway, and the site only
 ever admits that a host is listening to the key that could wake it - a stranger
 guessing at the address gets the same "offline" it always did.
 
+**Copy and paste cross the gap in both directions.** Copying on the remote
+machine puts the text on this device's clipboard, and Ctrl+V here pastes into the
+remote machine. The second direction is two things in order - the text has to
+reach the host's clipboard before the host sees the keystroke - so the page takes
+Ctrl+V away from the remote session, sends the text, and sends the keystroke back
+synthetically a moment later. Without that ordering the host pastes whatever it
+had before. Two consequences worth knowing: the host sees Ctrl released at that
+point, so a Ctrl you were holding for something else needs pressing again, and
+the clipboard message carries Latin-1 only, so characters outside it arrive as
+`?`. Shift+Insert does the same thing as Ctrl+V.
+
 **Fullscreen is also the keyboard mode.** Outside it the browser keeps its own
 shortcuts, so Ctrl+W closes this tab instead of a window on the remote machine.
 Fullscreen is the only state in which a page may ask for those keys, so that is
@@ -281,7 +310,7 @@ Three things worth knowing:
 
 ### Tests
 
-Five suites, plain `node`, no install:
+Six suites, plain `node`, no install:
 
 ```
 node tools\cast-host\test\registry.test.mjs    auth/claim logic and heartbeat retry behaviour
@@ -289,6 +318,7 @@ node tools\cast-host\test\agent.test.mjs       remote start/stop, restart and ou
 node tools\cast-host\test\bridge.test.mjs      boots the real bridge against a stand-in VNC
 node tools\cast-host\test\framing.test.mjs     RFC 6455 framing, backpressure, keepalive, lifetime
 node tools\cast-host\test\render.test.mjs      the local bitmap change in cast\novnc.js
+node tools\cast-host\test\paste.test.mjs       the order the clipboard and the keystroke are sent in
 ```
 
 The bridge and framing suites bind loopback ports in the 59000 and 60800 ranges
