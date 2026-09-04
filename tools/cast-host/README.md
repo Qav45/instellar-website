@@ -92,6 +92,30 @@ Open either. The page asks for the TightVNC password, then you are in. On the LA
 URL there is no access key to type — the page is served by the bridge itself, so
 it already knows where to connect. Ctrl+C in the console stops the cast.
 
+## Starting it from the site
+
+The host can listen in the background so nobody has to be standing at it when a
+cast is needed. Install that listener once from a normal Command Prompt:
+
+```
+tools\cast-host\install-agent.cmd
+tools\cast-host\install-agent.cmd --lan     also offer the fast local link
+```
+
+That creates the `InstellarCastAgent` scheduled task for the current user, starts
+it immediately, and starts it again at every logon. Open the usual watch link
+while the machine is not casting and it offers **Start casting on <machine>**.
+The button wakes `cast-host.mjs`; **Stop cast** lets it unpublish and restore the
+normal TightVNC share mode before it exits. A requested cast also comes back
+after a host crash or reboot. To remove the listener, run
+`tools\cast-host\uninstall-agent.cmd`; it first gives a running cast time to stop
+cleanly, then removes the task.
+
+The agent writes its own activity to `%USERPROFILE%\.instellar-cast\agent.log`
+and the cast-host output to `cast.log`, rotating that file at about 2 MB. It uses
+the same `token` and `publish-key` files as a manual cast, creating them when it
+is installed before the first manual run.
+
 There are two keys, and only one of them is ever printed. The **view key** in the
 watch link is generated once and kept in `%USERPROFILE%\.instellar-cast\token`, so
 the link stays the same run to run even though the tunnel URL behind it does not.
@@ -113,6 +137,11 @@ file to roll it.
 | `--ngrok-domain` | — | Your reserved ngrok domain, for a URL that never changes |
 | `--site` | `https://go.instellar.net` | Where to publish |
 
+The agent accepts the same `--site`, `--name`, and cast-host flags. Arguments
+given to `install-agent.cmd` are saved on the scheduled task and passed through
+to every cast-host it starts. `CAST_AGENT_POLL_MS` changes its 10-second poll
+interval for tests; `CAST_HOST_SCRIPT` points tests at a stand-in host.
+
 The **Show** dropdown sets the shared display rather than reporting it, so if you
 start with `--share full` it will still read "Main screen" until you touch it.
 
@@ -121,7 +150,23 @@ start with `--share full` it will still read "Main screen" until you touch it.
 **Fit** scales the desktop into the window; turn it off for 1:1 with scrollbars,
 which is what you want for reading code. **Watch only** ignores your input,
 **Ctrl+Alt+Del** goes through, and the page reconnects itself when the tunnel
-rotates.
+rotates. It never stops trying: every drop, and every "nobody is casting", puts up
+a card that counts down to the next attempt and says how many there have been,
+and the wait stretches from four seconds to thirty so a host that is off for the
+night is not asked twenty thousand times. Coming back to the tab, or the network
+coming back, skips whatever is left of that wait. The one card that does not
+retry is the one saying this device has been blocked.
+
+**The "nobody is casting" card can also be the on switch.** When the agent is
+installed on the host, the card gains **Start casting on <machine>**, and clicking
+it asks the site to pass that wish along; the card then reads "Waking…" and the
+same retry loop finds the cast when it appears, ten seconds or so later. **Stop
+cast** in the toolbar is the other direction: it confirms, asks the host to stop,
+and puts the card back up with a longer first wait so the page does not walk
+straight back into the session it just ended. Both go through the view key
+alone, which is the same key that could read the cast anyway, and the site only
+ever admits that a host is listening to the key that could wake it - a stranger
+guessing at the address gets the same "offline" it always did.
 
 **Fullscreen is also the keyboard mode.** Outside it the browser keeps its own
 shortcuts, so Ctrl+W closes this tab instead of a window on the remote machine.
@@ -132,6 +177,53 @@ If typing ever seems to go nowhere, it is focus: the keyboard follows the remote
 screen, and clicking the black area beside it, or a toolbar control, used to hand
 focus away with nothing on screen saying so. It is handed straight back now, but
 one click on the picture always settles it.
+
+## When it drops
+
+A cast that keeps dropping is one of three things, and the host window now says
+which. Every disconnect logs how long the session lasted, and the tunnel's own
+warnings are printed for the whole run rather than being thrown away once the
+URL has been scraped.
+
+```
+[14:02:11] viewer gone - viewer hung up after 104s (0 live)
+[14:02:11] tunnel: 2026-09-03T14:02:10Z ERR Connection terminated error="..."
+```
+
+* **Drops clustered around one duration** are something expiring on a timer. The
+  usual one was a tunnel hanging up on a connection it had seen no bytes on —
+  Cloudflare's edge does that after roughly 100 seconds, and a still screen sends
+  nothing at all, so a cast left alone died of being watched quietly. The bridge
+  now pings the viewer every 20 seconds. The browser answers in its network stack
+  rather than in JavaScript, which matters because a backgrounded tab has its
+  timers throttled to about once a minute and cannot be relied on to make noise
+  of its own. Two unanswered ping intervals mark the old path dead and release
+  its TightVNC client slot, instead of leaving a half-open connection behind
+  after the tunnel rebuilt. TCP keepalive runs on both legs as a slower safety
+  net. The other timer worth knowing is TightVNC's: Server → Administration
+  has an idle-timeout setting, and if it is not zero it will cut clients loose on
+  its own schedule, which shows up here as `viewer gone` with no viewer reason.
+* **A `tunnel:` line next to the drop** means the tunnel lost its connection to
+  the edge and rebuilt it, which takes every WebSocket through it down with it.
+  Quick tunnels are best-effort and do this. If the tunnel process itself exits,
+  the host now starts it again with a 2-to-30-second backoff, publishes its new
+  address, and keeps the same watch link; viewers find the replacement on their
+  next reconnect attempt. Ten consecutive restarts that cannot produce and
+  publish a URL still take the host down cleanly. A replacement that stays up for
+  two minutes resets the failure count and backoff.
+* **Nothing in the host window at all** means the viewer never lost the socket —
+  look at the code in the page's own "Connection dropped" message. `1006` is the
+  network or the tunnel cutting it with nobody deciding anything; `1000` is a
+  deliberate hang-up.
+
+The registry refresh is still every 30 seconds, but a failed refresh is retried
+twice within seconds and only one POST can be in flight. The first publish gets
+the same treatment, so a Vercel cold start or a short DNS/5xx wobble no longer
+aborts startup or uses up the 90-second record lifetime waiting for the next
+ordinary heartbeat. A longer outage is logged and retried every 10 seconds.
+
+`--lan` sidesteps the whole category when the viewer is in the same building:
+no tunnel, nothing between the two machines to time anything out.
 
 ## Security
 
@@ -189,18 +281,23 @@ Three things worth knowing:
 
 ### Tests
 
-Four suites, plain `node`, no install:
+Five suites, plain `node`, no install:
 
 ```
-node tools\cast-host\test\registry.test.mjs    the /api/cast auth split, against a fake KV
+node tools\cast-host\test\registry.test.mjs    auth/claim logic and heartbeat retry behaviour
+node tools\cast-host\test\agent.test.mjs       remote start/stop, restart and outage behaviour
 node tools\cast-host\test\bridge.test.mjs      boots the real bridge against a stand-in VNC
-node tools\cast-host\test\framing.test.mjs     RFC 6455 framing, backpressure, socket lifetime
+node tools\cast-host\test\framing.test.mjs     RFC 6455 framing, backpressure, keepalive, lifetime
 node tools\cast-host\test\render.test.mjs      the local bitmap change in cast\novnc.js
 ```
 
 The bridge and framing suites bind loopback ports in the 59000 and 60800 ranges
-and publish nothing. Framing takes about fifteen seconds, most of it deliberately
-spent watching a stalled viewer to prove the host stalls with it.
+and never contact the live site. Framing takes about fifteen seconds, most of it
+deliberately spent watching a stalled viewer to prove the host stalls with it.
+
+`CAST_TUNNEL_BIN` is a test-only override used by the bridge suite to run
+`fake-tunnel.mjs` in place of cloudflared, crash it, and prove the replacement URL
+is published without letting the host exit. It is not a supported cast setting.
 
 What they are for: the framing, the slot ownership and the render queue are all
 hand-rolled here, and their failures are the quiet kind. A wedged render queue

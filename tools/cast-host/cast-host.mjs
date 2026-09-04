@@ -50,6 +50,7 @@ const FIXED_URL = arg("url", "");                  // skip the tunnel, publish t
 const SHARE = arg("share", "primary");             // primary | full | <display number>
 const LAN = argv.includes("--lan");                // also listen on the local network
 const ADMIN_TOKEN = process.env.CAST_TOKEN || "";  // only if the site sets CAST_TOKEN
+const STOP_FILE = process.env.CAST_STOP_FILE || ""; // cooperative stop for cast-agent
 
 const [VNC_HOST, VNC_PORT] = String(arg("vnc", "127.0.0.1:5900")).split(":");
 const SESSION_KEY = crypto.randomBytes(9).toString("base64url");
@@ -69,6 +70,13 @@ const TUNNELLESS = TUNNEL === "none" && !FIXED_URL;
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const MAX_FRAME = 8 * 1024 * 1024;
 const MAX_PENDING = 4 * 1024 * 1024;   // client bytes held while VNC is connecting
+// A still screen sends nothing, and a tunnel closes a connection it has seen no
+// bytes on - Cloudflare's edge does it after about 100 seconds. So a cast left
+// alone died of being watched quietly. Overridable only so the tests do not have
+// to sit through the real interval.
+const KEEPALIVE_MS = Number(process.env.CAST_KEEPALIVE_MS || 20000);
+const PUBLISH_MS = Number(process.env.CAST_PUBLISH_MS || 30000);
+const PUBLISH_RETRY_MS = Number(process.env.CAST_PUBLISH_RETRY_MS || 3000);
 let live = 0;
 
 const server = http.createServer((req, res) => {
@@ -162,6 +170,10 @@ server.on("error", (e) => {
 });
 
 server.on("upgrade", (req, socket, head) => {
+  // Once HTTP hands an upgraded socket to us it no longer owns the error path.
+  // Install this before even writing a rejection: a peer that resets during the
+  // handshake must not become an unhandled `error` event for the whole process.
+  socket.on("error", () => socket.destroy());
   const url = new URL(req.url, "http://localhost");
   // Not a WebSocket at all: answer like the plain-HTTP handler does, so a health
   // check sees a body rather than a bodiless 403.
@@ -198,13 +210,14 @@ function handshake(req, socket) {
   if (offered.includes("binary")) lines.push("Sec-WebSocket-Protocol: binary");
   socket.write(lines.join("\r\n") + "\r\n\r\n");
   socket.setNoDelay(true);
+  socket.setKeepAlive(true, 20000);
   return true;
 }
 
 // Reads masked client frames off `sock` and hands each data payload to onData.
 // Returns the feed function to push raw socket bytes through. Control frames are
 // answered here so neither caller has to care about them.
-function wsReader(sock, onData, onClose) {
+function wsReader(sock, onData, onClose, onPong) {
   let buf = Buffer.alloc(0);
   let dead = false;
 
@@ -254,7 +267,7 @@ function wsReader(sock, onData, onClose) {
         return onClose("closed by viewer");
       }
       if (op === 0x9) { frame(sock, 0x0a, payload); continue; }   // ping -> pong
-      if (op === 0x0a) continue;                                  // pong
+      if (op === 0x0a) { if (onPong) onPong(payload); continue; } // pong
       // Continuation / text / binary are all just payload as far as we care.
       onData(payload);
     }
@@ -275,19 +288,44 @@ function pingProbe(ws, head) {
 function bridge(ws, head) {
   const vnc = net.connect(Number(VNC_PORT), VNC_HOST);
   vnc.setNoDelay(true);                       // every keystroke is its own packet
+  vnc.setKeepAlive(true, 20000);
+  // TCP's own connect timeout is measured in minutes on some Windows builds.
+  // A viewer should not sit on a dead TightVNC port for that long looking live.
+  vnc.setTimeout(15000);
   let open = false;
   let done = false;
   let pending = [];
   let pendingBytes = 0;
+  let missedPongs = 0;
 
   live++;
+  const since = Date.now();
   log("viewer connected (" + live + " live)");
+
+  // Nothing crosses this socket while the screen is still, and a tunnel hangs up
+  // on a connection it has seen no bytes on. A ping is the cheapest traffic there
+  // is, and the browser answers it in the network stack rather than in JS - so
+  // this also holds up a backgrounded tab, whose own timers are throttled to
+  // roughly once a minute and cannot be relied on to make noise.
+  const keepalive = setInterval(() => {
+    if (ws.destroyed) return;
+    // A ping that gets no pong is more useful than traffic for traffic's sake:
+    // after a tunnel rebuild a half-open socket can otherwise occupy TightVNC
+    // indefinitely. Browsers answer below JavaScript, even in a background tab.
+    if (++missedPongs >= 3) return shut("viewer stopped answering pings");
+    frame(ws, 0x9, Buffer.alloc(0));
+  }, KEEPALIVE_MS);
 
   const shut = (why) => {
     if (done) return;
     done = true;
     live--;
-    log("viewer gone" + (why ? " - " + why : "") + " (" + live + " live)");
+    clearInterval(keepalive);
+    // How long it lasted is the difference between a timeout and bad luck: drops
+    // that cluster around one duration are something expiring on a timer, drops
+    // scattered across seconds and hours are the link itself.
+    log("viewer gone" + (why ? " - " + why : "") +
+        " after " + Math.round((Date.now() - since) / 1000) + "s (" + live + " live)");
     // end(), not destroy(): the close frame the reader just queued is still in
     // the write buffer, and destroy() threw it away - so a viewer closing its tab
     // got a TCP reset and logged an abnormal 1006 close instead of a clean one.
@@ -308,19 +346,22 @@ function bridge(ws, head) {
       return;
     }
     if (!vnc.write(payload)) ws.pause();
-  }, shut);
+  }, shut, () => { missedPongs = 0; });
 
   vnc.on("connect", () => {
     open = true;
+    vnc.setTimeout(0);                         // silence is normal once connected
     // Honour backpressure on the replay too; ignoring it left vnc write-buffered
     // with the browser still streaming into it.
     for (const p of pending) { if (!vnc.write(p)) ws.pause(); }
     pending = [];
     pendingBytes = 0;
   });
+  vnc.on("timeout", () => shut("vnc connect timed out"));
   vnc.on("error", (e) => shut("vnc: " + e.message));
+  vnc.on("end", () => shut("vnc hung up"));
   vnc.on("close", () => shut());
-  ws.on("error", () => shut("socket error"));
+  ws.on("error", (e) => shut("socket: " + e.message));
   ws.on("close", () => shut());
   // http.Server hands out sockets with allowHalfOpen, so a viewer that vanishes
   // with a bare FIN and no close frame - a tunnel dropping it, a laptop lid -
@@ -431,6 +472,13 @@ function restoreShare() {
 /* ---------------------------------------------------------------- tunnel -- */
 
 let tunnelProc = null;
+let replaceTunnelUrl = null;
+let recoveringTunnel = false;
+let restartFailures = 0;
+let restartDelay = 2000;
+const MAX_TUNNEL_RESTARTS = 10;
+const MAX_TUNNEL_BACKOFF = 30000;
+const HEALTHY_TUNNEL_MS = 2 * 60 * 1000;
 
 function startTunnel() {
   if (FIXED_URL) return Promise.resolve(FIXED_URL.replace(/^https?:/, "wss:"));
@@ -439,30 +487,57 @@ function startTunnel() {
   // cloudflared first: its quick tunnels need no account, have no bandwidth cap
   // and put no browser-warning interstitial in front of the WebSocket upgrade.
   const kind = TUNNEL === "auto" ? (findBin("cloudflared") ? "cloudflared" : "ngrok") : TUNNEL;
-  const bin = findBin(kind);
+  // Test-only: lets the bridge suite stand in for cloudflared without installing
+  // it or opening a real public tunnel. A JS file is run through this Node.
+  const override = process.env.CAST_TUNNEL_BIN || "";
+  const found = override || findBin(kind);
+  const bin = override && /\.[cm]?js$/i.test(override) ? process.execPath : found;
   if (!bin) {
     return Promise.reject(new Error(
       "could not find " + kind + " on PATH. Install it, or open a fresh terminal " +
       "if you just did - a terminal started before the install still has the old PATH."));
   }
 
-  const args = kind === "ngrok"
+  const args = override && bin === process.execPath ? [override]
+    : override ? []
+    : kind === "ngrok"
     ? ["http", String(PORT), "--log", "stdout", "--log-format", "json"]
       .concat(NGROK_DOMAIN ? ["--domain", NGROK_DOMAIN] : [])
     : ["tunnel", "--url", "http://127.0.0.1:" + PORT];
 
+  const spec = { kind, bin, args };
+  return spawnTunnel(spec, false);
+}
+
+// One child, one scrape promise. Its listeners close over `child`, never the
+// mutable global, so an old exit cannot reject or tear down its replacement.
+function spawnTunnel(spec, restarted) {
+  const { kind, bin, args } = spec;
   log("starting " + kind + "...");
   // findBin always hands back a full path now, so this never needs a shell - and
   // must not have one. With shell:true on Windows the child was cmd.exe, so kill()
   // killed the wrapper and left cloudflared running: an orphaned tunnel still
   // holding its hostname open, its exit handler never firing, and - once a later
   // run reused the port - that stale public URL proxying into the new bridge.
-  tunnelProc = spawn(bin, args, { windowsHide: true });
+  const child = spawn(bin, args, { windowsHide: true });
+  tunnelProc = child;
+  troubleBuf = "";
+  lastTrouble = "";
 
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(kind + " printed no URL in 45s")), 45000);
+    let done = false;
     let settled = false;
+    let readyAt = 0;
+    const fail = (e) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (tunnelProc === child) tunnelProc = null;
+      child.kill();
+      reject(e);
+    };
+    const timer = setTimeout(
+      () => fail(new Error(kind + " printed no URL in 45s")), 45000);
 
     // A pipe delivers whatever bytes are ready, not whole lines, so the URL can
     // arrive split across two chunks. Matching each chunk on its own then found
@@ -480,35 +555,123 @@ function startTunnel() {
       }
       if (m && !settled) {
         settled = true;
+        done = true;
+        readyAt = Date.now();
         clearTimeout(timer);
         resolve(m[0].replace(/^https:/, "wss:"));
       } else if (!settled && /err_|error/i.test(String(chunk))) {
         process.stderr.write(String(chunk));
+      } else if (settled) {
+        tunnelTrouble(String(chunk));
       }
     };
 
-    tunnelProc.stdout && tunnelProc.stdout.on("data", scan);
-    tunnelProc.stderr && tunnelProc.stderr.on("data", scan);
-    tunnelProc.on("error", (e) => {
-      clearTimeout(timer);
-      reject(new Error("could not run " + kind + ": " + e.message));
-    });
-    tunnelProc.on("exit", (code) => {
+    child.stdout && child.stdout.on("data", scan);
+    child.stderr && child.stderr.on("data", scan);
+    child.on("error", (e) => fail(new Error("could not run " + kind + ": " + e.message)));
+    child.on("exit", (code) => {
+      if (tunnelProc !== child) return;
+      tunnelProc = null;
       if (!settled) {
-        clearTimeout(timer);
-        reject(new Error(kind + " exited (" + code + ")"));
-      } else {
-        // The published URL now points nowhere. Stop advertising it and get out,
-        // so the viewer says "nobody is casting" instead of retrying a dead host.
-        log(kind + " exited (" + code + ") - the link is dead, shutting down");
-        clearInterval(publishTimer);
-        unpublish().then(() => {
-          restoreShare();
-          process.exit(1);
-        });
+        return fail(new Error(kind + " exited (" + code + ")"));
       }
+      if (quitting || fataling) return;
+      recoverTunnel(spec, restarted, Date.now() - readyAt, code);
     });
   });
+}
+
+async function recoverTunnel(spec, restarted, livedFor, code) {
+  if (recoveringTunnel || quitting || fataling) return;
+  recoveringTunnel = true;
+  stopPublishLoop();
+
+  if (livedFor >= HEALTHY_TUNNEL_MS) {
+    restartFailures = 0;
+    restartDelay = 2000;
+  } else if (restarted) {
+    restartFailures++;
+  }
+  log(spec.kind + " exited (" + code + ") - restarting the tunnel; " +
+      "the watch link will not change");
+
+  while (!quitting && !fataling) {
+    if (restartFailures >= MAX_TUNNEL_RESTARTS) return giveUpTunnel(spec.kind);
+    const wait = restartDelay;
+    restartDelay = Math.min(restartDelay * 2, MAX_TUNNEL_BACKOFF);
+    log("tunnel restart " + (restartFailures + 1) + "/" + MAX_TUNNEL_RESTARTS +
+        " in " + Math.round(wait / 1000) + "s");
+    await new Promise((r) => setTimeout(r, wait));
+    if (quitting || fataling) break;
+
+    try {
+      const base = await spawnTunnel(spec, true);
+      const replacement = tunnelProc;
+      if (!replacement) throw new Error(spec.kind + " exited before its URL could be published");
+      // The first child can technically exit in the few milliseconds between URL
+      // discovery and initial publish. Wait until main has installed the mover.
+      while (!replaceTunnelUrl && !quitting && !fataling) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      if (quitting || fataling) break;
+      await replaceTunnelUrl(base);
+      if (tunnelProc !== replacement) {
+        throw new Error(spec.kind + " exited while its URL was being published");
+      }
+      console.log("    Tunnel        " + base + "   (watch link unchanged; nothing to do)");
+      recoveringTunnel = false;
+      return;
+    } catch (e) {
+      stopPublishLoop();
+      if (tunnelProc) {
+        const failed = tunnelProc;
+        tunnelProc = null;
+        failed.kill();
+      }
+      restartFailures++;
+      log("tunnel restart failed (" + restartFailures + "/" + MAX_TUNNEL_RESTARTS +
+          "): " + (e.message || e));
+    }
+  }
+  recoveringTunnel = false;
+}
+
+function giveUpTunnel(kind) {
+  fataling = true;
+  log(kind + " could not be restarted after " + MAX_TUNNEL_RESTARTS +
+      " attempts - the link is dead, shutting down");
+  stopPublishLoop();
+  unpublish().then(() => {
+    restoreShare();
+    process.exit(1);
+  });
+}
+
+// Everything the tunnel printed after the URL was being dropped on the floor,
+// and that is where it says it lost its connection to the edge and rebuilt it -
+// which takes every WebSocket through it down with it. Without these lines a
+// cast that drops looks causeless from in here. Warnings and errors only: the
+// routine chatter is a line every few seconds and would bury the log the viewer
+// events are in.
+let troubleBuf = "";
+let lastTrouble = "";
+
+function tunnelTrouble(chunk) {
+  troubleBuf += chunk;
+  const lines = troubleBuf.split(/\r?\n/);
+  troubleBuf = lines.pop();
+  if (troubleBuf.length > 8192) troubleBuf = "";     // a line that never ends
+  for (const line of lines) {
+    const text = line.trim();
+    if (!text) continue;
+    // cloudflared tags levels WRN/ERR/FTL; ngrok's JSON carries "lvl":"warn"|"eror".
+    if (!/\b(WRN|ERR|FTL)\b|"lvl":"(warn|eror|crit)"|unregister|reconnect/i.test(text)) continue;
+    // The same failure repeats every retry, and a tunnel that is down repeats it
+    // for as long as it is down. Say it once.
+    if (text === lastTrouble) continue;
+    lastTrouble = text;
+    log("tunnel: " + text.slice(0, 200));
+  }
 }
 
 // Returns a full path to the executable, or null. Always a path, never a bare
@@ -540,6 +703,9 @@ function findBin(cmd) {
 /* --------------------------------------------------------------- publish -- */
 
 let publishTimer = null;
+let publishStopped = false;
+let publishGeneration = 0;
+let publishedUrl = "";
 
 async function publish(wsUrl) {
   const headers = { "content-type": "application/json" };
@@ -568,11 +734,20 @@ async function publish(wsUrl) {
 async function claimSlot(wsUrl) {
   const deadline = Date.now() + 100000;
   let waited = false;
+  let transient = 0;
   for (;;) {
     try {
       return await publish(wsUrl);
     } catch (e) {
-      if (e.status !== 409) throw e;
+      if (e.status !== 409) {
+        // A cold function, DNS wobble or brief 5xx should not abort the whole
+        // cast before it has even printed the link. Client errors are permanent;
+        // retrying a bad token or URL only hides the useful failure.
+        if ((e.status && e.status < 500) || ++transient >= 5) throw e;
+        log("publish: " + e.message + " - retrying");
+        await new Promise((r) => setTimeout(r, PUBLISH_RETRY_MS * transient));
+        continue;
+      }
       if (Date.now() > deadline) {
         console.error("");
         console.error("  The cast slot has been held by someone else for the last 100s.");
@@ -590,10 +765,52 @@ async function claimSlot(wsUrl) {
   }
 }
 
+// setInterval made a slow request overlap its successor as soon as retries were
+// added. One self-scheduling loop owns the POST instead: transient failures get
+// two quick retries, successful refreshes return to the quiet 30-second cadence,
+// and a longer outage keeps trying every 10 seconds without piling up fetches.
+function startPublishLoop(getUrl) {
+  clearTimeout(publishTimer);
+  publishStopped = false;
+  const generation = ++publishGeneration;
+  const current = () => !publishStopped && generation === publishGeneration;
+  const later = (ms) => {
+    if (current()) publishTimer = setTimeout(beat, ms);
+  };
+  const beat = async () => {
+    for (let attempt = 1; attempt <= 3 && current(); attempt++) {
+      try {
+        await publish(getUrl());
+        return later(PUBLISH_MS);
+      } catch (e) {
+        log("heartbeat" + (attempt > 1 ? " retry " + attempt : "") + ": " + e.message);
+        if (attempt < 3) await new Promise((r) => setTimeout(r, PUBLISH_RETRY_MS * attempt));
+      }
+    }
+    if (current()) {
+      log("  ^ the site may have dropped this cast; retrying every 10s until it recovers");
+      later(Math.min(10000, PUBLISH_MS));
+    }
+  };
+  later(PUBLISH_MS);
+}
+
+function stopPublishLoop() {
+  publishStopped = true;
+  publishGeneration++;
+  clearTimeout(publishTimer);
+}
+
 async function unpublish() {
+  // If startup never published, there is nothing belonging to this process to
+  // remove. More importantly, name the exact URL: a replacement process uses the
+  // same persistent publish key, and an older process must not delete its record
+  // when the older tunnel finally exits.
+  if (!publishedUrl) return;
   try {
     const headers = ADMIN_TOKEN ? { "x-admin-token": ADMIN_TOKEN } : {};
-    await fetch(SITE + "/api/cast?p=" + encodeURIComponent(PUBLISH_KEY), {
+    await fetch(SITE + "/api/cast?p=" + encodeURIComponent(PUBLISH_KEY) +
+                "&u=" + encodeURIComponent(publishedUrl), {
       method: "DELETE",
       headers,
       signal: AbortSignal.timeout(5000),
@@ -670,7 +887,7 @@ async function main() {
       " -> " + VNC_HOST + ":" + VNC_PORT);
 
   const base = await startTunnel();
-  const wsUrl = base + "/ws?k=" + SESSION_KEY;
+  let wsUrl = base + "/ws?k=" + SESSION_KEY;
 
   // With no tunnel there is no address a viewer could reach, so the registry has
   // nothing to remember. Publishing anyway meant --tunnel none died on the site's
@@ -678,20 +895,15 @@ async function main() {
   // down with it - and on an offline network it died on the fetch instead.
   if (!TUNNELLESS) {
     await claimSlot(wsUrl);
-    let missed = 0;
-    publishTimer = setInterval(() => {
-      publish(wsUrl).then(() => { missed = 0; }).catch((e) => {
-        missed++;
-        log("heartbeat: " + e.message);
-        // Three in a row is longer than the record's own TTL: viewers are seeing
-        // "nobody is casting" by now, and one quiet line among the connection
-        // noise was not enough to say so.
-        if (missed === 3) {
-          log("  ^ three failed in a row - the site has dropped this cast and");
-          log("    viewers cannot find it. The cast itself is still running.");
-        }
-      });
-    }, 30000);
+    publishedUrl = wsUrl;
+    if (!recoveringTunnel) startPublishLoop(() => wsUrl);
+    replaceTunnelUrl = async (nextBase) => {
+      const nextUrl = nextBase + "/ws?k=" + SESSION_KEY;
+      await claimSlot(nextUrl);
+      wsUrl = nextUrl;
+      publishedUrl = nextUrl;
+      startPublishLoop(() => wsUrl);
+    };
   }
 
   console.log("\n  Casting \"" + NAME + "\".\n");
@@ -720,30 +932,68 @@ async function main() {
 }
 
 let quitting = false;
+let fataling = false;
+
+// Every socket and child has its own error listener, so reaching either of these
+// means a programming fault rather than an ordinary disconnect. A rejected
+// background promise can be reported without sacrificing healthy viewers; an
+// uncaught exception gets a loud, bounded cleanup instead of silently orphaning
+// the tunnel, registry record and TightVNC share mode.
+process.on("unhandledRejection", (e) => {
+  log("internal promise error: " + String(e?.message || e));
+});
+process.on("uncaughtException", (e) => {
+  if (fataling) return process.exit(1);
+  fataling = true;
+  console.error("\n  Internal host error: " + String(e?.stack || e) + "\n");
+  stopPublishLoop();
+  restoreShare();
+  if (tunnelProc) tunnelProc.kill();
+  const out = () => process.exit(1);
+  if (TUNNELLESS || !publishedUrl) return out();
+  unpublish().then(out, out);
+  setTimeout(out, 5500).unref();
+});
+
 // SIGTERM is never raised on Windows and closing the console window does not
 // arrive as SIGINT either; SIGBREAK and SIGHUP are what Node does deliver there.
 // Without them the only clean exit was Ctrl+C, and every other way of stopping
 // left the display cropped and the record advertised for its full TTL.
-for (const sig of ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"]) {
-  process.on(sig, async () => {
-    if (quitting) {
-      // Second Ctrl+C, usually because unpublish() is sitting on its timeout and
-      // the window looks hung. Give up on the network, but still put the display
-      // back - that is local, instant, and the thing worth saving.
-      restoreShare();
-      if (tunnelProc) tunnelProc.kill();
-      process.exit(0);
-    }
-    quitting = true;
-    log("shutting down...");
-    clearInterval(publishTimer);
-    // Restore first: it is a local call that always succeeds, where unpublish is
-    // a network round trip that can hang for its full 5s.
+async function shutDown() {
+  if (quitting) {
+    // Second Ctrl+C, usually because unpublish() is sitting on its timeout and
+    // the window looks hung. Give up on the network, but still put the display
+    // back - that is local, instant, and the thing worth saving.
     restoreShare();
-    if (!TUNNELLESS) await unpublish();
     if (tunnelProc) tunnelProc.kill();
     process.exit(0);
-  });
+  }
+  quitting = true;
+  log("shutting down...");
+  stopPublishLoop();
+  // Restore first: it is a local call that always succeeds, where unpublish is
+  // a network round trip that can hang for its full 5s.
+  restoreShare();
+  if (!TUNNELLESS) await unpublish();
+  if (tunnelProc) tunnelProc.kill();
+  process.exit(0);
+}
+
+for (const sig of ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"]) {
+  process.on(sig, () => { shutDown(); });
+}
+
+// Task Scheduler cannot deliver Ctrl+C to a hidden child, and child.kill() on
+// Windows is TerminateProcess rather than a signal. The always-on agent drops
+// this file instead, giving us the exact same cleanup path as the console.
+if (STOP_FILE) {
+  const stopWatch = setInterval(() => {
+    if (fs.existsSync(STOP_FILE)) {
+      clearInterval(stopWatch);
+      shutDown();
+    }
+  }, 250);
+  stopWatch.unref();
 }
 
 main().catch((e) => {
