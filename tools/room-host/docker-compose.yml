@@ -1,0 +1,48 @@
+# The Wyze bridge. It logs into the Wyze account, pulls the camera over Wyze's
+# own P2P protocol and re-serves it as RTSP and HLS on this machine.
+#
+# Nothing here is published to the internet. room-host.mjs puts a Cloudflare
+# tunnel in front of the HLS port and registers that with /api/room; the RTSP
+# port stays on loopback because the only thing that reads it is the transcriber
+# running on this same machine.
+services:
+  wyze-bridge:
+    container_name: room-wyze-bridge
+    restart: unless-stopped
+    image: mrlt8/wyze-bridge:latest
+    ports:
+      - 127.0.0.1:8554:8554   # RTSP, for the transcriber
+      - 127.0.0.1:8888:8888   # HLS, what the tunnel exposes
+      - 127.0.0.1:5000:5000   # the bridge's own web UI, for checking on it
+    environment:
+      # From https://developer-api-console.wyze.com/#/apikey/view
+      - WYZE_EMAIL=${WYZE_EMAIL}
+      - WYZE_PASSWORD=${WYZE_PASSWORD}
+      - API_ID=${WYZE_API_ID}
+      - API_KEY=${WYZE_API_KEY}
+      # Only the one camera. The account may hold others and they are not this
+      # page's business - every camera the bridge starts is another stream on the
+      # tunnel and another thing to have accidentally left running.
+      - FILTER_NAMES=${CAM_NAME}
+      # The whole point of the transcript, so this is not optional here.
+      - ENABLE_AUDIO=True
+      - AUDIO_CODEC=aac
+      # The bridge re-authenticates against Wyze on every restart and Wyze rate
+      # limits that hard - three requests a window, and it locks out for minutes
+      # once they are gone - so it is left to run rather than cycled, and its
+      # cache on disk is what makes a restart cheap.
+      - FRESH_DATA=False
+      # The bridge's own stream auth is off, and it is worth being precise about
+      # what that does and does not give away. Every port above is bound to
+      # 127.0.0.1, so nothing on the LAN can reach these streams; the only way in
+      # is the Cloudflare tunnel, and its hostname is a fresh random one on every
+      # restart. That URL is therefore the stream's only secret, and /api/room is
+      # what guards it - the view key is what a viewer trades for the URL.
+      #
+      # It is left off rather than configured because MediaMTX authenticates every
+      # segment request, and a browser does not carry credentials from a playlist
+      # URL into the segment URLs it then fetches - so a password here does not
+      # produce a page that plays, it produces one that loads a playlist and
+      # stalls. The honest summary: anyone who learns the tunnel URL can watch
+      # until the host next restarts.
+      - WB_AUTH=False

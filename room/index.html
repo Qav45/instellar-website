@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Room</title>
+<meta name="robots" content="noindex">
+<script>
+  (function () {
+    // Same file is served by GitHub Pages (instellar.net) and Vercel
+    // (go.instellar.net). Only the Vercel copy has /api/*, so bounce to that one.
+    var h = location.hostname;
+    if (h === "instellar.net" || h === "www.instellar.net") {
+      location.replace("https://go.instellar.net" +
+        location.pathname + location.search + location.hash);
+      return;
+    }
+    // Vercel serves /room without redirecting to /room/, and a relative URL in a
+    // page at /room resolves against /. Add the slash so relative paths mean what
+    // they look like.
+    if (!location.pathname.endsWith("/")) {
+      location.replace(location.pathname + "/" + location.search + location.hash);
+    }
+  })();
+</script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  :root { --bg:#0b0d12; --fg:#e7e9ee; --muted:#8a90a0; --accent:#6ea8fe; --panel:#151922; --line:#232838; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--fg); display: flex; flex-direction: column;
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+  #bar { display:flex; align-items:center; gap:10px; padding:8px 12px; flex:0 0 auto; flex-wrap:wrap;
+         background:var(--panel); border-bottom:1px solid var(--line); font-size:13px; }
+  #bar .spacer { flex:1; }
+  #state { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px;
+           min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #state .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
+  #state.live .dot { background:#3ddc84; box-shadow:0 0 8px #3ddc84; }
+  #state.wait .dot { background:#ffb020; box-shadow:0 0 8px #ffb020; animation:pulse 1.2s infinite; }
+  #state.bad  .dot { background:#ff5c5c; box-shadow:0 0 8px #ff5c5c; }
+  @keyframes pulse { 50% { opacity:.25; } }
+
+  #wrap { flex:1; display:flex; min-height:0; }
+  @media (max-width: 800px) { #wrap { flex-direction:column; } }
+
+  #stage { flex:1; background:#000; display:flex; align-items:center; justify-content:center;
+           min-height:0; min-width:0; position:relative; }
+  video { width:100%; height:100%; object-fit:contain; background:#000; }
+  #hint { position:absolute; color:var(--muted); font-size:13px; text-align:center; padding:20px; }
+
+  #side { width:340px; flex:0 0 auto; display:flex; flex-direction:column;
+          border-left:1px solid var(--line); background:var(--panel); min-height:0; }
+  @media (max-width: 800px) { #side { width:auto; border-left:0; border-top:1px solid var(--line);
+          height:45%; } }
+  #side h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);
+             padding:10px 12px 6px; font-weight:600; }
+  #tx { flex:1; overflow-y:auto; padding:0 12px 12px; font-size:13.5px; line-height:1.5; }
+  #tx .line { padding:4px 0; border-bottom:1px solid var(--line); }
+  #tx .line time { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums;
+                   margin-right:7px; }
+  #tx .none { color:var(--muted); font-size:12.5px; padding:6px 0; }
+
+  #saybox { display:flex; gap:6px; padding:10px 12px; border-top:1px solid var(--line); }
+  #saybox input { flex:1; min-width:0; background:#1b2130; color:var(--fg); border:1px solid var(--line);
+             border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; }
+  #saybox input:focus { outline:none; border-color:var(--accent); }
+  button { background:#1b2130; color:var(--fg); border:1px solid var(--line); border-radius:8px;
+           padding:8px 12px; font-size:13px; font-family:inherit; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+
+  #gate { position:fixed; inset:0; background:rgba(11,13,18,.96); display:flex;
+          align-items:center; justify-content:center; padding:20px; z-index:10; }
+  #gate .card { background:var(--panel); border:1px solid var(--line); border-radius:14px;
+                padding:22px; width:100%; max-width:360px; }
+  #gate h1 { font-size:16px; margin-bottom:6px; }
+  #gate p { color:var(--muted); font-size:13px; margin-bottom:14px; line-height:1.5; }
+  #gate input { width:100%; background:#1b2130; color:var(--fg); border:1px solid var(--line);
+                border-radius:8px; padding:9px 11px; font-size:14px; font-family:inherit;
+                margin-bottom:10px; }
+  #gate button { width:100%; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <div id="state"><span class="dot"></span><span id="stateText">starting</span></div>
+  <span class="spacer"></span>
+  <button id="unmute" hidden>Unmute</button>
+</div>
+
+<div id="wrap">
+  <div id="stage">
+    <video id="v" playsinline autoplay muted></video>
+    <div id="hint" hidden></div>
+  </div>
+  <div id="side">
+    <h2>Heard in the room</h2>
+    <div id="tx"><div class="none">Nothing yet.</div></div>
+    <form id="saybox">
+      <input id="sayText" placeholder="Say something out loud&hellip;" maxlength="300" autocomplete="off">
+      <button type="submit" id="sayGo">Say</button>
+    </form>
+  </div>
+</div>
+
+<div id="gate" hidden>
+  <div class="card">
+    <h1>Access key</h1>
+    <p>This room is not public. Paste the key from your watch link.</p>
+    <input id="gateInput" type="password" placeholder="key" autocomplete="off">
+    <button id="gateGo">Open the room</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+
+// A key containing a bare % is not a valid escape and decodeURIComponent throws
+// on it, which up here would abort the module and leave the access-key card on
+// screen with nothing wired to its button.
+function hashToken() {
+  const raw = (location.hash || "").replace(/^#/, "");
+  try { return decodeURIComponent(raw); } catch (_) { return raw; }
+}
+
+// A browser set to block site data throws on the mere mention of sessionStorage,
+// and that throw is the same dead page. The key is a convenience for a reload;
+// a session that has to ask again is not broken.
+const store = {
+  get: (k) => { try { return sessionStorage.getItem(k) || ""; } catch (_) { return ""; } },
+  set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (_) {} },
+  drop: (k) => { try { sessionStorage.removeItem(k); } catch (_) {} },
+};
+
+let token = hashToken() || store.get("roomToken");
+let endpoint = "";        // the playlist we are currently playing
+let since = 0;            // last transcript id seen
+let hls = null;
+let timer = null;
+
+// Keep the key out of the address bar, but not out of the session: stripped from
+// the URL and saved nowhere, every reload of a watch link lands back on the gate.
+if (location.hash) {
+  if (token) store.set("roomToken", token);
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
+/* ---------------------------------------------------------------- state -- */
+
+function setState(kind, text) {
+  $("state").className = kind;
+  $("stateText").textContent = text;
+}
+
+function hint(text) {
+  $("hint").textContent = text || "";
+  $("hint").hidden = !text;
+}
+
+/* ---------------------------------------------------------------- poll -- */
+
+// One timer and one request. The endpoint and the transcript come back together
+// from /api/room precisely so the page is not racing two polls against each
+// other and reconnecting the video on the loser.
+async function poll() {
+  let res;
+  try {
+    res = await fetch("/api/room?t=" + encodeURIComponent(token) + "&since=" + since,
+      { cache: "no-store" });
+  } catch (_) {
+    setState("bad", "no connection");
+    return;
+  }
+
+  if (res.status === 401) {
+    // The key is wrong, so stop using it. Left in place, the page would sit here
+    // asking once a second with a key that will never work.
+    store.drop("roomToken");
+    token = "";
+    stop();
+    return askToken("That key was not accepted.");
+  }
+  if (res.status === 403) {
+    stop();
+    return hintOnly("This device has been blocked by the owner.");
+  }
+  if (res.status === 404) {
+    setState("wait", "the room camera is not running");
+    hint("Nothing is streaming. Start room-host on the machine by the camera.");
+    teardown();
+    return;
+  }
+  if (!res.ok) { setState("bad", "error " + res.status); return; }
+
+  const body = await res.json();
+  hint("");
+  if (body.url && body.url !== endpoint) play(body.url);
+  if (body.name) setState($("state").className === "live" ? "live" : "wait", body.name);
+  addLines(body.tx || []);
+  if (typeof body.seq === "number" && body.seq > since) since = body.seq;
+}
+
+function start() {
+  $("gate").hidden = true;
+  if (timer) clearInterval(timer);
+  poll();
+  timer = setInterval(poll, 3000);
+}
+
+function stop() { if (timer) { clearInterval(timer); timer = null; } }
+
+/* ---------------------------------------------------------------- video -- */
+
+function play(url) {
+  teardown();
+  endpoint = url;
+  const v = $("v");
+  setState("wait", "connecting");
+
+  // Safari and iOS play HLS natively and hls.js refuses to run there; everywhere
+  // else needs the library. Native first, because on iOS it is the only path that
+  // works at all.
+  if (v.canPlayType("application/vnd.apple.mpegurl")) {
+    v.src = url;
+  } else if (window.Hls && window.Hls.isSupported()) {
+    hls = new window.Hls({ lowLatencyMode: true, backBufferLength: 30 });
+    hls.loadSource(url);
+    hls.attachMedia(v);
+    hls.on(window.Hls.Events.ERROR, (_e, data) => {
+      if (!data.fatal) return;
+      // A fatal error is not the end: the tunnel rotates whenever the host
+      // restarts, and the next poll will hand us the new URL. Dropping the
+      // player and letting the poll re-attach is the whole recovery.
+      setState("bad", "stream dropped, retrying");
+      teardown();
+      endpoint = "";
+    });
+  } else {
+    return hintOnly("This browser cannot play HLS.");
+  }
+  v.play().catch(() => {});
+  v.addEventListener("playing", () => setState("live", "live"), { once: true });
+}
+
+function teardown() {
+  if (hls) { try { hls.destroy(); } catch (_) {} hls = null; }
+  const v = $("v");
+  v.removeAttribute("src");
+  try { v.load(); } catch (_) {}
+  endpoint = "";
+}
+
+// Autoplay is only allowed while muted, so the video starts silent and the sound
+// waits for a click. Without the button there is no gesture to attach it to and
+// the room's audio simply never plays.
+$("unmute").addEventListener("click", () => {
+  const v = $("v");
+  v.muted = !v.muted;
+  $("unmute").textContent = v.muted ? "Unmute" : "Mute";
+});
+$("unmute").hidden = false;
+
+/* ----------------------------------------------------------- transcript -- */
+
+function addLines(lines) {
+  if (!lines.length) return;
+  const box = $("tx");
+  const none = box.querySelector(".none");
+  if (none) none.remove();
+  // Stick to the bottom only if the reader is already there, so scrolling back
+  // to read something is not yanked away by the next thing said.
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  for (const line of lines) {
+    const el = document.createElement("div");
+    el.className = "line";
+    const t = document.createElement("time");
+    t.textContent = new Date(line.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    el.appendChild(t);
+    // textContent, never innerHTML: this string was spoken by whoever is in the
+    // room and transcribed by a machine, and it is not markup.
+    el.appendChild(document.createTextNode(line.text));
+    box.appendChild(el);
+  }
+  while (box.children.length > 300) box.removeChild(box.firstChild);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+/* -------------------------------------------------------------- speaking -- */
+
+$("saybox").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = $("sayText");
+  const text = input.value.trim();
+  if (!text) return;
+  $("sayGo").disabled = true;
+  try {
+    const res = await fetch("/api/room?t=" + encodeURIComponent(token), {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (res.ok) {
+      input.value = "";
+      // Echoed locally rather than waiting for it to come back around. It never
+      // will: this went out of a speaker, and only what the microphone hears
+      // comes back as a transcript line.
+      addLines([{ id: 0, text: "→ " + text, at: Date.now() }]);
+    } else {
+      const body = await res.json().catch(() => ({}));
+      setState("bad", "not said: " + (body.error || res.status));
+    }
+  } catch (_) {
+    setState("bad", "not said");
+  }
+  $("sayGo").disabled = false;
+  input.focus();
+});
+
+/* ------------------------------------------------------------------ gate -- */
+
+function askToken(why) {
+  $("gate").hidden = false;
+  if (why) $("gate").querySelector("p").textContent = why;
+  $("gateInput").focus();
+}
+
+function hintOnly(text) {
+  teardown();
+  setState("bad", "stopped");
+  hint(text);
+}
+
+$("gateGo").addEventListener("click", () => {
+  const v = $("gateInput").value.trim();
+  if (!v) return;
+  token = v;
+  store.set("roomToken", v);
+  start();
+});
+$("gateInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("gateGo").click(); });
+
+if (token) start();
+else askToken("");
+</script>
+</body>
+</html>
