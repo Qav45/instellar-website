@@ -38,7 +38,7 @@ because its responses contain camera credentials and it can launch FFmpeg.
 ## Speech to text
 
 Local `faster-whisper` is the default, using `base.en` on the CPU. FFmpeg reads the
-camera microphone through the bridge's loopback RTSP port. Recognition uses two
+camera microphone through the bridge's loopback RTSP port. Recognition uses one
 second chunks with one second of overlap, word timestamps to avoid repeating
 overlap, and voice activity detection to suppress silence. Capture has a bounded
 queue so slow inference cannot accumulate an unlimited audio backlog.
@@ -77,3 +77,7 @@ checks WAV duration parsing used to serialize speech.
 References: [native Wyze support](https://github.com/AlexxIT/go2rtc/tree/master/internal/wyze),
 [stream-to-camera API](https://github.com/AlexxIT/go2rtc/tree/master/internal/streams),
 [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
+
+RTSP probing is limited and FFmpeg input buffering disabled for recognition.
+Measured first-second delivery improved from 3.7 s to 1.9 s. The page polls every
+750 ms. Camera speech uses a speech-band filter and 85% synthesis volume.

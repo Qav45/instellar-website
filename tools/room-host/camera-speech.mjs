@@ -28,6 +28,7 @@ export async function speakOnCamera(text, { directory, api, stream, codec, rate 
   const script = "$ErrorActionPreference='Stop';" +
     "$s=New-Object -ComObject SAPI.SpVoice;" +
     "foreach($v in $s.GetVoices()){if($v.GetDescription() -match 'David'){$s.Voice=$v;break}};" +
+    "$s.Volume=85;" +
     "$f=New-Object -ComObject SAPI.SpFileStream;" +
     "$f.Open($env:ROOM_SPEECH_FILE,3);" +
     "try {$s.AudioOutputStream=$f;$s.Rate=[int]$env:ROOM_SPEECH_RATE;" +
@@ -50,7 +51,7 @@ export async function speakOnCamera(text, { directory, api, stream, codec, rate 
       child.once('exit', (code) => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error('Speech synthesis failed')); });
     });
     const duration = wavDuration(await fs.readFile(file));
-    target.searchParams.set('src', `ffmpeg:${file}#audio=${codec}#input=file`);
+    target.searchParams.set('src', `ffmpeg:${file}#audio=${codec}#input=file#raw=-af highpass=f=100,lowpass=f=3400`);
     const response = await fetch(target, { method: 'POST', signal: AbortSignal.timeout(15000) });
     // go2rtc's response includes camera credentials: never log its body.
     await response.arrayBuffer();

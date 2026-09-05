@@ -26,14 +26,15 @@ def main():
     blocks = queue.Queue(maxsize=2)
     child = subprocess.Popen([
         args.ffmpeg, '-nostdin', '-loglevel', 'error', '-rtsp_transport', 'tcp',
-        '-timeout', '15000000', '-i', args.rtsp, '-vn', '-ac', '1', '-ar', '16000',
-        '-f', 's16le', '-',
+        '-timeout', '15000000', '-fflags', 'nobuffer', '-probesize', '32768',
+        '-analyzeduration', '0', '-i', args.rtsp, '-vn', '-ac', '1', '-ar', '16000',
+        '-af', 'volume=2,alimiter=limit=0.95,asetpts=N/SR/TB', '-f', 's16le', '-',
     ], stdout=subprocess.PIPE, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
     def capture():
         offset = 0
         while True:
-            data = child.stdout.read(16000 * 2 * 2)
+            data = child.stdout.read(16000 * 2)
             if not data:
                 break
             if blocks.full():
@@ -63,7 +64,7 @@ def main():
             emit(status='listening')
             segments, _ = model.transcribe(
                 audio, language='en', beam_size=1, vad_filter=True,
-                vad_parameters={'min_silence_duration_ms': 400},
+                vad_parameters={'min_silence_duration_ms': 300},
                 condition_on_previous_text=False, word_timestamps=True,
             )
             words = []

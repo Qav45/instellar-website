@@ -220,7 +220,7 @@ function start() {
   $("gate").hidden = true;
   if (timer) clearInterval(timer);
   poll();
-  timer = setInterval(poll, 1500);
+  timer = setInterval(poll, 750);
 }
 
 function stop() { if (timer) { clearInterval(timer); timer = null; } }
