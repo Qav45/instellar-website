@@ -10,6 +10,8 @@ services:
     container_name: room-wyze-bridge
     restart: unless-stopped
     image: mrlt8/wyze-bridge:latest
+    volumes:
+      - ./.runtime/tokens:/tokens
     ports:
       - 127.0.0.1:8554:8554   # RTSP, for the transcriber
       - 127.0.0.1:8888:8888   # HLS, what the tunnel exposes
@@ -27,6 +29,9 @@ services:
       # The whole point of the transcript, so this is not optional here.
       - ENABLE_AUDIO=True
       - AUDIO_CODEC=aac
+      - MTX_HLSVARIANT=lowLatency
+      - MTX_HLSPARTDURATION=200ms
+      - MTX_HLSSEGMENTDURATION=1s
       # The bridge re-authenticates against Wyze on every restart and Wyze rate
       # limits that hard - three requests a window, and it locks out for minutes
       # once they are gone - so it is left to run rather than cycled, and its

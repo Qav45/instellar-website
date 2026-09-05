@@ -10,7 +10,7 @@
 //
 // This is /api/cast with a different payload, and deliberately so - the reasons
 // that shaped that file all apply again here. Vercel functions cannot hold a
-// socket open, so the video does NOT pass through: the page speaks WHEP straight
+// socket open, so the video does NOT pass through: the page reads LL-HLS straight
 // to the host's tunnel and all this remembers is where the tunnel currently is.
 //
 // The two-key split is the same and matters for the same reason. The view key
@@ -26,7 +26,7 @@
 // room nobody is watching should cost nothing and leave nothing behind.
 //
 // The speech queue is drained by the heartbeat rather than by its own endpoint.
-// The host is already talking to this file every 30 seconds, so handing back the
+// The host is already talking to this file every 2 seconds, so handing back the
 // pending lines in that reply costs no extra round trip, and a message can only
 // be collected by the key that owns the room - the same rule the cast wish uses.
 
@@ -35,7 +35,7 @@ const KV_URL = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_UR
 const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
 const ROOM_TOKEN = process.env.ROOM_TOKEN || process.env.CAST_TOKEN || "";
 const KEY = "room:ep";
-const TTL = 90;               // seconds; the host heartbeats every 30
+const TTL = 90;               // seconds; the host heartbeats every 2
 const TX = "room:tx";         // transcript lines, newest first
 const TX_SEQ = "room:txseq";  // monotonic id so a viewer can ask for "since"
 const TX_MAX = 300;           // lines kept; roughly half an hour of talking
@@ -115,7 +115,7 @@ async function onGet(request, url) {
   if (!rec) return json(404, { error: "offline", detail: "The room camera is not running." });
   if (!safeEqual(await sha256(given), rec.th)) return json(401, { error: "Bad token" });
 
-  const body = { url: rec.url, name: rec.name || "", at: rec.at };
+  const body = { url: rec.url, name: rec.name || "", at: rec.at, speech: rec.speech || "unknown", stt: rec.stt || "unknown" };
   // The transcript rides along with the endpoint rather than living at its own
   // path, so the page polls one thing on one timer instead of racing two.
   const since = Number(url.searchParams.get("since") || 0) || 0;
@@ -137,6 +137,9 @@ async function onPut(request, url) {
   if (!rec) return json(404, { error: "offline", detail: "The room camera is not running." });
   if (!safeEqual(await sha256(given), rec.th)) return json(401, { error: "Bad token" });
 
+  if (rec.speech && rec.speech !== "ready") {
+    return json(503, { error: "Camera speaker is " + rec.speech });
+  }
   const body = await request.json().catch(() => null);
   const text = String(body?.text || "").trim().slice(0, SAY_LIMIT);
   if (!text) return json(400, { error: "text is required" });
@@ -181,10 +184,7 @@ async function onPost(request) {
   // The heartbeat, which is also how the host collects what to say.
   const target = String(body?.url || "");
   const token = String(body?.token || "");
-  // https:// here where cast.mjs wants wss://, because WHEP is a POST of an SDP
-  // offer over plain HTTPS and the media then arrives out of band over WebRTC.
-  // Plaintext stays rejected for the same reason it is there: the page runs on
-  // https and a browser refuses the request, so such a record is a dead end.
+  // The page runs over HTTPS, so the media URL must also use HTTPS.
   if (!/^https:\/\/[^\s]+$/i.test(target)) return json(400, { error: "url must be an https:// address" });
   if (token.length < 4) return json(400, { error: "token must be at least 4 chars" });
 
@@ -192,6 +192,8 @@ async function onPost(request) {
   const ph = await sha256(publish);
   const next = JSON.stringify({
     url: target, name: String(body?.name || "").slice(0, 60), th, ph, at: Date.now(),
+    speech: ["ready", "off", "starting", "connecting", "unavailable", "error"].includes(body?.speech) ? body.speech : "",
+    stt: ["listening", "off", "starting", "error"].includes(body?.stt) ? body.stt : "",
   });
 
   // Claim an empty slot atomically, so two hosts cannot both read "no record",

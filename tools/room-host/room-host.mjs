@@ -1,31 +1,15 @@
-// The host half of /room. Run it on the machine that shares a LAN with the
-// camera; everything else lives on the site.
-//
-//   node room-host.mjs [--no-stt] [--no-say] [--tunnel none]
-//
-// Four jobs, none of which are the video path:
-//
-//   1. put a Cloudflare tunnel in front of the bridge's HLS port
-//   2. heartbeat that tunnel's URL to /api/room every 30 seconds
-//   3. collect whatever viewers queued in that reply and say it out loud
-//   4. transcribe the room off the bridge's RTSP port and post the lines up
-//
-// The pixels never pass through instellar.net, for the reason written up in
-// tools/cast-host/README.md: a Vercel function cannot hold a socket open, so the
-// page fetches the playlist straight from the tunnel and /api/room only ever
-// remembers where that tunnel currently is.
-//
-// HLS and not WebRTC, which is the one real compromise here. WHEP would be a
-// second or two quicker, but its media is UDP to an ICE candidate and a
-// Cloudflare tunnel carries HTTP - the signalling would succeed and the video
-// would never arrive. The delay lands only on the picture: the transcript is cut
-// from the RTSP feed on this machine and never goes near the tunnel, so what is
-// said in the room still reaches the page promptly.
+// LAN host for /room: LL-HLS tunnel, camera-only speech, local transcription.
+// Run: node room-host.mjs [--no-stt] [--no-say]
+// Camera video/audio come from the Wyze bridge. go2rtc supplies native talkback.
+// The browser receives media over HTTPS; WebRTC would need a separate ICE path
+// (direct connectivity or TURN), which the HTTP tunnel alone does not provide.
 
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline";
+import { speakOnCamera } from "./camera-speech.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // .env if there is one, the process environment otherwise, with the file winning.
@@ -52,7 +36,18 @@ const NAME = env.ROOM_LABEL || CAM;
 const DEEPGRAM = flag("no-stt") ? "" : (env.DEEPGRAM_KEY || "");
 const HLS_PORT = 8888;
 const RTSP = "rtsp://127.0.0.1:8554/" + CAM;
-const BEAT_MS = 30000;          // the record's TTL is 90s, so this is 3 tries
+const BEAT_MS = 2000; // Collect speech promptly, with no overlapping requests.
+const CAMERA_API = env.CAMERA_AUDIO_API || "http://127.0.0.1:1984";
+const CAMERA_STREAM = env.CAMERA_AUDIO_STREAM || "camera";
+let speechStatus = flag("no-say") ? "off" : "starting";
+let sttStatus = flag("no-stt") ? "off" : "starting";
+const children = new Set();
+function track(child) {
+  children.add(child);
+  child.once("exit", () => children.delete(child));
+  return child;
+}
+process.on("exit", () => { for (const child of children) child.kill(); });
 
 let tunnelUrl = "";
 let published = "";
@@ -78,16 +73,23 @@ async function main() {
   log("camera   " + CAM);
   log("bridge   http://127.0.0.1:" + HLS_PORT + "/" + CAM + "/index.m3u8");
 
+  await startCameraAudio();
   await waitForBridge();
   tunnelUrl = await startTunnel();
   log("tunnel   " + tunnelUrl);
 
   const playlist = tunnelUrl.replace(/\/+$/, "") + "/" + CAM + "/index.m3u8";
   await beat(playlist);
-  setInterval(() => beat(playlist).catch((e) => log("heartbeat: " + e.message)), BEAT_MS);
+  const heartbeat = async () => {
+    if (stopping) return;
+    try { await beat(playlist); } catch (e) { log("heartbeat: " + e.message); }
+    if (!stopping) setTimeout(heartbeat, BEAT_MS);
+  };
+  setTimeout(heartbeat, BEAT_MS);
 
-  if (DEEPGRAM) startTranscriber();
-  else log("stt      off (no DEEPGRAM_KEY) - the room's audio stays in the house");
+  if (flag("no-stt")) log("stt      off (--no-stt)");
+  else if (DEEPGRAM) startTranscriber();
+  else startLocalTranscriber();
 
   log("");
   log("watch it at " + API.replace(/\/api\/room$/, "/room") + "#" + VIEW);
@@ -150,7 +152,7 @@ function startTunnel() {
 /* ------------------------------------------------------------ heartbeat -- */
 
 async function beat(url) {
-  const r = await post({ url, name: NAME, token: VIEW, publish: PUBLISH });
+  const r = await post({ url, name: NAME, token: VIEW, publish: PUBLISH, speech: speechStatus, stt: sttStatus });
   if (!r.ok) throw new Error("publish " + r.status + " " + JSON.stringify(r.body));
   if (r.body.claimed) log("published " + url);
   published = url;
@@ -172,58 +174,99 @@ async function post(body) {
 
 /* -------------------------------------------------------------- talking -- */
 
-// One at a time. Two SAPI voices talking over each other in a real room is not a
-// transcript anyone can follow, and viewers can queue faster than speech runs.
+// One camera message at a time; no fallback to the PC's audio device.
 const queue = [];
 let speaking = false;
-
 function say(text) {
-  if (flag("no-say")) return log("say (muted): " + text);
-  queue.push(text);
+  if (flag("no-say")) return;
+  if (queue.length < 20) queue.push(text);
   drain();
 }
-
-function drain() {
-  if (speaking || !queue.length) return;
+async function drain() {
+  if (speaking || !queue.length || stopping) return;
   speaking = true;
   const text = queue.shift();
-  log("saying: " + text);
-  // Through a temp file and -EncodedCommand rather than interpolated into the
-  // command line: this string came off the internet from anyone holding the view
-  // key, and pasting it into a PowerShell command is how it would get to run as
-  // one. Base64 of UTF-16LE is what -EncodedCommand takes.
-  const script = "$ErrorActionPreference='Stop';" +
-    "Add-Type -AssemblyName System.Speech;" +
-    "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;" +
-    "$s.Speak([Console]::In.ReadToEnd())";
-  const encoded = Buffer.from(script, "utf16le").toString("base64");
-  const child = spawn("powershell", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-    { windowsHide: true });
-  child.stdin.end(text, "utf8");
+  try {
+    await speakOnCamera(text, {
+      directory: path.join(HERE, ".runtime"), api: CAMERA_API, stream: CAMERA_STREAM,
+      codec: env.CAMERA_AUDIO_CODEC || "pcml/8000", rate: Number(env.CAMERA_SPEECH_RATE || -2),
+    });
+    speechStatus = "ready";
+    log("camera   message played");
+  } catch (e) {
+    speechStatus = "error";
+    log("camera speech: " + e.message);
+  } finally { speaking = false; drain(); }
+}
 
-  // A watchdog, because one wedged child used to stop the room talking for good.
-  // `speaking` is only cleared on exit, so a SAPI call that never returns - and
-  // one did, sitting at no CPU with the queue backing up behind it - meant every
-  // later message was accepted by the site, logged here as "saying", and never
-  // heard. Whatever makes SAPI hang, it must not be able to take the feature with
-  // it. Generous enough not to cut real speech off: SAPI runs at roughly 15
-  // characters a second and the queue caps a message at 300.
-  let done = false;
-  const finish = () => {
-    if (done) return;
-    done = true;
-    clearTimeout(watchdog);
-    speaking = false;
-    drain();
+async function startCameraAudio() {
+  if (flag("no-say")) return;
+  const bin = path.join(HERE, ".runtime", "go2rtc.exe");
+  const config = path.join(HERE, ".runtime", "go2rtc.yaml");
+  // An existing local service is also supported. Its API is never tunneled.
+  try { await fetch(CAMERA_API + "/api", { signal: AbortSignal.timeout(1000) }); }
+  catch (_) {
+    if (!fs.existsSync(bin) || !fs.existsSync(config)) {
+      speechStatus = "unavailable";
+      return log("camera   speaker unavailable: configure go2rtc (see README)");
+    }
+    const child = track(spawn(bin, ["-config", config], { windowsHide: true, stdio: "ignore" }));
+    child.on("error", () => { speechStatus = "error"; });
+    child.on("exit", () => { speechStatus = "error"; });
+    await sleep(1000);
+  }
+  // Keep the native producer connected so its audio codec is detected before
+  // sending the first message. Video/STT continue using the established bridge.
+  const ff = findBin("ffmpeg");
+  if (!ff) { speechStatus = "unavailable"; return; }
+  const connect = () => {
+    if (stopping) return;
+    const child = track(spawn(ff, ["-nostdin", "-loglevel", "error", "-rtsp_transport", "tcp",
+      "-timeout", "15000000", "-i", env.CAMERA_AUDIO_RTSP || "rtsp://127.0.0.1:8556/camera?audio",
+      "-vn", "-acodec", "copy", "-f", "null", "-"], { windowsHide: true, stdio: "ignore" }));
+    child.on("error", () => { speechStatus = "error"; });
+    child.on("exit", () => { speechStatus = "error"; if (!stopping) setTimeout(connect, 5000); });
   };
-  const watchdog = setTimeout(() => {
-    log("say: gave up after 45s, killing it");
-    try { child.kill(); } catch (_) {}
-    finish();
-  }, 45000);
+  connect();
+  const check = async () => {
+    if (stopping) return;
+    try {
+      const response = await fetch(CAMERA_API + "/api/streams?src=" + encodeURIComponent(CAMERA_STREAM),
+        { signal: AbortSignal.timeout(2000) });
+      const info = await response.json();
+      speechStatus = info.producers?.some(p => p.medias?.some(m => m.includes("audio, sendonly"))) ? "ready" : "connecting";
+    } catch (_) { speechStatus = "error"; }
+    if (!stopping) setTimeout(check, 5000);
+  };
+  await check();
+}
 
-  child.on("exit", finish);
-  child.on("error", (e) => { log("say failed: " + e.message); finish(); });
+function startLocalTranscriber() {
+  const ff = findBin("ffmpeg");
+  if (!ff) { sttStatus = "error"; return log("stt: ffmpeg missing"); }
+  const run = () => {
+    if (stopping) return;
+    sttStatus = "starting";
+    const child = track(spawn(env.ROOM_PYTHON || "python", ["-u", path.join(HERE, "transcribe.py"),
+      "--ffmpeg", ff, "--rtsp", RTSP, "--model", env.WHISPER_MODEL || "base.en"], { windowsHide: true }));
+    child.stdin.end();
+    createInterface({ input: child.stdout }).on("line", (line) => {
+      try {
+        const event = JSON.parse(line);
+        if (event.status && event.status !== sttStatus) { sttStatus = event.status; log("stt      " + sttStatus); }
+        if (event.text) sendLine(event.text);
+      } catch (_) { /* stdout is a JSON-lines protocol */ }
+    });
+    child.stderr.on("data", b => log("stt: " + String(b).trim()));
+    let retry = false;
+    const restart = () => {
+      sttStatus = "error";
+      if (!retry && !stopping) { retry = true; setTimeout(run, 10000); }
+    };
+    child.on("error", restart);
+    child.on("exit", restart);
+  };
+  run();
 }
 
 /* ---------------------------------------------------------------- to text -- */
@@ -271,7 +314,7 @@ function startTranscriber() {
       // and fails as an unexplained 401.
     }), ["token", DEEPGRAM]);
 
-    ws.addEventListener("open", () => log("stt      listening"));
+    ws.addEventListener("open", () => { sttStatus = "listening"; log("stt      listening"); });
     ws.addEventListener("message", (ev) => {
       let msg = null;
       try { msg = JSON.parse(ev.data); } catch (_) { return; }
@@ -307,7 +350,7 @@ function sendLine(text) {
       const r = await post({ publish: PUBLISH, tx });
       if (!r.ok) log("transcript " + r.status + " " + JSON.stringify(r.body));
     } catch (e) { log("transcript: " + e.message); }
-  }, 1500);
+  }, 250);
 }
 
 /* ----------------------------------------------------------- going away -- */

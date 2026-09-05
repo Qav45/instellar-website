@@ -1,1 +1,3 @@
 tools/room-host/.env
+tools/room-host/.runtime/
+tools/room-host/__pycache__/

@@ -97,11 +97,11 @@
     <div id="hint" hidden></div>
   </div>
   <div id="side">
-    <h2>Heard in the room</h2>
+    <h2>Heard in the room <span id="sttState">— connecting</span></h2>
     <div id="tx"><div class="none">Nothing yet.</div></div>
     <form id="saybox">
-      <input id="sayText" placeholder="Say something out loud&hellip;" maxlength="300" autocomplete="off">
-      <button type="submit" id="sayGo">Say</button>
+      <input id="sayText" placeholder="Speak through the camera&hellip;" maxlength="300" autocomplete="off">
+      <button type="submit" id="sayGo" disabled>Say</button>
     </form>
   </div>
 </div>
@@ -141,6 +141,8 @@ let endpoint = "";        // the playlist we are currently playing
 let since = 0;            // last transcript id seen
 let hls = null;
 let timer = null;
+let polling = false;
+let speakerReady = false;
 
 // Keep the key out of the address bar, but not out of the session: stripped from
 // the URL and saved nowhere, every reload of a watch link lands back on the gate.
@@ -167,10 +169,16 @@ function hint(text) {
 // from /api/room precisely so the page is not racing two polls against each
 // other and reconnecting the video on the loser.
 async function poll() {
+  if (polling) return;
+  polling = true;
+  try { await pollOnce(); } catch (_) { setState("bad", "connection error"); }
+  finally { polling = false; }
+}
+async function pollOnce() {
   let res;
   try {
     res = await fetch("/api/room?t=" + encodeURIComponent(token) + "&since=" + since,
-      { cache: "no-store" });
+      { cache: "no-store", signal: AbortSignal.timeout(8000) });
   } catch (_) {
     setState("bad", "no connection");
     return;
@@ -198,6 +206,10 @@ async function poll() {
 
   const body = await res.json();
   hint("");
+  speakerReady = body.speech === "ready";
+  $("sayGo").disabled = !speakerReady;
+  $("sayText").placeholder = speakerReady ? "Speak through the camera…" : "Camera speaker: " + (body.speech || "connecting");
+  $("sttState").textContent = "— " + ({listening:"listening", starting:"starting", off:"off", error:"reconnecting"}[body.stt] || "connecting");
   if (body.url && body.url !== endpoint) play(body.url);
   if (body.name) setState($("state").className === "live" ? "live" : "wait", body.name);
   addLines(body.tx || []);
@@ -208,7 +220,7 @@ function start() {
   $("gate").hidden = true;
   if (timer) clearInterval(timer);
   poll();
-  timer = setInterval(poll, 3000);
+  timer = setInterval(poll, 1500);
 }
 
 function stop() { if (timer) { clearInterval(timer); timer = null; } }
@@ -227,21 +239,12 @@ function play(url) {
   // Android phone down a path that produces a black frame and no error. Only
   // Safari and iOS, where hls.js refuses to run, actually need the native player.
   if (window.Hls && window.Hls.isSupported()) {
-    // The delay is almost entirely this. hls.js defaults to holding three
-    // segments before it starts playing, and MediaMTX cuts two-second segments,
-    // so the default is six seconds of buffer on top of the ~2s the newest
-    // segment has already aged - about eight seconds behind the room.
-    //
-    // Holding one segment instead trades that for a smaller cushion against a
-    // slow moment on the network; maxLiveSyncPlaybackRate lets it play slightly
-    // fast to catch up after one rather than staying permanently behind. A
-    // watching page that stutters occasionally is the right trade here, because
-    // the whole point is talking to someone who is standing there.
+    // Let LL-HLS use PART-HOLD-BACK from the playlist. A segment-count
+    // override discards that and forces a full two-second camera GOP of delay.
     hls = new window.Hls({
       lowLatencyMode: true,
       backBufferLength: 10,
-      liveSyncDurationCount: 1,
-      maxLiveSyncPlaybackRate: 1.5,
+      maxLiveSyncPlaybackRate: 1.15,
     });
     hls.loadSource(url);
     hls.attachMedia(v);
@@ -341,7 +344,7 @@ $("saybox").addEventListener("submit", async (e) => {
   } catch (_) {
     setState("bad", "not said");
   }
-  $("sayGo").disabled = false;
+  $("sayGo").disabled = !speakerReady;
   input.focus();
 });
 

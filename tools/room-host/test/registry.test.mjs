@@ -208,6 +208,14 @@ await check("blocking never stops the host publishing",
   await post({ url: REAL, token: VIEW, publish: PUBLISH }), 200);
 unblockIp("203.0.113.9");
 
+// The host reports actual feature availability; unavailable speech is rejected.
+await post({ url: REAL, token: VIEW, publish: PUBLISH, speech: "unavailable", stt: "listening" });
+let status = await (await get(VIEW)).json();
+okLine("viewer sees camera speaker and transcription status", status.speech === "unavailable" && status.stt === "listening");
+await check("unavailable camera speaker does not accept messages", await put(VIEW, "do not play on PC"), 503);
+await post({ url: REAL, token: VIEW, publish: PUBLISH, speech: "ready", stt: "listening" });
+await check("ready camera speaker accepts messages", await put(VIEW, "camera only"), 200);
+
 /* -------------------------------------------------------------- offline -- */
 
 await del(PUBLISH);
