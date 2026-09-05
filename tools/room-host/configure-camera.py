@@ -47,7 +47,8 @@ ff = next(pathlib.Path.home().glob('AppData/Local/Microsoft/WinGet/Packages/*FFm
 config = {
     'api': {'listen': '127.0.0.1:1984'}, 'rtsp': {'listen': '127.0.0.1:8556'},
     'webrtc': {'listen': ''}, 'streams': {'camera': source},
-    'ffmpeg': {'bin': str(ff) if ff else 'ffmpeg'},
+    'ffmpeg': {'bin': str(ff) if ff else 'ffmpeg',
+               'pcml/8000': '-af highpass=f=100,lowpass=f=3400 -c:a pcm_s16le -ar:a 8000 -ac:a 1'},
 }
 (runtime / 'go2rtc.yaml').write_text(json.dumps(config, indent=2))
 print(f"Configured {cam['nickname']} on UDP port {port}; restart room-host/go2rtc to apply.")
