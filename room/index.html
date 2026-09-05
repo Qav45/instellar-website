@@ -227,7 +227,22 @@ function play(url) {
   // Android phone down a path that produces a black frame and no error. Only
   // Safari and iOS, where hls.js refuses to run, actually need the native player.
   if (window.Hls && window.Hls.isSupported()) {
-    hls = new window.Hls({ lowLatencyMode: true, backBufferLength: 30 });
+    // The delay is almost entirely this. hls.js defaults to holding three
+    // segments before it starts playing, and MediaMTX cuts two-second segments,
+    // so the default is six seconds of buffer on top of the ~2s the newest
+    // segment has already aged - about eight seconds behind the room.
+    //
+    // Holding one segment instead trades that for a smaller cushion against a
+    // slow moment on the network; maxLiveSyncPlaybackRate lets it play slightly
+    // fast to catch up after one rather than staying permanently behind. A
+    // watching page that stutters occasionally is the right trade here, because
+    // the whole point is talking to someone who is standing there.
+    hls = new window.Hls({
+      lowLatencyMode: true,
+      backBufferLength: 10,
+      liveSyncDurationCount: 1,
+      maxLiveSyncPlaybackRate: 1.5,
+    });
     hls.loadSource(url);
     hls.attachMedia(v);
     hls.on(window.Hls.Events.ERROR, (_e, data) => {
