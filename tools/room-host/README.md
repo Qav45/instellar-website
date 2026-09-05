@@ -22,7 +22,7 @@ media path; an HTTP tunnel alone only transports its signaling.
 Speech is synthesized with Windows SAPI **to a WAV file**, then sent through
 go2rtc's native Wyze talkback. The PC's speakers/headphones are never selected.
 Messages play serially, with a synthesis watchdog and cleanup. The default voice
-rate is -2, slower than the initial test. The host collects speech every two seconds.
+rate is -4 (David voice), slower than the initial test. The host collects speech every two seconds.
 The website refuses new messages while the host reports an unavailable speaker.
 
 This camera is a Wyze v3, firmware 4.36.10.4054. Native go2rtc 1.9.14 talkback was
@@ -38,7 +38,7 @@ because its responses contain camera credentials and it can launch FFmpeg.
 ## Speech to text
 
 Local `faster-whisper` is the default, using `base.en` on the CPU. FFmpeg reads the
-camera microphone through the bridge's loopback RTSP port. Recognition uses five
+camera microphone through the bridge's loopback RTSP port. Recognition uses two
 second chunks with one second of overlap, word timestamps to avoid repeating
 overlap, and voice activity detection to suppress silence. Capture has a bounded
 queue so slow inference cannot accumulate an unlimited audio backlog.

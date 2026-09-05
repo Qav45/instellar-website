@@ -189,7 +189,7 @@ async function drain() {
   try {
     await speakOnCamera(text, {
       directory: path.join(HERE, ".runtime"), api: CAMERA_API, stream: CAMERA_STREAM,
-      codec: env.CAMERA_AUDIO_CODEC || "pcml/8000", rate: Number(env.CAMERA_SPEECH_RATE || -2),
+      codec: env.CAMERA_AUDIO_CODEC || "pcml/8000", rate: Number(env.CAMERA_SPEECH_RATE || -4),
     });
     speechStatus = "ready";
     log("camera   message played");

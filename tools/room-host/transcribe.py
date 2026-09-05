@@ -33,7 +33,7 @@ def main():
     def capture():
         offset = 0
         while True:
-            data = child.stdout.read(16000 * 2 * 5)
+            data = child.stdout.read(16000 * 2 * 2)
             if not data:
                 break
             if blocks.full():

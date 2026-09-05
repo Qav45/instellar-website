@@ -19,7 +19,7 @@ export function wavDuration(buffer) {
   return size / rate;
 }
 
-export async function speakOnCamera(text, { directory, api, stream, codec, rate = -2 }) {
+export async function speakOnCamera(text, { directory, api, stream, codec, rate = -4 }) {
   await fs.mkdir(directory, { recursive: true });
   const folder = await fs.mkdtemp(path.join(directory, 'speech-'));
   const file = path.join(folder, 'message.wav');
@@ -27,6 +27,7 @@ export async function speakOnCamera(text, { directory, api, stream, codec, rate 
   // SpFileStream explicitly prevents SAPI from using the PC's default device.
   const script = "$ErrorActionPreference='Stop';" +
     "$s=New-Object -ComObject SAPI.SpVoice;" +
+    "foreach($v in $s.GetVoices()){if($v.GetDescription() -match 'David'){$s.Voice=$v;break}};" +
     "$f=New-Object -ComObject SAPI.SpFileStream;" +
     "$f.Open($env:ROOM_SPEECH_FILE,3);" +
     "try {$s.AudioOutputStream=$f;$s.Rate=[int]$env:ROOM_SPEECH_RATE;" +
