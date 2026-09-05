@@ -28,7 +28,10 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const env = loadEnv(path.join(HERE, ".env"));
+// .env if there is one, the process environment otherwise, with the file winning.
+// The file is the normal way in; the environment is what makes this runnable as a
+// service, or on a machine whose tooling is not allowed to write a .env at all.
+const env = { ...process.env, ...loadEnv(path.join(HERE, ".env")) };
 
 const ARGS = process.argv.slice(2);
 const flag = (name) => ARGS.includes("--" + name);
@@ -65,22 +68,30 @@ if (VIEW === PUBLISH) die("ROOM_VIEW and ROOM_PUBLISH must be different keys.");
 
 /* ----------------------------------------------------------------- main -- */
 
-log("camera   " + CAM);
-log("bridge   http://127.0.0.1:" + HLS_PORT + "/" + CAM + "/index.m3u8");
+// Everything runs from here rather than straight down the module body, and that
+// is not a matter of taste. A top-level `await` runs while the rest of the file
+// is still being evaluated, so anything it reaches for that is declared further
+// down - `sleep`, `WELL_KNOWN` - is in the temporal dead zone and throws
+// "Cannot access before initialization". Function declarations hoist; consts do
+// not, and the ones this reaches through are consts.
+async function main() {
+  log("camera   " + CAM);
+  log("bridge   http://127.0.0.1:" + HLS_PORT + "/" + CAM + "/index.m3u8");
 
-await waitForBridge();
-tunnelUrl = await startTunnel();
-log("tunnel   " + tunnelUrl);
+  await waitForBridge();
+  tunnelUrl = await startTunnel();
+  log("tunnel   " + tunnelUrl);
 
-const playlist = tunnelUrl.replace(/\/+$/, "") + "/" + CAM + "/index.m3u8";
-await beat(playlist);
-setInterval(() => beat(playlist).catch((e) => log("heartbeat: " + e.message)), BEAT_MS);
+  const playlist = tunnelUrl.replace(/\/+$/, "") + "/" + CAM + "/index.m3u8";
+  await beat(playlist);
+  setInterval(() => beat(playlist).catch((e) => log("heartbeat: " + e.message)), BEAT_MS);
 
-if (DEEPGRAM) startTranscriber();
-else log("stt      off (no DEEPGRAM_KEY) - the room's audio stays in the house");
+  if (DEEPGRAM) startTranscriber();
+  else log("stt      off (no DEEPGRAM_KEY) - the room's audio stays in the house");
 
-log("");
-log("watch it at " + API.replace(/\/api\/room$/, "/room") + "#" + VIEW);
+  log("");
+  log("watch it at " + API.replace(/\/api\/room$/, "/room") + "#" + VIEW);
+}
 
 /* --------------------------------------------------------------- bridge -- */
 
@@ -189,8 +200,30 @@ function drain() {
   const child = spawn("powershell", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
     { windowsHide: true });
   child.stdin.end(text, "utf8");
-  child.on("exit", () => { speaking = false; drain(); });
-  child.on("error", (e) => { log("say failed: " + e.message); speaking = false; drain(); });
+
+  // A watchdog, because one wedged child used to stop the room talking for good.
+  // `speaking` is only cleared on exit, so a SAPI call that never returns - and
+  // one did, sitting at no CPU with the queue backing up behind it - meant every
+  // later message was accepted by the site, logged here as "saying", and never
+  // heard. Whatever makes SAPI hang, it must not be able to take the feature with
+  // it. Generous enough not to cut real speech off: SAPI runs at roughly 15
+  // characters a second and the queue caps a message at 300.
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(watchdog);
+    speaking = false;
+    drain();
+  };
+  const watchdog = setTimeout(() => {
+    log("say: gave up after 45s, killing it");
+    try { child.kill(); } catch (_) {}
+    finish();
+  }, 45000);
+
+  child.on("exit", finish);
+  child.on("error", (e) => { log("say failed: " + e.message); finish(); });
 }
 
 /* ---------------------------------------------------------------- to text -- */
@@ -356,3 +389,5 @@ function findBin(cmd) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function log(s) { console.log(s); }
 function die(s) { console.error("room-host: " + s); process.exit(1); }
+
+main().catch((e) => die(e.message));

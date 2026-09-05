@@ -221,12 +221,12 @@ function play(url) {
   const v = $("v");
   setState("wait", "connecting");
 
-  // Safari and iOS play HLS natively and hls.js refuses to run there; everywhere
-  // else needs the library. Native first, because on iOS it is the only path that
-  // works at all.
-  if (v.canPlayType("application/vnd.apple.mpegurl")) {
-    v.src = url;
-  } else if (window.Hls && window.Hls.isSupported()) {
+  // hls.js FIRST, native only as the fallback, and the order is the whole bug it
+  // fixes. Chrome on Android answers "maybe" to canPlayType for HLS and then
+  // plays it badly or not at all, so testing native support first sends every
+  // Android phone down a path that produces a black frame and no error. Only
+  // Safari and iOS, where hls.js refuses to run, actually need the native player.
+  if (window.Hls && window.Hls.isSupported()) {
     hls = new window.Hls({ lowLatencyMode: true, backBufferLength: 30 });
     hls.loadSource(url);
     hls.attachMedia(v);
@@ -239,9 +239,19 @@ function play(url) {
       teardown();
       endpoint = "";
     });
+  } else if (v.canPlayType("application/vnd.apple.mpegurl")) {
+    v.src = url;                       // Safari and iOS, where hls.js will not run
   } else {
     return hintOnly("This browser cannot play HLS.");
   }
+  // Surfaced rather than swallowed. A <video> that fails to load its source fires
+  // this and nothing else, and without it the page sits on "connecting" forever
+  // with no clue as to why - which is exactly how a black frame gets reported as
+  // "no video feed" with nothing to go on.
+  v.onerror = () => {
+    const err = v.error;
+    setState("bad", "video error" + (err ? " " + err.code : ""));
+  };
   v.play().catch(() => {});
   v.addEventListener("playing", () => setState("live", "live"), { once: true });
 }
