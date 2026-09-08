@@ -52,14 +52,19 @@ second is not a slow link, it is a slow camera, and nothing tunable in the page
 can make up for it.
 
 ```
-tools\cast-host\tune-host.cmd          100 ms
-tools\cast-host\tune-host.cmd 50       smoother, more host CPU
+tools\cast-host\tune-host.cmd          30 ms, about 33 screen polls/second
+tools\cast-host\tune-host.cmd 100      less host CPU, but caps polling at 10 FPS
 ```
 
 It asks for administrator rights, because the setting lives under HKLM where
 only an administrator may even read it, and reloads the service rather than
 restarting it so a cast in progress survives. TightVNC's own floor is 30 ms.
 Nothing else in this tool needs elevation.
+
+The default is 30 ms so video and typing are not capped at ten updates per
+second by the old 100 ms setting. Run the tuner once on existing hosts too;
+updating the viewer page alone cannot change the host's polling interval.
+Actual frame rate still depends on encoding, network and viewer speed.
 
 **screen — every pixel is decode work.** Two 1080p monitors is a 3840×1080
 framebuffer, twice what anyone needs to read code on, and on a weak laptop that
@@ -79,6 +84,13 @@ less than it sounds: Tight sends flat and low-colour regions — most of a code
 editor — through zlib with a palette, and only photographic areas through JPEG.
 Dropping quality blurs wallpaper, not text. Override it with Sharp/Balanced/Fast
 if you would rather decide yourself.
+
+For servers without continuous updates, the viewer requests the next update as
+soon as the current update's header arrives and the previous render has drained.
+This overlaps the request round trip with rectangle transfer and decoding,
+instead of waiting for the whole update to finish first. Only one request is
+sent per update; slow rendering holds back further requests. This reduces idle
+time but does not remove the network latency or turn VNC into a video codec.
 
 ## Requirements on the host
 
@@ -310,7 +322,7 @@ Three things worth knowing:
 
 ### Tests
 
-Six suites, plain `node`, no install:
+Suites, plain `node`, no install:
 
 ```
 node tools\cast-host\test\registry.test.mjs    auth/claim logic and heartbeat retry behaviour
@@ -318,6 +330,7 @@ node tools\cast-host\test\agent.test.mjs       remote start/stop, restart and ou
 node tools\cast-host\test\bridge.test.mjs      boots the real bridge against a stand-in VNC
 node tools\cast-host\test\framing.test.mjs     RFC 6455 framing, backpressure, keepalive, lifetime
 node tools\cast-host\test\render.test.mjs      the local bitmap change in cast\novnc.js
+node tools\cast-host\test\pipeline.test.mjs    frame request overlap and render backpressure
 node tools\cast-host\test\paste.test.mjs       the order the clipboard and the keystroke are sent in
 ```
 

@@ -9,13 +9,13 @@ REM they update at the poll rate - and that rate ships at 1000 ms. One frame a
 REM second is not a slow link, it is a slow camera, and no amount of quality or
 REM bandwidth tuning in the browser can make up for it.
 REM
-REM Usage: tune-host.cmd [interval-ms]   (default 100, TightVNC's own floor is 30)
+REM Usage: tune-host.cmd [interval-ms]   (default 30, TightVNC's own floor)
 REM
 REM The setting lives under HKLM, which only an administrator may read or write,
 REM so this asks for elevation. Nothing else here needs it.
 setlocal
 set "MS=%~1"
-if not defined MS set "MS=100"
+if not defined MS set "MS=30"
 REM TightVNC refuses anything under 30 in its own settings dialog, so do not
 REM write a number it will not honour.
 set /a MS=%MS% 2>nul >nul
@@ -48,8 +48,8 @@ REM running, and the setting is one the service re-reads on its own.
 "%TVN%" -controlservice -reload
 echo.
 echo Polling interval is now %MS% ms. Casts should track moving windows and
-echo video far more closely. If this machine is not doing anything else while
-echo it casts, 50 is smoother still; if the fan starts up, put it back to 200.
+echo video far more closely. At 30 ms the capture ceiling is about 33 FPS.
+echo If host CPU usage is too high, try 50 or 100 ms instead.
 pause
 exit /b 0
 

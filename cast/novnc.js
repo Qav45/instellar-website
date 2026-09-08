@@ -17702,7 +17702,7 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
         case 0:
           // FramebufferUpdate
           ret = this._framebufferUpdate();
-          if (ret && !this._enabledContinuousUpdates) {
+          if (ret && !this._enabledContinuousUpdates && !this._FBU.requestedNext) {
             RFB.messages.fbUpdateRequest(this._sock, true, 0, 0, this._fbWidth, this._fbHeight);
           }
           return ret;
@@ -17755,6 +17755,11 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
         }
         this._sock.rQskipBytes(1); // Padding
         this._FBU.rects = this._sock.rQshift16();
+        this._FBU.requestedNext = false;
+
+        // An empty update has no rendering to wait for. Let _normalMsg request
+        // again without consuming the following message as rectangle data.
+        if (this._FBU.rects === 0) return true;
 
         // Make sure the previous frame is fully rendered first
         // to avoid building up an excessive queue
@@ -17769,6 +17774,14 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
           });
           return false;
         }
+      }
+      // Keep one incremental request ahead of decoding. Waiting until the last
+      // rectangle arrived serialized transfer/decode time with the next RTT.
+      // The render flush above still gates progress on slow viewers, and this
+      // flag prevents fragmented rectangles from generating extra requests.
+      if (!this._enabledContinuousUpdates && !this._FBU.requestedNext) {
+        RFB.messages.fbUpdateRequest(this._sock, true, 0, 0, this._fbWidth, this._fbHeight);
+        this._FBU.requestedNext = true;
       }
       while (this._FBU.rects > 0) {
         if (this._FBU.encoding === null) {

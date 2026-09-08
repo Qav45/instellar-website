@@ -15,7 +15,7 @@ const ok = (name, cond, detail) => {
   console.log((cond ? "PASS " : "FAIL ") + name + (detail ? "  [" + detail + "]" : ""));
 };
 
-const src = fs.readFileSync(PAGE, "utf8");
+const src = fs.readFileSync(PAGE, "utf8").replace(/\r\n/g, "\n");
 const grab = (from, to) => {
   const a = src.indexOf(from);
   if (a < 0) throw new Error("page no longer contains: " + from);
