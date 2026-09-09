@@ -82,6 +82,16 @@ interval next to its `bridge on` line and returns it from `/ctl` as `pollMs`, so
 the toolbar can name the ceiling instead of leaving a 1 FPS host looking like a
 slow network. A host nobody has tuned says so rather than guessing.
 
+The viewer asks for its frames a little faster than the host polls, which is why
+the fps readout can say 34 against a 30 ms poll. A rate just *under* the poll rate
+does not give a slightly slower picture, it gives an uneven one: the server
+answers a request at the first poll that finds a change, so 30 Hz against a 33 Hz
+poll delivers nine gaps of 30 ms and then one of 60, three times a second. Even
+frames, uneven motion — invisible on scenery, obvious on a moving hand. Asking
+past the poll rate makes every request wait for the next poll, and the poll grid
+is even. Only the ladder's top rung does this; every rung below it is asking for
+fewer frames on purpose.
+
 The default is 30 ms so video and typing are not capped at ten updates per
 second by the old 100 ms setting. Run the tuner once on existing hosts too;
 updating the viewer page alone cannot change the host's polling interval.

@@ -510,6 +510,7 @@ let enteredAt = 0;        // when this rung was climbed into; 0 if we fell into 
 let holdUntil = 0;        // the kill switch's flat freeze; nothing else sets it
 let prevBacklog = 0;
 let bestFps = 0;          // the highest rate this session has actually delivered
+let alignedFor = -1;      // the pollMs the current ask was aligned to; -1 is none
 
 // Filled by the framebufferupdate event, drained once a second by the tick.
 const frames = { n: 0, busyMs: 0, bytes: 0, backlog: 0, continuous: false };
@@ -525,6 +526,31 @@ function onFrame(d) {
   frames.continuous = d.continuous;
 }
 
+// The rate actually asked for, which is the rung's rate except at the top of the
+// rate axis, where it is the host's poll rate instead.
+//
+// Asking a little slower than the host polls does not deliver a slightly slower
+// picture, it delivers an uneven one. TightVNC answers an update request at the
+// first poll that finds a change, so a 30 Hz ask against a 33 Hz poll is answered
+// on the poll grid - nine gaps of 30 ms and then one of 60, three times a second,
+// for ever. Even frames, uneven motion. Scenery hides that completely and a
+// moving hand does not, which is exactly how it was reported.
+//
+// Asking at or above the poll rate removes the beat rather than papering over it:
+// every request then waits for the next poll, and the poll grid, which is even,
+// becomes the pacing. Ceil so 30 ms lands on 34 Hz and not on 33, which would
+// beat again the other way.
+//
+// Only at the ladder's top rate, where the intent is "as fast as this host can
+// go". Every rung below it is asking for fewer frames on purpose, and rounding
+// those back up to the poll rate would undo the ladder.
+const TOP_HZ = RATES[RATES.length - 1];
+function rungHz(n) {
+  const hz = RUNGS[n].hz;
+  const pollHz = metrics.pollMs ? 1000 / metrics.pollMs : 0;
+  return hz === TOP_HZ && pollHz > hz ? Math.ceil(pollHz) : hz;
+}
+
 function setRung(n) {
   n = Math.max(0, Math.min(TOP, n));
   upHold = downHold = 0;
@@ -533,7 +559,7 @@ function setRung(n) {
   rung = n;
   metrics.rung = n;
   applyQuality();
-  streamWant = RUNGS[n].hz;
+  streamWant = rungHz(n);
   pushStream();
 }
 
@@ -561,7 +587,7 @@ function failedClimb() {
 // doing, not theirs. So the stall rules run in both modes; in manual they move
 // the one dial we own, and the pinned rung stays the ceiling for it.
 function setRate(hz) {
-  hz = Math.min(hz, RUNGS[rung].hz);
+  hz = Math.min(hz, rungHz(rung));
   upHold = downHold = 0;
   if (hz === streamWant) return;
   streamWant = hz;
@@ -580,7 +606,7 @@ function stepUp(manual) {
   // walked down - or that the continuous branch zeroed - stayed below the rung
   // for the rest of the session, because the only thing that ever sets the rate
   // in auto is a rung actually changing.
-  if (!manual) { setRung(rung + 1); setRate(RUNGS[rung].hz); return; }
+  if (!manual) { setRung(rung + 1); setRate(rungHz(rung)); return; }
   const at = RATES.indexOf(streamWant);
   setRate(RATES[Math.min(RATES.length - 1, (at < 0 ? 0 : at) + 1)]);
 }
@@ -636,6 +662,16 @@ function govern(dt) {
   if (continuous) {
     if (streamWant !== 0) { streamWant = 0; pushStream(); }
     return;
+  }
+
+  // The host's poll rate arrives with the first /ctl answer, which is well after
+  // the opening rung set a rate against a poll it did not yet know about. Without
+  // this the alignment above would only ever take hold on a rung change, and the
+  // session that needs it most is the one where nothing changes: a good link that
+  // opens at the top and stays there, beating against the poll grid all day.
+  if (metrics.pollMs !== alignedFor) {
+    alignedFor = metrics.pollMs;
+    if (!manual && streamWant) setRate(rungHz(rung));
   }
 
   const rising = backlog > prevBacklog;
@@ -1144,7 +1180,7 @@ function connect() {
     // fired after somebody switched away - and asking a hidden tab's bridge to
     // inject is the thing the visibilitychange handler exists to stop. Nothing
     // there would have caught it: it only runs on a change, and there is none.
-    streamWant = document.hidden ? 0 : RUNGS[rung].hz;
+    streamWant = document.hidden ? 0 : rungHz(rung);
     pushStream();
   });
 
@@ -1359,7 +1395,7 @@ document.addEventListener("visibilitychange", () => {
       if (hiddenWant < 0) hiddenWant = streamWant;
       streamWant = 0;
     } else {
-      streamWant = hiddenWant < 0 ? RUNGS[rung].hz : hiddenWant;
+      streamWant = hiddenWant < 0 ? rungHz(rung) : hiddenWant;
       hiddenWant = -1;
     }
     pushStream();

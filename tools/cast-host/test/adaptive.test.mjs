@@ -413,8 +413,36 @@ function controller({ weak = false } = {}) {
   // by: undrained, the flag takes the rate straight back to zero.
   sim.setRate(30);
   second({ fps: 0, bytes: 0 });
-  ok("and the flag does not survive a second with no frames", sim.want() === 30,
+  // 34, not 30: the quiet second is also the first tick that reaches the poll
+  // alignment, and this host polls every 30 ms. Not zero is the point here.
+  ok("and the flag does not survive a second with no frames", sim.want() === 34,
      "stream " + sim.want());
+}
+
+/* ------------------------------------------ 12. asking across the poll grid -- */
+{
+  // A rate just under the host's poll rate does not deliver a slightly slower
+  // picture, it delivers an uneven one: TightVNC answers a request at the first
+  // poll that finds a change, so 30 Hz against a 33 Hz poll lands nine gaps of
+  // 30 ms and then one of 60, three times a second, for ever. Scenery hides
+  // that; a moving hand does not.
+  const { sim, second } = controller();
+  second({ fps: 30, duty: 0.3, backlog: 0 });
+  ok("the top rung asks past a 30 ms poll", sim.want() === 34, "stream " + sim.want());
+
+  // A host slower than the ladder's top rate is already even - every request
+  // waits for the next poll whatever we ask - so there is nothing to align.
+  const slow = controller();
+  slow.second({ fps: 10, duty: 0.3, backlog: 0, pollMs: 100 });
+  ok("a poll slower than the ladder is left alone", slow.sim.want() === 30,
+     "stream " + slow.sim.want());
+
+  // And every rung below the top is asking for fewer frames on purpose.
+  const low = controller();
+  low.sim.setRung(2);
+  low.second({ fps: 20, duty: 0.3, backlog: 0 });
+  ok("a rung below the top is not rounded up to the poll rate", low.sim.want() === 20,
+     "stream " + low.sim.want());
 }
 
 /* ---------------------------------------- 8b. the rate lever and its backoff -- */
