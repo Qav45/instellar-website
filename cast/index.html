@@ -44,6 +44,10 @@
          border-radius:8px; padding:5px 9px; font-size:12px; font-family:inherit; cursor:pointer; }
   #bar button:hover, #bar select:hover { border-color:var(--accent); }
   #bar button.on { border-color:var(--accent); color:var(--accent); }
+  /* Mouse lock armed but not currently holding the pointer - Escape hands it
+     back and only a click can take it again, so the button must not go on
+     claiming the pointer is captured. */
+  #grab.on:not(.held) { border-style:dashed; }
   #bar label { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:5px; }
 
   #state { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px;
@@ -114,6 +118,7 @@
   </label>
   <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
   <button id="look" title="Ignore my mouse and keyboard">Watch only</button>
+  <button id="grab" title="Keep the pointer in the remote screen and send movement rather than position - what a game needs. Turn Fullscreen on too and Escape reaches the game; hold it to let go.">Mouse lock</button>
   <button id="cad" title="Send Ctrl+Alt+Delete to the remote machine">Ctrl+Alt+Del</button>
   <button id="full" title="Fullscreen">Fullscreen</button>
   <button id="again" title="Reconnect">Reconnect</button>
@@ -148,7 +153,7 @@
 // modules would be 54 requests on every cold load. novnc.js is that whole tree
 // bundled into one same-origin file, which is one request and no third party in
 // the critical path.
-import RFB from "./novnc.js?v=20260908-fps";
+import RFB from "./novnc.js?v=20260909-input";
 
 const $ = (id) => document.getElementById(id);
 const screenEl = $("screen");
@@ -839,6 +844,9 @@ function veil(html, onReady) {
   const old = $("veil");
   if (old) old.remove();
   screenEl.appendChild(el);
+  // A card with a text field under a captured pointer is a card nobody can
+  // click. Whatever put it there, the lock goes.
+  if (document.pointerLockElement) document.exitPointerLock();
   if (onReady) onReady(el);
 }
 
@@ -1311,6 +1319,53 @@ for (const type of ["keydown", "keyup"]) {
   }, true);
 }
 
+/* ----------------------------------------------------------- mouse lock -- */
+
+// What a game wants and a desktop does not: the pointer stays inside the remote
+// screen, there is no local cursor drifting onto another monitor mid-turn, and
+// movement is sent as movement - see relativePointer in novnc.js, which also
+// records what that cannot do at the edges of the remote screen.
+//
+// noVNC listens on the canvas, so the canvas is what gets locked; locking the
+// container would leave every mouse event landing on an element noVNC never
+// hears from.
+function lockTarget() {
+  return rfb ? screenEl.querySelector("canvas") : null;
+}
+
+// The button holds the intent, not the lock. Browsers hand the lock back on
+// Escape and refuse to take it again without a fresh click, so an armed button
+// and a click on the screen is the only shape that survives that.
+function armed() { return $("grab").classList.contains("on"); }
+
+function takeLock() {
+  const canvas = lockTarget();
+  if (!canvas || $("veil") || !armed()) return;
+  if (document.pointerLockElement === canvas) return;
+  const p = canvas.requestPointerLock();
+  if (p && p.catch) p.catch(() => {});
+}
+
+function setGrab(on) {
+  $("grab").classList.toggle("on", on);
+  if (on) takeLock();
+  else if (document.pointerLockElement) document.exitPointerLock();
+}
+
+$("grab").addEventListener("click", () => { setGrab(!armed()); refocus(); });
+
+// Capture phase: noVNC stops propagation on the canvas, so a bubbling listener
+// on the container never sees a click that landed on the desktop itself - which
+// is every click that matters here.
+screenEl.addEventListener("mousedown", () => { takeLock(); }, true);
+
+document.addEventListener("pointerlockchange", () => {
+  const held = document.pointerLockElement === lockTarget();
+  if (rfb) rfb.relativePointer = held;
+  $("grab").classList.toggle("held", held);
+  refocus();
+});
+
 /* ------------------------------------------------------------ clipboard -- */
 
 // Copy here, paste there. Ctrl+V has to do two things in order - put the text on
@@ -1484,6 +1539,10 @@ $("fit").addEventListener("click", () => {
 $("look").addEventListener("click", () => {
   const on = $("look").classList.toggle("on");
   if (rfb) rfb.viewOnly = on;
+  // Holding the pointer captive for a session that throws every mouse event
+  // away is the worst of both: the cursor cannot leave and nothing it does
+  // arrives.
+  if (on) setGrab(false);
   refocus();
 });
 

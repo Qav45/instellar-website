@@ -15157,7 +15157,13 @@ var DISCONNECT_TIMEOUT = 3;
 var DEFAULT_BACKGROUND = 'rgb(40, 40, 40)';
 
 // Minimum wait (ms) between two mouse moves
-var MOUSE_MOVE_DELAY = 17;
+// LOCAL CHANGE (instellar /cast): 17 ms was a hard 59 Hz cap on pointer updates
+// and up to 17 ms of dead time between moving the mouse and the host hearing
+// about it - the one delay in the input path this page can actually remove. It
+// exists to stop a burst of moves flooding a slow link; at 4 ms that ceiling is
+// 250 Hz of six-byte PointerEvents, under 2 KB/s, which no link this page can
+// reach will notice. Aiming in a game is the case that feels the difference.
+var MOUSE_MOVE_DELAY = 4;
 
 // Wheel thresholds
 var WHEEL_STEP = 50; // Pixels needed for one step
@@ -15401,6 +15407,9 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
     _this.dragViewport = false;
     _this.focusOnClick = true;
     _this._viewOnly = false;
+    // LOCAL CHANGE (instellar /cast): see the relativePointer property below.
+    _this._relativePointer = false;
+    _this._relPos = null;
     _this._clipViewport = false;
     _this._clippingViewport = false;
     _this._scaleViewport = false;
@@ -15418,6 +15427,34 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
   // ===== PROPERTIES =====
   _inherits(RFB, _EventTargetMixin);
   return _createClass(RFB, [{
+    // LOCAL CHANGE (instellar /cast): RFB carries absolute coordinates and
+    // nothing else, so a pointer-locked page has no way to say "the mouse moved
+    // three pixels left" - and mouselook in a game is nothing but that. With
+    // this on, the handlers below add each event's movementX/movementY to a
+    // cursor position this object keeps, rather than reading clientX/clientY,
+    // which under pointer lock are frozen where the lock was taken.
+    //
+    // What it cannot do is follow the mouse past the edge of the remote screen:
+    // the position clamps there, and a game that keeps turning while the pointer
+    // pushes against that edge stops turning. Recentring is the host's to do and
+    // TightVNC has no way to be told about it.
+    key: "relativePointer",
+    get: function get() {
+      return this._relativePointer;
+    },
+    set: function set(enabled) {
+      this._relativePointer = enabled;
+      // Carry on from wherever the host's cursor was last put, so turning this
+      // on does not teleport it. Centre only when nothing has moved it yet.
+      if (!enabled) {
+        this._relPos = null;
+      } else if (this._mousePos && this._mousePos.x !== undefined) {
+        this._relPos = { 'x': this._mousePos.x, 'y': this._mousePos.y };
+      } else {
+        this._relPos = { 'x': this._display.width / 2, 'y': this._display.height / 2 };
+      }
+    }
+  }, {
     key: "viewOnly",
     get: function get() {
       return this._viewOnly;
@@ -16243,6 +16280,22 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
       this.sendKey(keysym, code, down);
     }
   }, {
+    // LOCAL CHANGE (instellar /cast): where an event puts the remote cursor.
+    // Absolute normally; in relative mode the event's movement is added to the
+    // position this object is keeping. Buttons and wheel carry no movement, so
+    // they land wherever the last move left it.
+    key: "_pointerPos",
+    value: function _pointerPos(ev) {
+      if (!this._relativePointer || !this._relPos) {
+        return (0, _element.clientToElement)(ev.clientX, ev.clientY, this._canvas);
+      }
+      var maxX = Math.max(0, this._display.width - 1);
+      var maxY = Math.max(0, this._display.height - 1);
+      this._relPos.x = Math.min(maxX, Math.max(0, this._relPos.x + (ev.movementX || 0)));
+      this._relPos.y = Math.min(maxY, Math.max(0, this._relPos.y + (ev.movementY || 0)));
+      return { 'x': Math.round(this._relPos.x), 'y': Math.round(this._relPos.y) };
+    }
+  }, {
     key: "_handleMouse",
     value: function _handleMouse(ev) {
       /*
@@ -16268,7 +16321,7 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
       if (ev.type === 'click' || ev.type === 'contextmenu') {
         return;
       }
-      var pos = (0, _element.clientToElement)(ev.clientX, ev.clientY, this._canvas);
+      var pos = this._pointerPos(ev);
       var bmask = RFB._convertButtonMask(ev.buttons);
       var down = ev.type == 'mousedown';
       switch (ev.type) {
@@ -16400,7 +16453,7 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
 
       ev.stopPropagation();
       ev.preventDefault();
-      var pos = (0, _element.clientToElement)(ev.clientX, ev.clientY, this._canvas);
+      var pos = this._pointerPos(ev);
       var bmask = RFB._convertButtonMask(ev.buttons);
       var dX = ev.deltaX;
       var dY = ev.deltaY;

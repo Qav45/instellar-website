@@ -385,6 +385,27 @@ shortcuts, so Ctrl+W closes this tab instead of a window on the remote machine.
 Fullscreen is the only state in which a page may ask for those keys, so that is
 where the cast claims them. Hold Escape, or click Fullscreen again, to leave.
 
+**Mouse lock is the games mode.** RFB has no way to say "the mouse moved three
+pixels left" - it carries positions and nothing else - so mouselook in a game
+has nothing to work with, and the pointer is free to slide off the picture onto
+another monitor halfway through a turn. **Mouse lock** captures the pointer in
+the remote screen and adds each movement to a cursor position the page keeps,
+which is the same thing in the only terms the protocol has. Turn Fullscreen on
+with it: the keyboard claim that lives there is what lets Escape reach the game,
+and holding Escape is then how you get the pointer back. Clicking the picture
+takes the lock again after any release.
+
+Its one limit is the edge of the remote screen. The position clamps there, so a
+game that keeps turning while the pointer pushes against the edge stops turning,
+and games that recentre the cursor themselves will fight it. Games played inside
+a window, and anything driven by clicking rather than turning, do not meet that
+edge. There is no fix for it on this protocol: relative motion would have to
+come from the host, and TightVNC has no way to be told.
+
+Pointer moves themselves are sent at up to 250 a second rather than the 59 noVNC
+allows by default, which takes up to 17 ms out of the path between moving the
+mouse and the host hearing about it. The extra traffic is under 2 KB/s.
+
 If typing ever seems to go nowhere, it is focus: the keyboard follows the remote
 screen, and clicking the black area beside it, or a toolbar control, used to hand
 focus away with nothing on screen saying so. It is handed straight back now, but
