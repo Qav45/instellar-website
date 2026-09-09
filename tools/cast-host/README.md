@@ -385,6 +385,20 @@ shortcuts, so Ctrl+W closes this tab instead of a window on the remote machine.
 Fullscreen is the only state in which a page may ask for those keys, so that is
 where the cast claims them. Hold Escape, or click Fullscreen again, to leave.
 
+**Video is the mode for a video playing on the host.** A playing video is one
+photographic region changing every frame, which is the case the ladder is worst
+at: it is written for text, where quality is nearly free and rate is the
+expensive axis, and on video the trade runs the other way. **Video** pins a pair
+chosen for moving pictures - JPEG quality 5, where motion stops looking like a
+mosaic, and compression 6, the lowest level at which TightVNC cuts a frame into
+its largest rects, so each frame is a few dozen JPEGs rather than hundreds - and
+leaves the rate as the only thing that gives when the link cannot keep up, back
+to whatever it can. It also turns Fit on, floats the toolbar over the picture
+and fades it once the mouse rests, and asks the browser to keep the screen
+awake, since a tab that only receives frames gives the OS no reason not to dim
+it. What it cannot do is carry sound: RFB has no audio channel, so the video's
+audio stays on the host.
+
 **Mouse lock is the games mode.** RFB has no way to say "the mouse moved three
 pixels left" - it carries positions and nothing else - so mouselook in a game
 has nothing to work with, and the pointer is free to slide off the picture onto

@@ -72,6 +72,13 @@
   /* ---- screen ---- */
   #screen { flex:1 1 auto; min-height:0; background:#000; position:relative; }
 
+  /* ---- video mode ---- */
+  /* The toolbar floats over the picture and fades once the mouse rests, so a
+     letterboxed video gets the rows the bar was taking. It comes back on the
+     first movement; a cursor parked on the bar keeps it. */
+  body.video #bar { position:absolute; top:0; left:0; right:0; z-index:5; transition:opacity .25s; }
+  body.video.idle #bar { opacity:0; pointer-events:none; }
+
   /* ---- overlay cards (token / password / errors) ---- */
   #veil { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
           background:rgba(11,13,18,.94); z-index:10; padding:24px; }
@@ -117,6 +124,7 @@
     </select>
   </label>
   <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
+  <button id="video" title="For watching a video playing on the host: a quality pair chosen for moving pictures, the rate as the only thing that gives, the toolbar out of the way and the screen kept awake.">Video</button>
   <button id="look" title="Ignore my mouse and keyboard">Watch only</button>
   <button id="grab" title="Keep the pointer in the remote screen and send movement rather than position - what a game needs. Turn Fullscreen on too and Escape reaches the game; hold it to let go.">Mouse lock</button>
   <button id="cad" title="Send Ctrl+Alt+Delete to the remote machine">Ctrl+Alt+Del</button>
@@ -203,6 +211,7 @@ let retry = null;
 let hostName = "";          // whatever the registry last called the host
 let manualStop = false;
 let needPassword = false;   // a password card is up; disconnect must not bury it
+let video = false;          // the Video toggle: VIDEO pinned, rate the only dial
 
 /* --------------------------------------------------------------- metrics -- */
 
@@ -260,6 +269,20 @@ const TOP = RUNGS.length - 1;
 // The rate axis on its own, for the manual case below, where quality is pinned
 // and this is the only dial left to turn. 0 is a rate: it means stop asking.
 const RATES = [0, 5, 10, 15, 20, 30];
+
+// The pair video mode pins. A playing video is one photographic region changing
+// every frame, so JPEG carries nearly all of it and the ladder's text-first
+// reasoning does not apply: quality 5 is the level where motion stops looking
+// like a mosaic, and that is worth the bytes over Fast's 3. Compression 6 is the
+// lowest level at which TightVNC splits a frame into its largest rects, 65536
+// pixels - lower levels cut the frame finer, down to hundreds of rects at the
+// Fast end, each its own JPEG with its own header and its own createImageBitmap
+// on this side - and it
+// carries the cheapest zlib of that tier, which only touches the letterbox bars
+// anyway. Not a rung: its bytes would sit mid-ladder while its decode cost sits
+// at the top, and the ladder's descent is only honest when both fall together.
+// So video mode is the manual shape - the pair is pinned, the rate is the dial.
+const VIDEO = { quality: 5, compression: 6 };
 
 // Cheap proxy for "is this a weak machine": Chromebooks commonly report 2-4 cores
 // and 4GB. A cold-start guess and nothing more - it picks the rung this page
@@ -591,8 +614,26 @@ function failedClimb() {
 // asking the host to inject 30 Hz into a device that cannot decode it is our
 // doing, not theirs. So the stall rules run in both modes; in manual they move
 // the one dial we own, and the pinned rung stays the ceiling for it.
+// The rate the pinned pair is allowed up to. Video mode pins no rung, so it is
+// not held under whatever rung the ladder happened to be on: it may ask for the
+// top of the rate axis, poll-aligned like the ladder's own top.
+function ceilHz() {
+  return video ? rungHz(TOP) : rungHz(rung);
+}
+
+// Where on the rate axis the current ask sits. The top of the axis is the
+// poll-aligned rate rather than 30 itself, and that is not in RATES: indexOf
+// answered -1 for it, which stepUp read as the bottom and answered with 5 Hz -
+// six good seconds at the top of a tuned host bought a drop to five frames.
+function rateAt() {
+  return streamWant >= TOP_HZ ? RATES.length - 1 : RATES.indexOf(streamWant);
+}
+
 function setRate(hz) {
-  hz = Math.min(hz, rungHz(rung));
+  // Asking for the top of the axis means "as fast as the host goes", which is
+  // the aligned rate, not the 30 the axis is written with.
+  const top = ceilHz();
+  hz = hz >= TOP_HZ ? top : Math.min(hz, top);
   upHold = downHold = 0;
   if (hz === streamWant) return;
   streamWant = hz;
@@ -601,7 +642,7 @@ function setRate(hz) {
 
 function stepDown(manual, steps) {
   if (!manual) { failedClimb(); setRung(rung - steps); return; }
-  const at = RATES.indexOf(streamWant);
+  const at = rateAt();
   setRate(RATES[Math.max(0, (at < 0 ? RATES.length - 1 : at) - steps)]);
 }
 
@@ -612,7 +653,7 @@ function stepUp(manual) {
   // for the rest of the session, because the only thing that ever sets the rate
   // in auto is a rung actually changing.
   if (!manual) { setRung(rung + 1); setRate(rungHz(rung)); return; }
-  const at = RATES.indexOf(streamWant);
+  const at = rateAt();
   setRate(RATES[Math.min(RATES.length - 1, (at < 0 ? 0 : at) + 1)]);
 }
 
@@ -636,7 +677,7 @@ function govern(dt) {
   // A person has the wheel: the quality is theirs and stays theirs. Everything
   // below still runs, because a stall is not a matter of taste - it just moves
   // the rate rather than the rung.
-  const manual = $("quality").value !== "auto";
+  const manual = video || $("quality").value !== "auto";
 
   // Not a rung decision and it waits for nothing: 8 MB of unparsed bytes is a
   // queue heading for the 40 MB cap where Websock throws and takes the session
@@ -676,7 +717,7 @@ function govern(dt) {
   // opens at the top and stays there, beating against the poll grid all day.
   if (metrics.pollMs !== alignedFor) {
     alignedFor = metrics.pollMs;
-    if (!manual && streamWant) setRate(rungHz(rung));
+    if (streamWant && (!manual || (video && streamWant >= TOP_HZ))) setRate(ceilHz());
   }
 
   const rising = backlog > prevBacklog;
@@ -1188,7 +1229,7 @@ function connect() {
     // fired after somebody switched away - and asking a hidden tab's bridge to
     // inject is the thing the visibilitychange handler exists to stop. Nothing
     // there would have caught it: it only runs on a change, and there is none.
-    streamWant = document.hidden ? 0 : rungHz(rung);
+    streamWant = document.hidden ? 0 : ceilHz();
     pushStream();
   });
 
@@ -1450,12 +1491,14 @@ document.addEventListener("visibilitychange", () => {
       if (hiddenWant < 0) hiddenWant = streamWant;
       streamWant = 0;
     } else {
-      streamWant = hiddenWant < 0 ? rungHz(rung) : hiddenWant;
+      streamWant = hiddenWant < 0 ? ceilHz() : hiddenWant;
       hiddenWant = -1;
     }
     pushStream();
   }
   if (document.hidden) return;
+  // The browser drops a wake lock with the tab; take it again with the tab.
+  if (video) holdAwake(true);
   refocus();
   hurry();
 });
@@ -1472,7 +1515,8 @@ window.addEventListener("online", hurry);
 // struggling: a visible hitch caused by the attempt to avoid one.
 function applyQuality() {
   if (!rfb) return;
-  rfb.setQuality(RUNGS[rung].quality, RUNGS[rung].compression);
+  const q = video ? VIDEO : RUNGS[rung];
+  rfb.setQuality(q.quality, q.compression);
 }
 
 // Which rung a dropdown entry pins. Several rungs share a quality pair, so this
@@ -1533,6 +1577,58 @@ $("share").addEventListener("change", async () => {
 $("fit").addEventListener("click", () => {
   $("fit").classList.toggle("on");
   applyFit();
+  refocus();
+});
+
+/* ---------------------------------------------------------- video mode -- */
+
+// Everything a person watching a video wants and a person driving a desktop
+// does not: the video pair pinned, the toolbar out of the way, Fit on so the
+// whole picture is in view, and the screen kept awake - a tab that only ever
+// receives frames gives the OS no reason not to dim it. The quality dropdown is
+// disabled rather than moved, so it still reads what it will go back to.
+let wake = null;
+let idleTimer = 0;
+
+async function holdAwake(on) {
+  if (!on) {
+    if (wake) { wake.release().catch(() => {}); wake = null; }
+    return;
+  }
+  if (wake || document.hidden || !navigator.wakeLock) return;
+  try {
+    wake = await navigator.wakeLock.request("screen");
+    wake.addEventListener("release", () => { wake = null; });
+  } catch (_) {}
+}
+
+function stir() {
+  if (!video) return;
+  document.body.classList.remove("idle");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if ($("bar").matches(":hover")) { stir(); return; }
+    document.body.classList.add("idle");
+  }, 2500);
+}
+document.addEventListener("mousemove", stir, { passive: true });
+document.addEventListener("touchstart", stir, { passive: true });
+
+$("video").addEventListener("click", () => {
+  video = $("video").classList.toggle("on");
+  document.body.classList.toggle("video", video);
+  $("quality").disabled = video;
+  if (video && !$("fit").classList.contains("on")) {
+    $("fit").classList.add("on");
+    applyFit();
+  }
+  applyQuality();
+  // Off a pinned pair the rate is the ladder's again; on it, the axis opens up
+  // to the top whatever rung the ladder was holding.
+  if (rfb) setRate(ceilHz());
+  holdAwake(video);
+  if (video) stir();
+  else { clearTimeout(idleTimer); document.body.classList.remove("idle"); }
   refocus();
 });
 
