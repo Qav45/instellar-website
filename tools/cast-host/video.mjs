@@ -515,7 +515,7 @@ const ENCODERS = {
 };
 export const codecOf = (encoder) => encoder === "libx264" ? "h264" : encoder.split("_")[0];
 const BACKLOG_LIMIT = 1024 * 1024;   // bytes queued on a viewer before it is skipped
-const GOP_SECONDS = 5;               // keyframe interval; the cache below holds one GOP
+const GOP_SECONDS = 1;               // recover dropped frames within one second
 const IDLE_MS = 3000;                // keep the encoder warm this long after the last viewer
 const STARTUP_MS = 2000;             // an exit sooner than this means "cannot start"
 const CRASH_WINDOW_MS = 10000;       // a second death this soon after a restart is final
@@ -607,7 +607,10 @@ export function createVideoSource(opts) {
   // buffered without limit: a delta whose predecessors were dropped would only
   // corrupt the picture, and a keyframe puts it right again.
   const deliver = (e, au) => {
-    if (!e.waitKey && e.sink.buffered() > BACKLOG_LIMIT) e.waitKey = true;
+    if (e.sink.buffered() > BACKLOG_LIMIT) {
+      e.waitKey = true;
+      return;
+    }
     if (e.waitKey) {
       if (!(au.flags & 1)) return;
       e.waitKey = false;

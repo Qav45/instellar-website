@@ -14064,7 +14064,7 @@ var Display = exports["default"] = /*#__PURE__*/function () {
         if (vy + h > this._viewportLoc.h) {
           h = this._viewportLoc.h - vy;
         }
-        if (w > 0 && h > 0) {
+        if (w > 0 && h > 0 && this.present !== false) {
           // FIXME: We may need to disable image smoothing here
           //        as well (see copyImage()), but we haven't
           //        noticed any problem yet.
@@ -15481,7 +15481,7 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
     // continuous-updates enable (an active continuous stream is switched off).
     // Setting it back to true asks for one full, non-incremental update so the
     // picture returns. Neither direction touches the canvas: only an update
-    // that arrives repaints it (see Display.flip).
+    // that arrives repaints it (see Display.flip), when pixels are enabled.
     key: "pixels",
     get: function get() {
       return this._pixels;
@@ -15492,6 +15492,9 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
         return;
       }
       this._pixels = pixels;
+      // Drain in-flight VNC updates into the backbuffer without flashing them
+      // over the video picture, including flips already in the render queue.
+      this._display.present = pixels;
       if (this._rfbConnectionState !== "connected") {
         return;
       }

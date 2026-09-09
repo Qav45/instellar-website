@@ -117,5 +117,19 @@ ok("the queue drains completely", display._renderQ.length === 0,
 // A bitmap holds GPU memory until it is closed, and a cast runs for hours.
 ok("every decoded bitmap is closed", closed.slice().sort().join() === "1,2,3,98", closed.join());
 
+drawn.length = 0;
+rect(4);
+display.flip(); // queued behind the asynchronous bitmap decode
+display.present = false;
+await display.flush();
+ok("a queued VNC flip cannot overwrite video after pixels are disabled",
+   drawn.join() === "4" && drawn.length === 1 && display._renderQ.length === 0);
+display.present = true;
+rect(5);
+display.flip();
+await display.flush();
+ok("VNC presentation resumes after video is disabled",
+   drawn.length === 3 && drawn[1] === 5 && drawn[2] === undefined);
+
 console.log(failed ? "\n" + failed + " FAILED" : "\nall passed");
 process.exit(failed ? 1 : 0);

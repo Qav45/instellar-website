@@ -482,7 +482,7 @@ function tick() {
   // A decoder putting out well under what arrives is one that cannot keep up
   // - a Chromebook decoding AV1 in software, typically. Two seconds of it and
   // the codec is swapped for the next one, below.
-  if (decoder) {
+  if (decoder && vidReady) {
     if (streamSlow(vidIn, vidFps)) { if (!vidSlowSince) vidSlowSince = now; }
     else vidSlowSince = 0;
     const why = streamStrain(vidDrops, now, vidSlowSince ? now - vidSlowSince : 0);
@@ -696,7 +696,7 @@ function govern(dt) {
   // The video socket carries the picture and TightVNC carries nothing but
   // input, so there is no VNC rate to govern - and the poll alignment below
   // would otherwise ask for one the moment the first /ctl answer lands.
-  if (decoder) {
+  if (decoder && vidReady) {
     if (streamWant !== 0) { streamWant = 0; pushStream(); }
     return;
   }
@@ -1715,6 +1715,7 @@ let stream = false;      // the toggle, as the person left it
 let hostVideo = true;    // false once /ctl said this host has no video route
 let vidSock = null;
 let decoder = null;      // a live VideoDecoder means Stream is carrying the picture
+let vidReady = false;    // switch off VNC only after a decoded picture arrives
 let vidWaitKey = true;   // deltas are useless without the key they build on
 let vidTimer = 0;        // the wait for a config message on a fresh socket
 let vidFrames = 0;       // decoder outputs since the last tick
@@ -1858,6 +1859,7 @@ function vidCanvas() {
 function openVideo() {
   closeVideo();
   if (!stream || !rfb || !endpoint || document.hidden) return;
+  if (rfb.pixels === false) { rfb.pixels = true; setRate(ceilHz()); }
   if (!canStream()) { streamOff("VideoDecoder" in window ? "host" : "nodecoder"); return; }
   // The codec probe is still out only in the first moments after load; come
   // back when it has answered, if Stream is still wanted and nothing else got
@@ -1922,24 +1924,37 @@ function openVideo() {
 
 // A config message is the encoder starting - or restarting with new settings,
 // which is why the decoder is built fresh each time rather than reconfigured
-// mid-stream. Only from here on are the RFB pixels switched off: until the
-// host has proved it can encode, the VNC picture is the one worth keeping.
+// mid-stream. VNC keeps the picture moving until the first decoded frame.
 function configureVideo(cfg) {
   clearTimeout(vidTimer);
   if (decoder) { try { decoder.close(); } catch (_) {} decoder = null; }
+  vidReady = false;
+  if (rfb.pixels === false) { rfb.pixels = true; setRate(ceilHz()); }
+  // Config alone does not prove a decoder can produce pictures. Bound the
+  // wait even when the socket remains open but no usable frames arrive.
+  vidTimer = setTimeout(() => streamDowngrade("not producing frames"), 8000);
   const d = new VideoDecoder({
     output: (frame) => {
       // Scaled to the canvas rather than drawn 1:1: the framebuffer is what the
       // mouse coordinates are measured against, and the encoder's size need
       // not match it exactly.
       const c = decoder === d ? vidCanvas() : null;
-      if (c) {
+      try { if (c) {
+        if (!vidReady) {
+          clearTimeout(vidTimer);
+          vidReady = true;
+          rfb.pixels = false;
+          streamWant = 0;
+          pushStream();
+          $("quality").disabled = true;
+          try { localStorage.setItem(CODEC_KEY, streamFamily(vidCodec)); } catch (_) {}
+          state("live", "Streaming" + (vidNote ? " " + streamFamily(vidCodec) + vidNote : ""));
+        }
         // The first picture out is the codec proving itself; that is the one
         // the next visit starts on.
-        if (!vidFrames++) { try { localStorage.setItem(CODEC_KEY, streamFamily(vidCodec)); } catch (_) {} }
+        vidFrames++;
         c.getContext("2d").drawImage(frame, 0, 0, c.width, c.height);
-      }
-      frame.close();
+      } } finally { frame.close(); }
     },
     error: (e) => { if (decoder === d) streamDowngrade("decoder error", String(e.message || e)); },
   });
@@ -1961,11 +1976,6 @@ function configureVideo(cfg) {
   vidDrops = [];
   vidSlowSince = 0;
   vidSince = performance.now();
-  rfb.pixels = false;
-  streamWant = 0;
-  pushStream();
-  $("quality").disabled = true;
-  state("live", "Streaming" + (vidNote ? " " + streamFamily(vidCodec) + vidNote : ""));
 }
 
 // The codec is not keeping up here, or will not decode at all: strike it for
@@ -1991,6 +2001,7 @@ function streamDowngrade(why, detail) {
 // they are, which is what a hidden tab and a reconnect both want.
 function closeVideo() {
   clearTimeout(vidTimer);
+  vidReady = false;
   if (vidSock) { const s = vidSock; vidSock = null; try { s.close(); } catch (_) {} }
   if (decoder) { const d = decoder; decoder = null; try { d.close(); } catch (_) {} }
   vidHz = 0;

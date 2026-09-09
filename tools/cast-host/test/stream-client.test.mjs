@@ -199,5 +199,55 @@ ok("drops are judged before slowness when both apply",
    streamStrain([45000, 50000], 50000, 5000) === "dropping frames");
 ok("either verdict fits the state line", ["dropping frames", "decoding too slowly"].every((w) => w.length < 30));
 
+// Exercise the real decoder lifecycle with synthetic frames and a fake clock.
+// A config is not a picture, and callbacks from a replaced decoder are stale.
+{
+  const timers = new Map();
+  const instances = [];
+  let nextTimer = 0, saved = 0, painted = 0, downgraded = "";
+  const ctx = vm.createContext({
+    setTimeout(fn) { timers.set(++nextTimer, fn); return nextTimer; },
+    clearTimeout(id) { timers.delete(id); },
+    performance: { now: () => 100 },
+    localStorage: { setItem() { saved++; } },
+    VideoDecoder: class {
+      constructor(callbacks) { this.callbacks = callbacks; instances.push(this); }
+      configure() { this.state = "configured"; }
+      close() { this.state = "closed"; }
+    },
+    vidCanvas: () => ({ width: 100, height: 100, getContext: () => ({ drawImage() { painted++; } }) }),
+    $: () => ({}), pushStream() {}, state() {}, setRate() {}, ceilHz: () => 30,
+    streamDowngrade(why) { downgraded = why; },
+    streamFamily, CODEC_KEY: "cast.codec",
+  });
+  vm.runInContext(`let decoder = null, vidTimer = 0, vidReady = false;
+    let vidFrames = 0, vidDelivered = 0, vidDrops = [], vidSlowSince = 0;
+    let vidSince = 0, vidWaitKey = true, vidHz = 0, vidEncoder = '', vidCodec = '', vidNote = '';
+    let streamWant = 30, vidSock = null;
+    const rfb = { pixels: true };`, ctx);
+  vm.runInContext(grab("function configureVideo(cfg) {", "\n}\n") +
+    grab("function closeVideo() {", "\n}\n"), ctx);
+  const configure = () => vm.runInContext('configureVideo({ codec: "avc1.64002a", fps: 60 })', ctx);
+  configure();
+  ok("config alone keeps VNC pixels active", vm.runInContext("rfb.pixels && !vidReady", ctx));
+  ok("config arms a first-picture timeout", timers.size === 1);
+  let closed = 0;
+  const frame = () => ({ close() { closed++; } });
+  instances[0].callbacks.output(frame());
+  ok("first picture takes over and cancels the timeout",
+    vm.runInContext("!rfb.pixels && vidReady && streamWant === 0", ctx) && timers.size === 0 && painted === 1 && closed === 1);
+  vm.runInContext("vidFrames = 0", ctx);
+  instances[0].callbacks.output(frame());
+  ok("stats resets do not repeat localStorage writes", saved === 1);
+  configure();
+  ok("encoder restart restores VNC while waiting", vm.runInContext("rfb.pixels && !vidReady", ctx));
+  instances[0].callbacks.output(frame());
+  ok("stale decoder frames are closed without painting", painted === 2 && closed === 3);
+  [...timers.values()][0]();
+  ok("a decoder producing no pictures triggers fallback", downgraded === "not producing frames");
+  vm.runInContext("closeVideo()", ctx);
+  ok("closing cancels the first-picture timeout", timers.size === 0);
+}
+
 console.log(failed ? "\n" + failed + " FAILED" : "\nall passed");
 process.exit(failed ? 1 : 0);

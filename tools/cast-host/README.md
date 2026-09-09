@@ -265,7 +265,7 @@ has a hardware H.264 encoder that does this job for a living, and the browser ha
 a hardware decoder (WebCodecs) to match. **Stream** in the toolbar joins the two.
 
 When it is on, the host runs ffmpeg — Desktop Duplication capture straight into
-`h264_nvenc`, low-latency settings, no B-frames, a keyframe every five seconds —
+`h264_nvenc`, low-latency settings, no B-frames, a keyframe every second —
 and fans the raw stream out over a second WebSocket path, `/video`. The page
 decodes it and paints into the same canvas noVNC draws on, so every coordinate
 the mouse and keyboard rely on is unchanged. TightVNC stays connected for input
@@ -289,7 +289,7 @@ never speaks:
    bytes. Keyframes always carry their SPS and PPS, so a decoder can start from
    any of them — and a new viewer always does: it receives the config, then the
    cached GOP from its last keyframe, then live frames.
-3. A viewer more than 1 MiB behind has deltas dropped until the next keyframe,
+3. A viewer more than 1 MiB behind has frames dropped until its backlog drains and the next keyframe arrives,
    never a delta whose predecessor it did not get.
 
 One encoder serves every viewer. The first subscriber starts it with its own
