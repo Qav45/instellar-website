@@ -13940,8 +13940,21 @@ var Display = exports["default"] = /*#__PURE__*/function () {
         vp.w = width;
         vp.h = height;
         var canvas = this._target;
+        // Resizing clears the target even while VNC presentation is disabled.
+        // Preserve the last video picture across a viewport resize instead of
+        // leaving a blank canvas until the next decoder output arrives.
+        var videoPicture = null;
+        if (this.present === false && canvas.width > 0 && canvas.height > 0) {
+          videoPicture = document.createElement('canvas');
+          videoPicture.width = canvas.width;
+          videoPicture.height = canvas.height;
+          videoPicture.getContext('2d').drawImage(canvas, 0, 0);
+        }
         canvas.width = width;
         canvas.height = height;
+        if (videoPicture) {
+          this._targetCtx.drawImage(videoPicture, 0, 0, width, height);
+        }
 
         // The position might need to be updated if we've grown
         this.viewportChangePos(0, 0);

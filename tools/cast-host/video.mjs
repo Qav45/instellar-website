@@ -536,13 +536,12 @@ function ffmpegArgs(encoder, s) {
   // libx264 runs on the CPU and cannot read D3D11 textures; the others take the
   // captured frame straight from the GPU.
   if (encoder === "libx264") filter += ",hwdownload,format=nv12";
-  // A keyframe every five seconds, not two: an IDR is many times the size of
-  // a delta and under CBR it comes out as a burst the tunnel takes a moment to
-  // drain, which the viewer saw as a glitch on a two-second beat. A late
-  // joiner waits at most this long for a picture, and the GOP cache means a
-  // joiner during the GOP does not wait at all.
+  // Give rate control a quarter-second budget: the old two-frame VBV forced
+  // large keyframes to sharply lower quality, causing periodic quality pulses.
+  // This is an encoder rate-control budget, not a playback buffer; frames are
+  // still emitted immediately, without B-frames or decoder-side buffering.
   const rate = ["-b:v", s.mbps + "M", "-maxrate", s.mbps + "M",
-    "-bufsize", Math.round(s.mbps * 1000 / s.fps * 2) + "k", "-g", String(s.fps * GOP_SECONDS), "-bf", "0"];
+    "-bufsize", Math.round(s.mbps * 250) + "k", "-g", String(s.fps * GOP_SECONDS), "-bf", "0"];
   const vendor = encoder.split("_")[1] || encoder;
   const tune = {
     nvenc: ["-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-rc", "cbr"],

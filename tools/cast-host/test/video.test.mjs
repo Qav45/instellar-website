@@ -411,7 +411,7 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
   const argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
   ok("ffmpeg command: ddagrab primary at 60 fps without the cursor, nvenc cbr 8M, one-second GOP, raw h264 to stdout",
     argv.includes("ddagrab=output_idx=0:framerate=60:draw_mouse=0") && argv.includes("h264_nvenc") &&
-    argv.join(" ").includes("-b:v 8M -maxrate 8M -bufsize 267k -g 60 -bf 0") &&
+    argv.join(" ").includes("-b:v 8M -maxrate 8M -bufsize 2000k -g 60 -bf 0") &&
     argv.slice(-3).join(" ") === "-f h264 pipe:1", argv.join(" "));
 
   // Late subscriber: config, then the cached GOP, so it starts on a keyframe
@@ -512,7 +512,7 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
     a.configs.length === 2 && a.configs[1].fps === 30 && b.configs.length === 1 && b.configs[0] === a.configs[1]);
   const argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
   ok("restarted with the new settings: display 2 -> output_idx 1, 30 fps, 4M",
-    argv.includes("ddagrab=output_idx=1:framerate=30:draw_mouse=0") && argv.join(" ").includes("-b:v 4M -maxrate 4M -bufsize 267k -g 30 -bf 0"));
+    argv.includes("ddagrab=output_idx=1:framerate=30:draw_mouse=0") && argv.join(" ").includes("-b:v 4M -maxrate 4M -bufsize 1000k -g 30 -bf 0"));
   ok("old ffmpeg was killed", !alive(pid1) && readPid() !== pid1);
   const firstAfter = a.aus.slice().reverse().find((x) => x.flags & 1);
   ok("the old viewer resumed on a keyframe from the new encoder", !!firstAfter);

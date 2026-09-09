@@ -131,5 +131,14 @@ await display.flush();
 ok("VNC presentation resumes after video is disabled",
    drawn.length === 3 && drawn[1] === 5 && drawn[2] === undefined);
 
+display.present = false;
+drawn.length = 0;
+display.resize(120, 80);
+ok("resizing during Stream preserves and restores the video picture",
+   drawn.length === 2 && display._target.width === 120 && display._target.height === 80);
+drawn.length = 0;
+display.resize(120, 80);
+ok("an unchanged viewport does not copy or clear the picture", drawn.length === 0);
+
 console.log(failed ? "\n" + failed + " FAILED" : "\nall passed");
 process.exit(failed ? 1 : 0);
