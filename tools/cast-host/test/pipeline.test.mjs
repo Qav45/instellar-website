@@ -56,6 +56,7 @@ function client({ continuous = false } = {}) {
     _FBU: { rects: 0, encoding: null },
     _fbWidth: 800, _fbHeight: 600,
     _enabledContinuousUpdates: continuous,
+    _pixels: true,
     _flushing: false,
     _framebufferUpdate: framebufferUpdate,
     _normalMsg: normalMsg,

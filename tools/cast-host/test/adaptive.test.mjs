@@ -92,13 +92,13 @@ function controller({ weak = false } = {}) {
     grabPage("const WEAK = (navigator.hardwareConcurrency", ";\n") +
     grabPage("const UP_DWELL = ", "  stepUp(manual);\n}\n") +
     grabPage("function rungForPreset(value) {", "\n}\n") +
-    "let streamWant = 0, hiddenWant = -1;\n" +
+    "let streamWant = 0, hiddenWant = -1, video = false, decoder = null;\n" +
     // The visibility handler is a few hundred lines further down and reaches for
     // half the page around it, so take the four lines that decide the rate and
-    // leave the focus and retry half where it is.
+    // leave the video socket, focus and retry half where it is.
     "function visibility() {\n" +
-    grabPage("  if (rfb) {\n    if (document.hidden) {", "    pushStream();\n  }\n") +
-    "}\n" +
+    grabPage("  if (rfb) {\n    if (document.hidden) {", "    pushStream();\n") +
+    "  }\n}\n" +
     "({ govern, setRung, setRate, onFrame, rungForPreset, visibility,\n" +
     "   RUNGS, RATES, TOP, WEAK,\n" +
     "   rung: () => rung, ceiling: () => ceilingRung,\n" +

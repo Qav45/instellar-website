@@ -2,9 +2,11 @@
 // Bundled from the published CommonJS build into one ES module by
 // tools/cast-host builds - see scratchpad bundle-novnc.mjs.
 //
-// Carries one local change, so a re-bundle has to reapply it: Display.imageRect
+// Carries local changes, so a re-bundle has to reapply them: Display.imageRect
 // decodes JPEG/PNG rects through createImageBitmap instead of base64 in a data:
-// URL. Search this file for "LOCAL CHANGE".
+// URL, and RFB gains a "pixels" property (default true) that, when false, stops
+// every FramebufferUpdateRequest so the page can draw its own video into the
+// target canvas, exposed as rfb.canvas. Search this file for "LOCAL CHANGE".
 var __m = {}, __c = {};
 function __require(id) {
   var hit = __c[id];
@@ -15260,6 +15262,8 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
     _this._supportsFence = false;
     _this._supportsContinuousUpdates = false;
     _this._enabledContinuousUpdates = false;
+    // LOCAL CHANGE (instellar /cast): see the pixels property below.
+    _this._pixels = true;
     _this._supportsSetDesktopSize = false;
     _this._screenID = 0;
     _this._screenFlags = 0;
@@ -15468,6 +15472,44 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
           this._keyboard.grab();
         }
       }
+    }
+  }, {
+    // LOCAL CHANGE (instellar /cast): while the page streams video into the
+    // canvas it does not want RFB pixels too. false stops every
+    // FramebufferUpdateRequest - the pipelined one in _framebufferUpdate, the
+    // fallback in _normalMsg, the initial one after ServerInit, and the
+    // continuous-updates enable (an active continuous stream is switched off).
+    // Setting it back to true asks for one full, non-incremental update so the
+    // picture returns. Neither direction touches the canvas: only an update
+    // that arrives repaints it (see Display.flip).
+    key: "pixels",
+    get: function get() {
+      return this._pixels;
+    },
+    set: function set(pixels) {
+      pixels = !!pixels;
+      if (pixels === this._pixels) {
+        return;
+      }
+      this._pixels = pixels;
+      if (this._rfbConnectionState !== "connected") {
+        return;
+      }
+      if (pixels) {
+        this._updateContinuousUpdates();
+        RFB.messages.fbUpdateRequest(this._sock, false, 0, 0, this._fbWidth, this._fbHeight);
+        this._FBU.requestedNext = true;
+      } else if (this._enabledContinuousUpdates) {
+        RFB.messages.enableContinuousUpdates(this._sock, false, 0, 0, this._fbWidth, this._fbHeight);
+      }
+    }
+  }, {
+    // LOCAL CHANGE (instellar /cast): the visible target canvas the Display
+    // paints into, so the page can draw video into the same element that
+    // pointer coordinates are measured against.
+    key: "canvas",
+    get: function get() {
+      return this._canvas;
     }
   }, {
     key: "capabilities",
@@ -17465,7 +17507,9 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
       }
       RFB.messages.pixelFormat(this._sock, this._fbDepth, true);
       this._sendEncodings();
-      RFB.messages.fbUpdateRequest(this._sock, false, 0, 0, this._fbWidth, this._fbHeight);
+      if (this._pixels) {
+        RFB.messages.fbUpdateRequest(this._sock, false, 0, 0, this._fbWidth, this._fbHeight);
+      }
       this._updateConnectionState('connected');
       return true;
     }
@@ -17789,7 +17833,7 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
         case 0:
           // FramebufferUpdate
           ret = this._framebufferUpdate();
-          if (ret && !this._enabledContinuousUpdates && !this._FBU.requestedNext) {
+          if (ret && this._pixels && !this._enabledContinuousUpdates && !this._FBU.requestedNext) {
             RFB.messages.fbUpdateRequest(this._sock, true, 0, 0, this._fbWidth, this._fbHeight);
           }
           return ret;
@@ -17877,7 +17921,7 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
         // the flag. requestedNext survives to say whether a request is actually
         // outstanding, which _resize relies on.
         this._FBU.requestedNext = false;
-        if (!this._enabledContinuousUpdates) {
+        if (this._pixels && !this._enabledContinuousUpdates) {
           RFB.messages.fbUpdateRequest(this._sock, true, 0, 0, this._fbWidth, this._fbHeight);
           this._FBU.requestedNext = true;
         }
@@ -18246,7 +18290,7 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
   }, {
     key: "_updateContinuousUpdates",
     value: function _updateContinuousUpdates() {
-      if (!this._enabledContinuousUpdates) {
+      if (!this._enabledContinuousUpdates || !this._pixels) {
         return;
       }
       RFB.messages.enableContinuousUpdates(this._sock, true, 0, 0, this._fbWidth, this._fbHeight);

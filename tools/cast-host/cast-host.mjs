@@ -4,6 +4,7 @@
 //                      [--vnc 127.0.0.1:5900] [--site https://go.instellar.net]
 //                      [--ngrok-domain your.ngrok-free.app] [--url wss://...]
 //                      [--share primary|full|<n>] [--lan]
+//                      [--video on|off] [--ffmpeg <path>] [--codec av1|hevc|h264]
 //
 // Three jobs:
 //   1. bridge  - browsers speak WebSocket, VNC speaks raw TCP. Nothing in between
@@ -32,6 +33,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
+import { createVideoSource, validateVideoSettings, CODECS } from "./video.mjs";
 
 /* ---------------------------------------------------------------- config -- */
 
@@ -51,6 +53,19 @@ const SHARE = arg("share", "primary");             // primary | full | <display 
 const LAN = argv.includes("--lan");                // also listen on the local network
 const ADMIN_TOKEN = process.env.CAST_TOKEN || "";  // only if the site sets CAST_TOKEN
 const STOP_FILE = process.env.CAST_STOP_FILE || ""; // cooperative stop for cast-agent
+// Stream mode: ffmpeg encodes the screen on the GPU and /video fans the H.264
+// out. Opt-in on the page, but the route is on by default so a host needs no
+// flag to offer it. --ffmpeg names the binary; the env form is the test hook.
+const VIDEO = arg("video", "on") !== "off";
+const FFMPEG = arg("ffmpeg", "") || process.env.CAST_FFMPEG_BIN || "";
+// --codec pins the host's choice whatever the page asks for - for a browser
+// that claims a decoder in hardware and then stutters on it. Only that codec's
+// encoders are tried.
+const CODEC = arg("codec", "");
+if (CODEC && !CODECS.includes(CODEC)) {
+  console.error("\n  --codec must be one of " + CODECS.join(", ") + "\n");
+  process.exit(2);
+}
 
 const [VNC_HOST, VNC_PORT] = String(arg("vnc", "127.0.0.1:5900")).split(":");
 const SESSION_KEY = crypto.randomBytes(9).toString("base64url");
@@ -107,7 +122,9 @@ const server = http.createServer((req, res) => {
                           url.searchParams.get("w"), url.searchParams.get("h"),
                           url.searchParams.get("v") || "");
       res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ ok: true, ...s, pollMs: POLL_MS }));
+      // video says whether /video exists here, so a page can grey out Stream on
+      // a host that predates it without opening a socket to find out.
+      return res.end(JSON.stringify({ ok: true, ...s, pollMs: POLL_MS, video: !!video }));
     }
     const mode = url.searchParams.get("share") || "";
     return applyShareAsync(mode).then((applied) => {
@@ -199,12 +216,22 @@ server.on("upgrade", (req, socket, head) => {
                "Content-Type: text/plain\r\n\r\ncast bridge up\n");
     return;
   }
+  // Keyed, but there is no such route on this host - --video off, or no ffmpeg.
+  // A plain 404 ahead of the handshake: the page reads it as "unavailable" rather
+  // than as a socket that opened and then died. Only after the key matches, so
+  // an unkeyed probe learns nothing it would not from /ws.
+  if (url.pathname === "/video" && !video && url.searchParams.get("k") === SESSION_KEY) {
+    socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n" +
+               "Content-Type: text/plain\r\n\r\nvideo off\n");
+    return;
+  }
   if (url.searchParams.get("k") !== SESSION_KEY || !handshake(req, socket)) {
     socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n" +
                "Content-Type: text/plain\r\n\r\nbad or missing key\n");
     return;
   }
   if (url.pathname === "/ping") pingProbe(socket, head);
+  else if (url.pathname === "/video") videoRoute(socket, head, url);
   // Which tab this socket belongs to, so /ctl can name it later. Not a
   // credential - the key above is - just an identifier, and an absent one means
   // an older page and the old whole-host behaviour.
@@ -308,6 +335,91 @@ function pingProbe(ws, head) {
   ws.on("end", () => ws.destroy());
   ws.on("data", feed);
   if (head && head.length) feed(head);
+}
+
+/* ----------------------------------------------------------------- video -- */
+
+// The one encoder every Stream viewer shares. null until main() has found
+// ffmpeg, and stays null when it cannot or when --video off, which is what the
+// upgrade handler and /ctl read to say the route is not here.
+let video = null;
+
+// A /video viewer. Server-to-client only: the client never sends anything but
+// pongs and a close, so wsReader is here for those and its data callback drops
+// whatever else arrives. Everything about the encoder - starting it, the GOP
+// cache, dropping deltas for a viewer that is behind - is video.mjs's; this is
+// the sink it writes into, and the sink is a WebSocket.
+function videoRoute(ws, head, url) {
+  const settings = validateVideoSettings(url.searchParams);
+  let done = false;
+  let missedPongs = 0;
+  let unsubscribe = () => {};
+  const since = Date.now();
+
+  const shut = (why, code) => {
+    if (done) return;
+    done = true;
+    clearInterval(keepalive);
+    unsubscribe();
+    log("video viewer gone" + (why ? ": " + why : "") +
+        " after " + Math.round((Date.now() - since) / 1000) + "s");
+    // A close from the source carries a code the page acts on - 1011 "no
+    // encoder" is what turns the Stream toggle back off with a reason. The
+    // reader's own close path has already queued its frame, so only send one
+    // when nobody has. end(), not destroy(), for the same reason as bridge().
+    if (code && !ws.destroyed) frame(ws, 0x8, closeFrame(code, why));
+    if (!ws.destroyed) ws.end();
+  };
+
+  // Same reasoning as bridge(): a paused game sends no frames, and a tunnel hangs
+  // up on a quiet socket.
+  const keepalive = setInterval(() => {
+    if (ws.destroyed) return;
+    if (++missedPongs >= 3) return shut("viewer stopped answering pings");
+    frame(ws, 0x9, Buffer.alloc(0));
+  }, KEEPALIVE_MS);
+
+  const feed = wsReader(ws, () => {}, shut, () => { missedPongs = 0; });
+  ws.on("error", (e) => shut("socket: " + e.message));
+  ws.on("close", () => shut());
+  ws.on("end", () => shut("viewer hung up"));
+  ws.on("data", feed);
+  if (head && head.length) feed(head);
+
+  if (!settings) return shut("bad settings", 1008);
+  if (CODEC) settings.codecs = [CODEC];
+  log("video viewer connected (" + settings.fps + " fps, " + settings.mbps +
+      " mbps, " + settings.display + ", " + settings.codecs.join(",") + ")");
+
+  unsubscribe = video.subscribe(settings, {
+    // Text, so the page can JSON.parse it without first asking what it is.
+    config(cfg) {
+      frame(ws, 0x1, Buffer.from(JSON.stringify(cfg)));
+    },
+    // Five bytes ahead of the access unit: flags, then a u32 timestamp. One copy
+    // of the AU per viewer, which at 8 mbps is ~15KB sixty times a second - the
+    // concat that frame() avoids for the pixel stream is cheap here, and the same
+    // Buffer is handed to every viewer so it cannot be prepended to in place.
+    au(flags, tsMs, bytes) {
+      const h = Buffer.allocUnsafe(5);
+      h[0] = flags;
+      h.writeUInt32BE(tsMs >>> 0, 1);
+      frame(ws, 0x2, Buffer.concat([h, bytes]));
+    },
+    // What the source's backpressure reads: bytes we have accepted for this
+    // socket that the kernel has not taken yet.
+    buffered: () => ws.writableLength,
+    close: (code, reason) => shut(reason, code),
+  });
+}
+
+// Close frame payload: the status code, then the reason as UTF-8.
+function closeFrame(code, reason) {
+  const r = Buffer.from(reason || "");
+  const b = Buffer.allocUnsafe(2 + r.length);
+  b.writeUInt16BE(code, 0);
+  r.copy(b, 2);
+  return b;
 }
 
 /* ------------------------------------------------------------- streaming -- */
@@ -1177,6 +1289,17 @@ async function main() {
     log("could not set share mode \"" + SHARE + "\" - carrying on with whatever\n           TightVNC is already sharing");
   }
 
+  // Find ffmpeg now, so a missing one is a startup line and not the first
+  // viewer's mystery. Only found: it is not spawned until a viewer asks, since
+  // an idle encoder is a GPU and a monitor capture nobody is watching.
+  if (!VIDEO) {
+    log("video    off (--video off)");
+  } else {
+    const ffmpeg = FFMPEG || findBin("ffmpeg");
+    if (ffmpeg) video = createVideoSource({ ffmpeg, log });
+    else log("video    off (ffmpeg not found on PATH - install it to offer Stream)");
+  }
+
   await new Promise((r) => server.listen(PORT, LAN ? "0.0.0.0" : "127.0.0.1", r));
   log("bridge on " + (LAN ? "0.0.0.0" : "127.0.0.1") + ":" + PORT +
       " -> " + VNC_HOST + ":" + VNC_PORT);
@@ -1248,6 +1371,7 @@ process.on("uncaughtException", (e) => {
   console.error("\n  Internal host error: " + String(e?.stack || e) + "\n");
   stopPublishLoop();
   restoreShare();
+  if (video) video.stop();
   if (tunnelProc) tunnelProc.kill();
   const out = () => process.exit(1);
   if (TUNNELLESS || !publishedUrl) return out();
@@ -1265,6 +1389,7 @@ async function shutDown() {
     // the window looks hung. Give up on the network, but still put the display
     // back - that is local, instant, and the thing worth saving.
     restoreShare();
+    if (video) video.stop();
     if (tunnelProc) tunnelProc.kill();
     process.exit(0);
   }
@@ -1274,6 +1399,7 @@ async function shutDown() {
   // Restore first: it is a local call that always succeeds, where unpublish is
   // a network round trip that can hang for its full 5s.
   restoreShare();
+  if (video) video.stop();
   if (!TUNNELLESS) await unpublish();
   if (tunnelProc) tunnelProc.kill();
   process.exit(0);

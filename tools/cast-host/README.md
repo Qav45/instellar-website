@@ -256,6 +256,82 @@ that has never been tuned says so instead of guessing. It stays a readout and
 never becomes a lever — the poll rate is a machine-wide setting, and a remote page
 moving it is a different question from which monitor it is looking at.
 
+## Stream: hardware video for games and video
+
+Everything above makes stills arrive faster. It cannot make them smaller: a game
+or a video changes every pixel every frame, Tight has to compress each one from
+scratch, and the link chokes at 15-20 fps whatever the ladder asks for. The GPU
+has a hardware H.264 encoder that does this job for a living, and the browser has
+a hardware decoder (WebCodecs) to match. **Stream** in the toolbar joins the two.
+
+When it is on, the host runs ffmpeg — Desktop Duplication capture straight into
+`h264_nvenc`, low-latency settings, no B-frames, a keyframe every two seconds —
+and fans the raw stream out over a second WebSocket path, `/video`. The page
+decodes it and paints into the same canvas noVNC draws on, so every coordinate
+the mouse and keyboard rely on is unchanged. TightVNC stays connected for input
+only: the page stops asking it for pixels (`rfb.pixels = false`) and the ladder
+is parked at 0. Turn Stream off and all of that comes back exactly as it was.
+
+It is a toggle rather than the default because text is softer. H.264 at 8 mbps
+is built for motion, and Tight's lossless rectangles are what make a terminal
+readable. Watch a video or play a game with Stream on; read code with it off.
+
+The wire is deliberately small. `/video` takes the same `?k=` as `/ws`, plus
+`fps` (1-120, default 60), `mbps` (1-50, default 8), `display` (the Show
+dropdown's vocabulary) and `codecs` (see below). The host sends, and the client
+never speaks:
+
+1. A text frame, `{"type":"config","codec":"avc1.64002a","width":…,"height":…,
+   "fps":…,"encoder":"h264_nvenc",…}` — first, and again whenever the encoder
+   restarts. `codec` is what `VideoDecoder.configure` wants, read off the SPS.
+2. Binary frames, one per access unit: a flags byte (bit 0 = keyframe), a
+   big-endian u32 of milliseconds since the encoder started, then the Annex-B
+   bytes. Keyframes always carry their SPS and PPS, so a decoder can start from
+   any of them — and a new viewer always does: it receives the config, then the
+   cached GOP from its last keyframe, then live frames.
+3. A viewer more than 1 MiB behind has deltas dropped until the next keyframe,
+   never a delta whose predecessor it did not get.
+
+One encoder serves every viewer. The first subscriber starts it with its own
+settings, a later one whose settings differ restarts it for everyone, and it
+stops three seconds after the last one leaves — an idle encoder is a GPU and a
+screen capture nobody is watching. If `h264_nvenc` will not start the host tries
+`h264_amf`, then `h264_qsv`, then `libx264` on the CPU; if none will, every
+`/video` socket is closed with code 1011 and "no encoder", and the page falls
+back to Tight with a reason in the status text. An encoder that dies mid-stream
+is restarted once.
+
+H.264 is the floor, not the ceiling. Bytes are the constraint through the
+tunnel, and AV1 buys the most picture per byte, then HEVC — so the page asks
+the browser what it decodes in hardware (`VideoDecoder.isConfigSupported`) and
+sends the answer as `codecs=av1,hevc,h264` in preference order; anything not on
+that whitelist is ignored and an empty list means H.264. The host walks the
+list: `av1_nvenc`, `av1_amf`, `av1_qsv`, then `hevc_nvenc`, `hevc_amf`,
+`hevc_qsv`, then the H.264 chain above, with the same low-latency flags per
+vendor and the codec's own raw muxer (`hevc`, `obu`). The config message's
+`codec` says what won — `hvc1.1.6.L123.90` read off the HEVC SPS, `av01.0.09M.08`
+off the AV1 sequence header — and the HUD's hover text names it. A viewer that
+arrives while a codec it cannot decode is running restarts the encoder on its
+own list, so mixed browsers settle on what they share. `--codec av1|hevc|h264`
+pins the host's choice regardless of what the page asks for, trying only that
+codec's encoders.
+
+The route is on whenever ffmpeg is on PATH (`--ffmpeg <path>` names one that is
+not) and off with `--video off`; either way the host prints a `video` line at
+startup saying which, and `/ctl?stream=` answers `video:true|false` so the page
+can grey the button out on a host that predates all this without opening a
+socket to find out. A host with the route off answers `/video` with a plain 404.
+
+One caveat on **Show**: TightVNC and ffmpeg count monitors differently. Tight's
+"display N" is its own numbering; ffmpeg's `ddagrab` takes an output index, and
+`primary` and `full` both map to output 0 while `N` maps to output N-1. On a
+machine whose primary monitor is not the first output, Stream can show a
+different screen from the one Tight was sharing. Pick the display by number if
+that happens; the dropdown's choice is sent to both.
+
+Frames never touch disk. ffmpeg writes to a pipe, the host parses the bytes in
+memory and forwards them, and nothing in this path can write an image file.
+
 ## Requirements on the host
 
 * **TightVNC Server** running with a password set. Verify with
@@ -330,6 +406,9 @@ file to roll it.
 | --- | --- | --- |
 | `--lan` | off | Also listen on the local network and serve the viewer page |
 | `--share` | `primary` | `primary`, `full`, or a display number |
+| `--video` | `on` | `off` disables the `/video` route (see Stream above) |
+| `--ffmpeg` | ffmpeg on PATH | The ffmpeg binary Stream should run |
+| `--codec` | the page's preference | `av1`, `hevc` or `h264`: pin what Stream encodes |
 | `--tunnel` | `auto` | `cloudflared`, `ngrok`, or `none` for LAN-only (publishes nothing) |
 | `--url wss://…` | — | You already have a tunnel; publish this instead of starting one |
 | `--port` | `6080` | Bridge port |
@@ -537,9 +616,13 @@ node tools\cast-host\test\bridge.test.mjs      boots the real bridge against a s
 node tools\cast-host\test\framing.test.mjs     RFC 6455 framing, backpressure, keepalive, lifetime
 node tools\cast-host\test\render.test.mjs      the local bitmap change in cast\novnc.js
 node tools\cast-host\test\pipeline.test.mjs    frame request overlap and render backpressure
+node tools\cast-host\test\pixels.test.mjs      the rfb.pixels switch that stops framebuffer requests
 node tools\cast-host\test\adaptive.test.mjs    the fps ladder, and the bridge's update injector
 node tools\cast-host\test\paste.test.mjs       the order the clipboard and the keystroke are sent in
 node tools\cast-host\test\viewer.test.mjs      reconnect backoff, the offline card, and its escaping
+node tools\cast-host\test\video-route.test.mjs the /video route against a stand-in ffmpeg
+node tools\cast-host\test\video.test.mjs       AU splitting, codec strings, the GOP cache and the encoder chain
+node tools\cast-host\test\stream-client.test.mjs the page's pure Stream helpers: header, lag gate, reasons, codec list
 ```
 
 The bridge, framing and adaptive suites bind loopback ports in the 59000 and
@@ -550,6 +633,9 @@ viewer to prove the host stalls with it.
 `CAST_TUNNEL_BIN` is a test-only override used by the bridge suite to run
 `fake-tunnel.mjs` in place of cloudflared, crash it, and prove the replacement URL
 is published without letting the host exit. It is not a supported cast setting.
+`CAST_FFMPEG_BIN` is its twin for the video-route suite, which runs
+`fake-ffmpeg.mjs` in ffmpeg's place: it writes a synthetic H.264 stream, so the
+test captures no screen and needs no GPU.
 
 What they are for: the framing, the slot ownership, the render queue and the
 update injector are all hand-rolled here, and their failures are the quiet kind.

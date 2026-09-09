@@ -44,6 +44,8 @@
          border-radius:8px; padding:5px 9px; font-size:12px; font-family:inherit; cursor:pointer; }
   #bar button:hover, #bar select:hover { border-color:var(--accent); }
   #bar button.on { border-color:var(--accent); color:var(--accent); }
+  /* Stream with no decoder here or no route there: the title says which. */
+  #bar button:disabled { opacity:.5; cursor:default; border-color:var(--line); }
   /* Mouse lock armed but not currently holding the pointer - Escape hands it
      back and only a click can take it again, so the button must not go on
      claiming the pointer is captured. */
@@ -125,6 +127,7 @@
   </label>
   <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
   <button id="video" title="For watching a video playing on the host: a quality pair chosen for moving pictures, the rate as the only thing that gives, the toolbar out of the way and the screen kept awake.">Video</button>
+  <button id="stream" title="Hardware video for games and video: the host's GPU encodes the screen (AV1, HEVC or H.264, whichever this browser decodes in hardware) and this browser decodes it, sixty frames a second. Text goes a little soft, which is why it is a toggle and not the default.">Stream</button>
   <button id="look" title="Ignore my mouse and keyboard">Watch only</button>
   <button id="grab" title="Keep the pointer in the remote screen and send movement rather than position - what a game needs. Turn Fullscreen on too and Escape reaches the game; hold it to let go.">Mouse lock</button>
   <button id="cad" title="Send Ctrl+Alt+Delete to the remote machine">Ctrl+Alt+Del</button>
@@ -470,11 +473,17 @@ function tick() {
   // the rate yet, or the server pushes frames on its own timetable and there is
   // no request to fall short of - and inventing a target there would paint a
   // healthy stream red, so show the delivered number by itself.
-  const want = metrics.streamHz;
-  hud.fps.textContent = metrics.fps || want
-    ? Math.round(metrics.fps) + (want ? " / " + Math.round(want) : "")
+  //
+  // While Stream is on the picture is the decoder's, not the RFB loop's, so the
+  // readout counts its outputs against the rate the encoder was configured for.
+  const vidFps = decoder && dt > 0 ? vidFrames / dt : 0;
+  vidFrames = 0;
+  const want = decoder ? vidHz : metrics.streamHz;
+  const fps = decoder ? vidFps : metrics.fps;
+  hud.fps.textContent = fps || want
+    ? Math.round(fps) + (want ? " / " + Math.round(want) : "")
     : "–";
-  const short = want ? 1 - metrics.fps / want : 0;
+  const short = want ? 1 - fps / want : 0;
   const fpsEl = $("hFps");
   fpsEl.className = short > 0.35 ? "bad" : short > 0.15 ? "warn" : "";
   // The whole controller state, in the one place it costs nothing to put it.
@@ -483,7 +492,8 @@ function tick() {
   // Assigned only when it actually changed: a title nobody is hovering over is
   // not worth a DOM write a second, in a file whose own comments complain about
   // per-second DOM work.
-  const title = "decode duty " + Math.round(metrics.duty * 100) + "%" +
+  const title = (vidEncoder ? vidCodec + " via " + vidEncoder + " · " : "") +
+    "decode duty " + Math.round(metrics.duty * 100) + "%" +
     " · backlog " + Math.round(metrics.backlogBytes / 1024) + " KB" +
     " · stream " + (want ? Math.round(want) + " Hz" : "not set") +
     " · rung " + metrics.rung + " of " + metrics.ceiling +
@@ -673,6 +683,14 @@ function govern(dt) {
   metrics.ceiling = ceilingRung;
   if (!rfb) return;
 
+  // The video socket carries the picture and TightVNC carries nothing but
+  // input, so there is no VNC rate to govern - and the poll alignment below
+  // would otherwise ask for one the moment the first /ctl answer lands.
+  if (decoder) {
+    if (streamWant !== 0) { streamWant = 0; pushStream(); }
+    return;
+  }
+
   const now = performance.now();
   // A person has the wheel: the quality is theirs and stays theirs. Everything
   // below still runs, because a stall is not a matter of taste - it just moves
@@ -841,6 +859,15 @@ async function pushStream() {
       streamSent = body.stream;
       metrics.streamHz = body.stream;
       if (typeof body.pollMs === "number") metrics.pollMs = body.pollMs;
+      // The same answer says whether this host has a /video route, which is
+      // how the Stream button learns it is pointless here without a probe
+      // socket. A host that predates the field says nothing, and nothing is
+      // left as "try it" - the failed open then reports itself.
+      if (typeof body.video === "boolean" && body.video !== hostVideo) {
+        hostVideo = body.video;
+        reflectStream();
+        if (!hostVideo) streamOff("host");
+      }
       streamFails = 0;
       streamRetryAt = 0;
     } else {
@@ -1161,6 +1188,11 @@ function connect() {
   bestFps = 0;
   prevBacklog = 0;
   metrics.pollMs = 0;
+  // The video socket belongs to the session it was opened against - a fresh
+  // one is opened once the new RFB is up, if the toggle is still on.
+  closeVideo();
+  hostVideo = true;
+  vidTried = false;
 
   // Building the socket here rather than handing RFB a URL is what makes the link
   // readout possible: noVNC replaces the onmessage property, but a listener added
@@ -1231,6 +1263,10 @@ function connect() {
     // there would have caught it: it only runs on a change, and there is none.
     streamWant = document.hidden ? 0 : ceilHz();
     pushStream();
+    // The VNC rate above is not wasted: it is the picture until the first
+    // keyframe decodes, and the config message takes it back to zero.
+    reflectStream();
+    openVideo();
   });
 
   // What the controller runs on. One event per completed update, carrying what
@@ -1265,6 +1301,7 @@ function connect() {
     rfb = null;
     closePing();
     stopStats();
+    closeVideo();
     // The rate is remembered by the bridge, not by the connection, so a rate
     // this viewer chose would otherwise be waiting for whoever connects next.
     streamWant = 0;
@@ -1495,6 +1532,12 @@ document.addEventListener("visibilitychange", () => {
       hiddenWant = -1;
     }
     pushStream();
+    // The same for the video socket: sixty encoded frames a second into a tab
+    // nobody is looking at is the tunnel and the GPU paid for nothing, and the
+    // decoder's queue would only grow against a throttled output. The RFB
+    // pixels stay off across the gap - the socket comes straight back.
+    if (document.hidden) closeVideo();
+    else openVideo();
   }
   if (document.hidden) return;
   // The browser drops a wake lock with the tab; take it again with the tab.
@@ -1617,20 +1660,283 @@ document.addEventListener("touchstart", stir, { passive: true });
 $("video").addEventListener("click", () => {
   video = $("video").classList.toggle("on");
   document.body.classList.toggle("video", video);
-  $("quality").disabled = video;
+  $("quality").disabled = video || !!decoder;
   if (video && !$("fit").classList.contains("on")) {
     $("fit").classList.add("on");
     applyFit();
   }
   applyQuality();
   // Off a pinned pair the rate is the ladder's again; on it, the axis opens up
-  // to the top whatever rung the ladder was holding.
-  if (rfb) setRate(ceilHz());
+  // to the top whatever rung the ladder was holding. Under Stream there is no
+  // VNC rate to move, but the bitrate the encoder was asked for changes.
+  if (rfb) { if (decoder) openVideo(); else setRate(ceilHz()); }
   holdAwake(video);
   if (video) stir();
   else { clearTimeout(idleTimer); document.body.classList.remove("idle"); }
   refocus();
 });
+
+/* -------------------------------------------------------------- stream -- */
+
+// TightVNC ships the screen as compressed stills, and a game or a video changes
+// every pixel every frame: the ladder tops out around twenty of those a second
+// however good the link. The host has a hardware video encoder and this browser
+// has a hardware decoder, so Stream takes the picture off RFB altogether: the
+// bridge fans the encoder's output over a second socket, WebCodecs decodes it,
+// and each frame is painted into the very canvas noVNC owns. That last part is
+// what keeps everything else untouched - Fit, Fullscreen, Mouse lock and every
+// coordinate the mouse sends are the canvas's, and RFB stays connected for
+// input with its own frame requests switched off (rfb.pixels).
+//
+// Opt-in and remembered across reloads rather than the default, because text
+// through an encoder tuned for latency is softer than Tight's lossless regions.
+// Every failure path lands on the same fallback: the VNC pixels come back, the
+// ladder resumes, and the state line says why.
+const STREAM_KEY = "cast.stream";
+const STREAM_TITLE = $("stream").title;
+const LAG_QUEUE = 8;
+let stream = false;      // the toggle, as the person left it
+let hostVideo = true;    // false once /ctl said this host has no video route
+let vidSock = null;
+let decoder = null;      // a live VideoDecoder means Stream is carrying the picture
+let vidWaitKey = true;   // deltas are useless without the key they build on
+let vidTimer = 0;        // the wait for a config message on a fresh socket
+let vidFrames = 0;       // decoder outputs since the last tick
+let vidHz = 0;           // the rate the encoder was configured for
+let vidEncoder = "";     // which encoder the host ended up on, for the hover text
+let vidCodec = "";       // and the codec string it is sending
+let vidTried = false;    // one unasked retry per connect, no more
+
+// Which codecs this browser decodes in hardware, in the order worth having
+// them: bytes are what the tunnel is short of, and AV1 buys the most picture
+// per byte, then HEVC. The host takes the list as a preference and answers
+// with whichever of them it can encode. These strings are probes, one
+// plausible 1080p profile per codec; the host's own arrives in the config
+// message. Nothing supported still asks for H.264, since a browser without
+// WebCodecs H.264 has no Stream at all and the host will say so.
+const STREAM_CODECS = [["av1", "av01.0.08M.08"], ["hevc", "hvc1.1.6.L120.90"], ["h264", "avc1.64002a"]];
+let vidCodecs = null;    // "av1,hevc,h264" once the probe below has answered
+
+function streamCodecs(supported) {
+  const list = STREAM_CODECS.filter((c, i) => supported[i]).map((c) => c[0]);
+  return list.length ? list.join(",") : "h264";
+}
+
+// Asked once, at load: isConfigSupported is a promise, and openVideo is not.
+const vidProbe = !("VideoDecoder" in window) ? Promise.resolve() :
+  Promise.all(STREAM_CODECS.map(([, codec]) =>
+    VideoDecoder.isConfigSupported({ codec, hardwareAcceleration: "prefer-hardware" })
+      .then((r) => !!r.supported, () => false)))
+    .then((s) => { vidCodecs = streamCodecs(s); });
+
+// The 5-byte header the bridge puts on every binary frame: flags (bit 0 is a
+// keyframe), then a big-endian millisecond timestamp. WebCodecs wants
+// microseconds. Anything shorter than a header plus one byte is not a frame.
+function parseVideoFrame(buf) {
+  if (!buf || buf.byteLength < 6) return null;
+  const v = new DataView(buf);
+  return { key: (v.getUint8(0) & 1) === 1, timestamp: v.getUint32(1) * 1000,
+           data: new Uint8Array(buf, 5) };
+}
+
+// Whether to hand a chunk to the decoder, and whether to wait for a key after
+// it. A delta after a skipped frame is garbage - it references pixels this
+// decoder never saw - so once anything is dropped nothing goes in until the next
+// key. The drop itself is the lag control: a decoder holding more than
+// LAG_QUEUE chunks is behind by that many frames, and feeding it more only makes
+// the picture later. A keyframe is always decoded; it is the recovery point.
+function streamGate(waitKey, key, queued) {
+  if (key) return { decode: true, waitKey: false };
+  if (waitKey || queued > LAG_QUEUE) return { decode: false, waitKey: true };
+  return { decode: true, waitKey: false };
+}
+
+// One short line for the state text, whatever went wrong. The bridge closes
+// with 1011 and a reason when the encoder is the problem, and 1006 with nothing
+// when the socket simply never got there - a host predating the route, a tunnel
+// that only forwards /ws, the link going away.
+function streamReason(why, code, reason) {
+  switch (why) {
+    case "nodecoder": return "this browser cannot decode video";
+    case "host": return "this host has no video route";
+    case "timeout": return "the host sent no video";
+    case "decode": return "decoder error" + (reason ? " (" + reason + ")" : "");
+    case "close":
+      if (code === 1011) return reason || "the encoder failed";
+      if (code === 1006) return "the video link dropped";
+      return "closed" + (code ? " (" + code + (reason ? ": " + reason : "") + ")" : "");
+  }
+  return "unknown";
+}
+
+function canStream() {
+  return "VideoDecoder" in window && hostVideo;
+}
+
+function reflectStream() {
+  const b = $("stream");
+  const why = !("VideoDecoder" in window)
+    ? "This browser has no WebCodecs video decoder, so Stream cannot run here."
+    : !hostVideo ? "This host has no video route. Update the host script to get one."
+    : "";
+  b.disabled = !!why;
+  b.title = why || STREAM_TITLE;
+  b.classList.toggle("on", stream && !why);
+}
+
+function vidCanvas() {
+  return rfb ? (rfb.canvas || screenEl.querySelector("canvas")) : null;
+}
+
+function openVideo() {
+  closeVideo();
+  if (!stream || !rfb || !endpoint || document.hidden) return;
+  if (!canStream()) { streamOff("VideoDecoder" in window ? "host" : "nodecoder"); return; }
+  // The codec probe is still out only in the first moments after load; come
+  // back when it has answered, if Stream is still wanted and nothing else got
+  // here first.
+  if (vidCodecs === null) { vidProbe.then(() => { if (stream && !vidSock) openVideo(); }); return; }
+  // Video mode is a picture that is all motion, so it gets the bytes. The
+  // display is the share dropdown's own vocabulary; the bridge whitelists it
+  // and the codec list too.
+  const url = endpoint.replace("/ws?", "/video?") + "&fps=60&mbps=" + (video ? 12 : 8) +
+              "&display=" + encodeURIComponent($("share").value) + "&codecs=" + vidCodecs;
+  let sock;
+  try {
+    sock = new WebSocket(url);
+  } catch (e) {
+    streamOff("decode", 0, String(e.message || e));
+    return;
+  }
+  sock.binaryType = "arraybuffer";
+  vidSock = sock;
+  // The same guard as the RFB handlers: a socket this page closed still has a
+  // close event to deliver, and it must not tear down its replacement.
+  const mine = () => vidSock === sock;
+  vidTimer = setTimeout(() => { if (mine()) streamOff("timeout"); }, 5000);
+
+  sock.addEventListener("message", (e) => {
+    if (!mine()) return;
+    if (typeof e.data === "string") {
+      let cfg = null;
+      try { cfg = JSON.parse(e.data); } catch (_) {}
+      if (cfg && cfg.type === "config") configureVideo(cfg);
+      return;
+    }
+    // The link readout is bytes arriving, whichever socket carries them.
+    stats.window += e.data.byteLength || 0;
+    if (!decoder || decoder.state !== "configured") return;
+    const f = parseVideoFrame(e.data);
+    if (!f) return;
+    const g = streamGate(vidWaitKey, f.key, decoder.decodeQueueSize);
+    vidWaitKey = g.waitKey;
+    if (!g.decode) return;
+    try {
+      decoder.decode(new EncodedVideoChunk({ type: f.key ? "key" : "delta",
+                                             timestamp: f.timestamp, data: f.data }));
+    } catch (err) {
+      streamOff("decode", 0, String(err.message || err));
+    }
+  });
+  sock.addEventListener("close", (e) => {
+    if (mine()) streamOff("close", e.code, e.reason);
+  });
+}
+
+// A config message is the encoder starting - or restarting with new settings,
+// which is why the decoder is built fresh each time rather than reconfigured
+// mid-stream. Only from here on are the RFB pixels switched off: until the
+// host has proved it can encode, the VNC picture is the one worth keeping.
+function configureVideo(cfg) {
+  clearTimeout(vidTimer);
+  if (decoder) { try { decoder.close(); } catch (_) {} decoder = null; }
+  const d = new VideoDecoder({
+    output: (frame) => {
+      // Scaled to the canvas rather than drawn 1:1: the framebuffer is what the
+      // mouse coordinates are measured against, and the encoder's size need
+      // not match it exactly.
+      const c = decoder === d ? vidCanvas() : null;
+      if (c) {
+        vidFrames++;
+        c.getContext("2d").drawImage(frame, 0, 0, c.width, c.height);
+      }
+      frame.close();
+    },
+    error: (e) => { if (decoder === d) streamOff("decode", 0, String(e.message || e)); },
+  });
+  try {
+    d.configure({ codec: cfg.codec, optimizeForLatency: true,
+                  hardwareAcceleration: "prefer-hardware" });
+  } catch (e) {
+    try { d.close(); } catch (_) {}
+    streamOff("decode", 0, String(e.message || e));
+    return;
+  }
+  decoder = d;
+  vidWaitKey = true;
+  vidHz = cfg.fps || 0;
+  vidEncoder = cfg.encoder || "";
+  vidCodec = cfg.codec || "";
+  rfb.pixels = false;
+  streamWant = 0;
+  pushStream();
+  $("quality").disabled = true;
+  state("live", "Streaming");
+}
+
+// Tear down the socket and decoder and nothing else: the RFB pixels stay as
+// they are, which is what a hidden tab and a reconnect both want.
+function closeVideo() {
+  clearTimeout(vidTimer);
+  if (vidSock) { const s = vidSock; vidSock = null; try { s.close(); } catch (_) {} }
+  if (decoder) { const d = decoder; decoder = null; try { d.close(); } catch (_) {} }
+  vidHz = 0;
+  vidEncoder = "";
+  vidCodec = "";
+  vidFrames = 0;
+}
+
+// Back to VNC pixels. With a reason it is a failure and the state line says
+// so; without one it is the toggle going off. Either way the ladder resumes
+// from its ceiling, exactly as the Video toggle hands the rate back.
+function streamOff(why, code, reason) {
+  closeVideo();
+  $("quality").disabled = video;
+  // No session means nothing to fall back to, and whatever card is up owns
+  // the state line: a video socket outliving Stop cast must not overwrite
+  // "Host offline" with its own goodbye.
+  if (!rfb) return;
+  if (rfb.pixels === false) rfb.pixels = true;
+  if (!document.hidden) setRate(ceilHz());
+  if (!why) { state("live", "Connected"); return; }
+  state("live", "Stream unavailable: " + streamReason(why, code, reason));
+  if (why === "host" || why === "nodecoder") { reflectStream(); return; }
+  // A tunnel hiccup or an encoder still warming up deserves one more go. Just
+  // one: a host that cannot encode says so on every attempt, and a socket
+  // reopened every few seconds is the loop this page has already had to
+  // remove once from pushStream. A socket already pending by then - a
+  // reconnect got there first - is left alone.
+  if (!vidTried && stream) {
+    vidTried = true;
+    setTimeout(() => { if (rfb && stream && !vidSock) openVideo(); }, 3000);
+  }
+}
+
+$("stream").addEventListener("click", () => {
+  if ($("stream").disabled) return;
+  stream = !stream;
+  try { localStorage.setItem(STREAM_KEY, stream ? "1" : "0"); } catch (_) {}
+  reflectStream();
+  if (stream) { vidTried = false; openVideo(); }
+  else streamOff("");
+  refocus();
+});
+
+// Same shape as the session store: a browser that blocks site data throws on
+// the mention of localStorage, and a toggle that forgets itself is not a
+// broken page.
+try { stream = localStorage.getItem(STREAM_KEY) === "1"; } catch (_) {}
+reflectStream();
 
 $("look").addEventListener("click", () => {
   const on = $("look").classList.toggle("on");
