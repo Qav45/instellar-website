@@ -164,7 +164,7 @@
 // modules would be 54 requests on every cold load. novnc.js is that whole tree
 // bundled into one same-origin file, which is one request and no third party in
 // the critical path.
-import RFB from "./novnc.js?v=20260909-input";
+import RFB from "./novnc.js?v=20260909-stream";
 
 const $ = (id) => document.getElementById(id);
 const screenEl = $("screen");
