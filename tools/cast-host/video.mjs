@@ -515,6 +515,7 @@ const ENCODERS = {
 };
 export const codecOf = (encoder) => encoder === "libx264" ? "h264" : encoder.split("_")[0];
 const BACKLOG_LIMIT = 1024 * 1024;   // bytes queued on a viewer before it is skipped
+const GOP_SECONDS = 5;               // keyframe interval; the cache below holds one GOP
 const IDLE_MS = 3000;                // keep the encoder warm this long after the last viewer
 const STARTUP_MS = 2000;             // an exit sooner than this means "cannot start"
 const CRASH_WINDOW_MS = 10000;       // a second death this soon after a restart is final
@@ -527,12 +528,21 @@ const CRASH_WINDOW_MS = 10000;       // a second death this soon after a restart
 // encoder that does not. The raw muxer is the codec's own: h264, hevc, obu.
 function ffmpegArgs(encoder, s) {
   const idx = s.display === "primary" || s.display === "full" ? 0 : Number(s.display) - 1;
-  let filter = "ddagrab=output_idx=" + idx + ":framerate=" + s.fps + ":draw_mouse=1";
+  // No cursor in the capture: the page keeps the browser's own pointer over
+  // the canvas, which has no lag at all, and a captured one arrives a frame or
+  // more later as a second cursor trailing the first. A game under pointer
+  // lock draws its own cursor into the frame anyway.
+  let filter = "ddagrab=output_idx=" + idx + ":framerate=" + s.fps + ":draw_mouse=0";
   // libx264 runs on the CPU and cannot read D3D11 textures; the others take the
   // captured frame straight from the GPU.
   if (encoder === "libx264") filter += ",hwdownload,format=nv12";
+  // A keyframe every five seconds, not two: an IDR is many times the size of
+  // a delta and under CBR it comes out as a burst the tunnel takes a moment to
+  // drain, which the viewer saw as a glitch on a two-second beat. A late
+  // joiner waits at most this long for a picture, and the GOP cache means a
+  // joiner during the GOP does not wait at all.
   const rate = ["-b:v", s.mbps + "M", "-maxrate", s.mbps + "M",
-    "-bufsize", Math.round(s.mbps * 1000 / s.fps * 2) + "k", "-g", String(s.fps * 2), "-bf", "0"];
+    "-bufsize", Math.round(s.mbps * 1000 / s.fps * 2) + "k", "-g", String(s.fps * GOP_SECONDS), "-bf", "0"];
   const vendor = encoder.split("_")[1] || encoder;
   const tune = {
     nvenc: ["-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-rc", "cbr"],
@@ -583,6 +593,7 @@ export function createVideoSource(opts) {
   let lastCrashAt = 0;
   let config = null;
   let gop = [];                    // [{ flags, ts, bytes }] from the last keyframe on
+  let gopBytes = 0;                // their total, for the replay cap below
   let idleTimer = null;
   let stopped = false;
 
@@ -619,7 +630,9 @@ export function createVideoSource(opts) {
       for (const e of sinks) e.sink.config(config);
     }
     const au = { flags: parsed.key ? 1 : 0, ts: Date.now() - startedAt, bytes: parsed.bytes };
-    if (parsed.key) gop = [au]; else gop.push(au);
+    // The cache is one GOP whatever its length - up to fps * GOP_SECONDS AUs.
+    if (parsed.key) { gop = [au]; gopBytes = 0; } else gop.push(au);
+    gopBytes += au.bytes.length;
     for (const e of sinks) deliver(e, au);
   };
 
@@ -634,6 +647,7 @@ export function createVideoSource(opts) {
     current = settings;
     config = null;
     gop = [];
+    gopBytes = 0;
     proven = false;
     for (const e of sinks) e.waitKey = true;
     // The first requested codec's encoders, then the next codec's: a host
@@ -692,6 +706,7 @@ export function createVideoSource(opts) {
     current = null;
     config = null;
     gop = [];
+    gopBytes = 0;
   };
 
   const subscribe = (settings, sink) => {
@@ -703,10 +718,13 @@ export function createVideoSource(opts) {
     if (child && canJoin(current, settings, encoder)) {
       // Joining a running stream: the config and the cached GOP let the
       // decoder start on the keyframe it needs instead of waiting for the
-      // next one.
+      // next one. A five-second GOP at the top bitrate is several megabytes,
+      // and a replay past the backlog limit would only be skipped by deliver
+      // part way through, leaving the viewer on a half GOP; that viewer waits
+      // for the next keyframe instead, as it would with no cache at all.
       if (config) {
         sink.config(config);
-        for (const au of gop) deliver(entry, au);
+        if (gopBytes <= BACKLOG_LIMIT) for (const au of gop) deliver(entry, au);
       }
     } else {
       // The first viewer picks the settings; a later one who wants something

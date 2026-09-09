@@ -11,6 +11,9 @@
 //   CAST_FAKE_FFMPEG_ARGS       file to append the argv to, one JSON line per run
 //   CAST_FAKE_FFMPEG_DIE_AFTER  exit 3 after this many ms (each run)
 //   CAST_FAKE_FFMPEG_BARE_IDR   1: keyframes after the first carry no parameter sets
+//   CAST_FAKE_FFMPEG_GOP        pictures per keyframe (30)
+//   CAST_FAKE_FFMPEG_TICK_MS    ms between pictures (16)
+//   CAST_FAKE_FFMPEG_DELTA      bytes per delta picture (600)
 import fs from "node:fs";
 
 const argv = process.argv.slice(2);
@@ -60,21 +63,23 @@ const frameObu = (key, n, size) => {
   return Buffer.concat([Buffer.from([0x32, (size & 0x7f) | 0x80, size >> 7]), b]);
 };
 
+const GOP = Number(env.CAST_FAKE_FFMPEG_GOP) || 30;
+const DELTA = Number(env.CAST_FAKE_FFMPEG_DELTA) || 600;
 let n = 0;
 const tick = () => {
-  const key = n % 30 === 0;
+  const key = n % GOP === 0;
   const parts = [];
   const params = key && (n === 0 || !env.CAST_FAKE_FFMPEG_BARE_IDR);
   if (codec === "av1") {
     parts.push(TD);
     if (params) parts.push(SEQ);
-    parts.push(frameObu(key, n, key ? 4000 : 600));
+    parts.push(frameObu(key, n, key ? 4000 : DELTA));
   } else {
     if (params) parts.push(...(codec === "hevc" ? [SC, HVPS, SC, HSPS, SC, HPPS] : [SC, SPS, SC, PPS]));
-    parts.push(SC, slice(key, n, key ? 4000 : 600));
+    parts.push(SC, slice(key, n, key ? 4000 : DELTA));
   }
   process.stdout.write(Buffer.concat(parts));
   n++;
 };
-setInterval(tick, 16);
+setInterval(tick, Number(env.CAST_FAKE_FFMPEG_TICK_MS) || 16);
 if (env.CAST_FAKE_FFMPEG_DIE_AFTER) setTimeout(() => process.exit(3), Number(env.CAST_FAKE_FFMPEG_DIE_AFTER));

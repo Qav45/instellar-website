@@ -409,9 +409,9 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
   ok("log says which encoder is in use", logs.some((l) => l === "video    h264 via h264_nvenc"), logs.join(" | "));
   ok("settings() reports what is running", JSON.stringify(src.settings()) === JSON.stringify(S60));
   const argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
-  ok("ffmpeg command: ddagrab primary at 60 fps, nvenc cbr 8M, gop 120, raw h264 to stdout",
-    argv.includes("ddagrab=output_idx=0:framerate=60:draw_mouse=1") && argv.includes("h264_nvenc") &&
-    argv.join(" ").includes("-b:v 8M -maxrate 8M -bufsize 267k -g 120 -bf 0") &&
+  ok("ffmpeg command: ddagrab primary at 60 fps without the cursor, nvenc cbr 8M, gop 300, raw h264 to stdout",
+    argv.includes("ddagrab=output_idx=0:framerate=60:draw_mouse=0") && argv.includes("h264_nvenc") &&
+    argv.join(" ").includes("-b:v 8M -maxrate 8M -bufsize 267k -g 300 -bf 0") &&
     argv.slice(-3).join(" ") === "-f h264 pipe:1", argv.join(" "));
 
   // Late subscriber: config, then the cached GOP, so it starts on a keyframe
@@ -459,6 +459,45 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
   src.stop();
 }
 
+// -- the GOP cache at the real keyframe interval, and the replay cap ---------
+// Five seconds at sixty is 300 AUs between keyframes; the cache must hold all
+// of them for a late joiner. The fake runs that GOP at 2 ms a picture.
+{
+  process.env.CAST_FAKE_FFMPEG_GOP = "300";
+  process.env.CAST_FAKE_FFMPEG_TICK_MS = "2";
+  const src = createVideoSource({ ffmpeg: null, log: () => {} });
+  const a = recorder();
+  src.subscribe(S60, a);
+  await until(() => a.aus.length >= 250, 5000);
+  const b = recorder();
+  src.subscribe(S60, b);
+  const lastKeyA = a.aus.map((x) => x.flags & 1).lastIndexOf(1);
+  ok("a viewer joining 250 frames into a 300-frame GOP is replayed all of it, from the keyframe",
+    a.aus.length >= 250 && lastKeyA === 0 && b.aus.length === a.aus.length &&
+    (b.aus[0].flags & 1) === 1 && b.aus.every((x, i) => x.bytes.equals(a.aus[i].bytes)),
+    a.aus.length + " cached, " + b.aus.length + " replayed, last key at " + lastKeyA);
+  src.stop();
+  delete process.env.CAST_FAKE_FFMPEG_GOP;
+  delete process.env.CAST_FAKE_FFMPEG_TICK_MS;
+}
+// A GOP bigger than the backlog limit is not replayed: deliver would skip the
+// joiner part way through anyway, so it waits for the next keyframe instead.
+{
+  process.env.CAST_FAKE_FFMPEG_DELTA = String(60 * 1024);       // 30 of these is 1.8 MB a GOP
+  const src = createVideoSource({ ffmpeg: null, log: () => {} });
+  const a = recorder();
+  src.subscribe(S60, a);
+  await until(() => a.aus.length >= 25, 3000);
+  const b = recorder();
+  src.subscribe(S60, b);
+  ok("a joiner during an oversize GOP gets the config and no replay",
+    b.configs.length === 1 && b.aus.length === 0, b.aus.length + " replayed");
+  await until(() => b.aus.length >= 1, 2000);
+  ok("and starts on the next keyframe", b.aus.length >= 1 && (b.aus[0].flags & 1) === 1);
+  src.stop();
+  delete process.env.CAST_FAKE_FFMPEG_DELTA;
+}
+
 // -- restart when a viewer asks for different settings ----------------------
 {
   const src = createVideoSource({ ffmpeg: null, log: () => {} });
@@ -473,7 +512,7 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
     a.configs.length === 2 && a.configs[1].fps === 30 && b.configs.length === 1 && b.configs[0] === a.configs[1]);
   const argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
   ok("restarted with the new settings: display 2 -> output_idx 1, 30 fps, 4M",
-    argv.includes("ddagrab=output_idx=1:framerate=30:draw_mouse=1") && argv.join(" ").includes("-b:v 4M"));
+    argv.includes("ddagrab=output_idx=1:framerate=30:draw_mouse=0") && argv.join(" ").includes("-b:v 4M -maxrate 4M -bufsize 267k -g 150 -bf 0"));
   ok("old ffmpeg was killed", !alive(pid1) && readPid() !== pid1);
   const firstAfter = a.aus.slice().reverse().find((x) => x.flags & 1);
   ok("the old viewer resumed on a keyframe from the new encoder", !!firstAfter);

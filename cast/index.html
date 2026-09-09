@@ -477,7 +477,17 @@ function tick() {
   // While Stream is on the picture is the decoder's, not the RFB loop's, so the
   // readout counts its outputs against the rate the encoder was configured for.
   const vidFps = decoder && dt > 0 ? vidFrames / dt : 0;
-  vidFrames = 0;
+  const vidIn = decoder && dt > 0 ? vidDelivered / dt : 0;
+  vidFrames = vidDelivered = 0;
+  // A decoder putting out well under what arrives is one that cannot keep up
+  // - a Chromebook decoding AV1 in software, typically. Two seconds of it and
+  // the codec is swapped for the next one, below.
+  if (decoder) {
+    if (streamSlow(vidIn, vidFps)) { if (!vidSlowSince) vidSlowSince = now; }
+    else vidSlowSince = 0;
+    const why = streamStrain(vidDrops, now, vidSlowSince ? now - vidSlowSince : 0);
+    if (why) streamDowngrade(why);
+  }
   const want = decoder ? vidHz : metrics.streamHz;
   const fps = decoder ? vidFps : metrics.fps;
   hud.fps.textContent = fps || want
@@ -1693,8 +1703,14 @@ $("video").addEventListener("click", () => {
 // Every failure path lands on the same fallback: the VNC pixels come back, the
 // ladder resumes, and the state line says why.
 const STREAM_KEY = "cast.stream";
+const CODEC_KEY = "cast.codec";
 const STREAM_TITLE = $("stream").title;
 const LAG_QUEUE = 8;
+const STRAIN_DROPS = 2;        // lag drops within STRAIN_DROP_MS mean the decoder is behind
+const STRAIN_DROP_MS = 10000;
+const STRAIN_RATIO = 0.85;     // decoded under this share of what arrives, for STRAIN_SLOW_MS
+const STRAIN_SLOW_MS = 2000;
+const STRAIN_GRACE_MS = 1000;  // a fresh decoder's first second is the GOP replay, not strain
 let stream = false;      // the toggle, as the person left it
 let hostVideo = true;    // false once /ctl said this host has no video route
 let vidSock = null;
@@ -1706,6 +1722,11 @@ let vidHz = 0;           // the rate the encoder was configured for
 let vidEncoder = "";     // which encoder the host ended up on, for the hover text
 let vidCodec = "";       // and the codec string it is sending
 let vidTried = false;    // one unasked retry per connect, no more
+let vidDelivered = 0;    // AUs arriving since the last tick, decoded or not
+let vidDrops = [];       // when the lag control last fired, newest last
+let vidSlowSince = 0;    // when decoded output first fell short of the arrivals
+let vidSince = 0;        // when the current decoder was configured
+let vidNote = "";        // what the state line says about the last downgrade
 
 // Which codecs this browser decodes in hardware, in the order worth having
 // them: bytes are what the tunnel is short of, and AV1 buys the most picture
@@ -1715,11 +1736,57 @@ let vidTried = false;    // one unasked retry per connect, no more
 // message. Nothing supported still asks for H.264, since a browser without
 // WebCodecs H.264 has no Stream at all and the host will say so.
 const STREAM_CODECS = [["av1", "av01.0.08M.08"], ["hevc", "hvc1.1.6.L120.90"], ["h264", "avc1.64002a"]];
+let vidSupported = null; // the probe's answers, one boolean per STREAM_CODECS entry
 let vidCodecs = null;    // "av1,hevc,h264" once the probe below has answered
+const vidBad = new Set(); // codecs downgraded away from this session; not retried until reload
 
-function streamCodecs(supported) {
-  const list = STREAM_CODECS.filter((c, i) => supported[i]).map((c) => c[0]);
+// The probe says what decodes at all; it does not say what decodes fast.
+// isConfigSupported answered yes to AV1 on a Chromebook that then decoded it
+// in software at half rate, so the list also leaves out what this session has
+// already given up on, and starts at the codec that worked last visit rather
+// than learning the same lesson every time. A remembered codec the probe no
+// longer supports is ignored.
+function streamCodecs(supported, bad = [], first = "") {
+  let list = STREAM_CODECS.filter((c, i) => supported[i]).map((c) => c[0])
+    .filter((c) => !bad.includes(c));
+  const at = list.indexOf(first);
+  if (at > 0) list = list.slice(at);
   return list.length ? list.join(",") : "h264";
+}
+
+// The family a WebCodecs codec string belongs to, for the state line and the
+// bad list: av01.* is AV1, hvc1/hev1 HEVC, avc1/avc3 H.264.
+function streamFamily(codec) {
+  if (/^av01/.test(codec)) return "av1";
+  if (/^(hvc1|hev1)/.test(codec)) return "hevc";
+  if (/^avc[13]/.test(codec)) return "h264";
+  return "";
+}
+
+// Decoded output short of what arrives. Nothing arriving is nothing to fall
+// short of.
+function streamSlow(deliveredFps, decodedFps) {
+  return deliveredFps > 0 && decodedFps < deliveredFps * STRAIN_RATIO;
+}
+
+// Whether the decoder is not keeping up, and why, in the words the state line
+// uses. `drops` are the times the lag control fired, `slowMs` how long output
+// has been short. Either sign alone is enough: the lag control firing twice in
+// ten seconds is a decoder that keeps falling a queue behind, and two seconds
+// of low output is one that never catches up.
+function streamStrain(drops, now, slowMs) {
+  const recent = drops.filter((t) => now - t <= STRAIN_DROP_MS);
+  if (recent.length >= STRAIN_DROPS) return "dropping frames";
+  if (slowMs >= STRAIN_SLOW_MS) return "decoding too slowly";
+  return "";
+}
+
+// The list to ask the host for now, from the probe, the session's bad list
+// and last visit's codec.
+function chooseCodecs() {
+  let last = "";
+  try { last = localStorage.getItem(CODEC_KEY) || ""; } catch (_) {}
+  vidCodecs = streamCodecs(vidSupported, Array.from(vidBad), last);
 }
 
 // Asked once, at load: isConfigSupported is a promise, and openVideo is not.
@@ -1727,7 +1794,7 @@ const vidProbe = !("VideoDecoder" in window) ? Promise.resolve() :
   Promise.all(STREAM_CODECS.map(([, codec]) =>
     VideoDecoder.isConfigSupported({ codec, hardwareAcceleration: "prefer-hardware" })
       .then((r) => !!r.supported, () => false)))
-    .then((s) => { vidCodecs = streamCodecs(s); });
+    .then((s) => { vidSupported = s; chooseCodecs(); });
 
 // The 5-byte header the bridge puts on every binary frame: flags (bit 0 is a
 // keyframe), then a big-endian millisecond timestamp. WebCodecs wants
@@ -1828,7 +1895,17 @@ function openVideo() {
     if (!decoder || decoder.state !== "configured") return;
     const f = parseVideoFrame(e.data);
     if (!f) return;
+    vidDelivered++;
     const g = streamGate(vidWaitKey, f.key, decoder.decodeQueueSize);
+    // The gate closing on an open stream is the lag control firing. The first
+    // second after a configure is the cached GOP arriving in one burst, which
+    // fills the queue whatever the decoder, so that closing is not counted.
+    if (g.waitKey && !vidWaitKey && performance.now() - vidSince > STRAIN_GRACE_MS) {
+      const now = performance.now();
+      vidDrops = vidDrops.filter((t) => now - t <= STRAIN_DROP_MS).concat(now);
+      const why = streamStrain(vidDrops, now, 0);
+      if (why) { streamDowngrade(why); return; }
+    }
     vidWaitKey = g.waitKey;
     if (!g.decode) return;
     try {
@@ -1857,19 +1934,22 @@ function configureVideo(cfg) {
       // not match it exactly.
       const c = decoder === d ? vidCanvas() : null;
       if (c) {
-        vidFrames++;
+        // The first picture out is the codec proving itself; that is the one
+        // the next visit starts on.
+        if (!vidFrames++) { try { localStorage.setItem(CODEC_KEY, streamFamily(vidCodec)); } catch (_) {} }
         c.getContext("2d").drawImage(frame, 0, 0, c.width, c.height);
       }
       frame.close();
     },
-    error: (e) => { if (decoder === d) streamOff("decode", 0, String(e.message || e)); },
+    error: (e) => { if (decoder === d) streamDowngrade("decoder error", String(e.message || e)); },
   });
   try {
     d.configure({ codec: cfg.codec, optimizeForLatency: true,
                   hardwareAcceleration: "prefer-hardware" });
   } catch (e) {
     try { d.close(); } catch (_) {}
-    streamOff("decode", 0, String(e.message || e));
+    vidCodec = cfg.codec || "";
+    streamDowngrade("decoder error", String(e.message || e));
     return;
   }
   decoder = d;
@@ -1877,11 +1957,34 @@ function configureVideo(cfg) {
   vidHz = cfg.fps || 0;
   vidEncoder = cfg.encoder || "";
   vidCodec = cfg.codec || "";
+  vidFrames = vidDelivered = 0;
+  vidDrops = [];
+  vidSlowSince = 0;
+  vidSince = performance.now();
   rfb.pixels = false;
   streamWant = 0;
   pushStream();
   $("quality").disabled = true;
-  state("live", "Streaming");
+  state("live", "Streaming" + (vidNote ? " " + streamFamily(vidCodec) + vidNote : ""));
+}
+
+// The codec is not keeping up here, or will not decode at all: strike it for
+// the session and ask the host again with the rest of the list, so a
+// Chromebook that decodes AV1 in software is on HEVC within seconds rather
+// than the tens the retry-and-hope path took. The host restarts its encoder
+// for the new list. With nothing left to fall to, this is the old failure.
+function streamDowngrade(why, detail) {
+  const from = streamFamily(vidCodec);
+  if (from) vidBad.add(from);
+  chooseCodecs();
+  const to = vidCodecs.split(",")[0];
+  if (!from || vidBad.has(to)) {
+    streamOff("decode", 0, detail || why);
+    return;
+  }
+  vidNote = " after " + from + " was " + why;
+  state("live", "Stream: " + from + " " + why + ", switching to " + to);
+  openVideo();
 }
 
 // Tear down the socket and decoder and nothing else: the RFB pixels stay as

@@ -265,7 +265,7 @@ has a hardware H.264 encoder that does this job for a living, and the browser ha
 a hardware decoder (WebCodecs) to match. **Stream** in the toolbar joins the two.
 
 When it is on, the host runs ffmpeg — Desktop Duplication capture straight into
-`h264_nvenc`, low-latency settings, no B-frames, a keyframe every two seconds —
+`h264_nvenc`, low-latency settings, no B-frames, a keyframe every five seconds —
 and fans the raw stream out over a second WebSocket path, `/video`. The page
 decodes it and paints into the same canvas noVNC draws on, so every coordinate
 the mouse and keyboard rely on is unchanged. TightVNC stays connected for input
