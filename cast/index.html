@@ -60,6 +60,10 @@
   #hud b { color:var(--fg); font-weight:600; }
   #hud .warn b { color:#ffb020; }
   #hud .bad b { color:#ff5c5c; }
+  /* The fps field keeps its frame diagnostics - duty, backlog, requested rate -
+     in a tooltip, because they do not deserve toolbar width. Nothing says a
+     tooltip is there unless the cursor does. */
+  #hud [title] { cursor:help; }
 
   /* ---- screen ---- */
   #screen { flex:1 1 auto; min-height:0; background:#000; position:relative; }
@@ -90,6 +94,7 @@
     <span id="hRtt">ping <b>–</b></span>
     <span id="hRate">link <b>–</b></span>
     <span id="hFb">screen <b>–</b></span>
+    <span id="hFps">fps <b>–</b></span>
   </div>
   <div class="spacer"></div>
   <label>Show
@@ -143,7 +148,7 @@
 // modules would be 54 requests on every cold load. novnc.js is that whole tree
 // bundled into one same-origin file, which is one request and no third party in
 // the critical path.
-import RFB from "./novnc.js?v=20260908-pipeline";
+import RFB from "./novnc.js?v=20260908-fps";
 
 const $ = (id) => document.getElementById(id);
 const screenEl = $("screen");
@@ -176,9 +181,17 @@ let password = store.get("castPass");
 // Served by the bridge itself on the LAN: the endpoint is this very host, and the
 // session key was injected into the page, so there is nothing to look up.
 const DIRECT = typeof window.CAST_DIRECT === "string" ? window.CAST_DIRECT : "";
+// Which tab this is, carried on the socket URL so the bridge learns it during the
+// upgrade and every /ctl call can name it. Not a credential - the session key in
+// the same URL is - just an identifier, so that the rate this page's controller
+// asks for moves this page's bridge and not the one a second tab is watching
+// through. Per tab rather than per connection: a reconnect is the same viewer
+// and should land on the rate it already chose.
+const VIEWER = Math.random().toString(36).slice(2, 10) +
+               Math.random().toString(36).slice(2, 10);
 let endpoint = DIRECT
   ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host +
-    "/ws?k=" + encodeURIComponent(DIRECT)
+    "/ws?k=" + encodeURIComponent(DIRECT) + "&v=" + VIEWER
   : "";
 let rfb = null;
 let retry = null;
@@ -199,27 +212,75 @@ let needPassword = false;   // a password card is up; disconnect must not bury i
 // little CPU - it is a desktop, it has some - and costs the viewer nothing while
 // meaningfully shrinking exactly the flat regions that dominate a screenful of
 // text. The old level 1 was leaving that on the table.
-const PRESETS = {
-  sharp:    { quality: 9, compression: 3 },
-  balanced: { quality: 6, compression: 5 },
-  fast:     { quality: 3, compression: 7 },
-};
+// One ladder, not two knobs. Frame rate and quality spend the same budget -
+// bytes on the wire and milliseconds of decode - so two controllers arguing over
+// it is a guaranteed fight. Eight rungs ordered by bytes per second, climbed and
+// descended one at a time. The top rung exists so a LAN session on a real machine
+// still gets the sharp picture this page has always given it; rung 0 exists so a
+// phone on cellular still gets something that moves.
+//
+// Ordered by bytes rather than by rate, which is what the low-quality pair at 20
+// and 30 Hz is for. Video is the case that exposed the old six-rung shape: a
+// playing video changes every pixel of the viewport every frame, so it is bound
+// by the link long before it is bound by anything else, and the only descent the
+// ladder offered was rate. Falling out of Balanced cost a third of the motion and
+// not one byte per frame, then another third, and another - 30 Hz down to 10,
+// each step still shipping the same expensive frames - when dropping the quality
+// pair instead cuts bytes about threefold at full rate. That rung did not exist,
+// so the picture that could have moved smoothly at 30 Hz stuttered at 10.
+//
+// So both quality pairs now span the rate axis, and the order is the byte cost of
+// a second: 3.3, 6.7, 10, 15, 20, 30 and up. Every down-step therefore buys a
+// link something, which is the property the descent needs and the only one that
+// makes a single ladder honest. It is not monotone in decode work - rung 3 is
+// thirty cheap frames where rung 4 is fifteen dearer ones - and it cannot be,
+// because the two axes disagree about what costs what. A viewer bound by its own
+// decoder rather than by the link simply keeps descending past that step, which
+// is what it did before.
+//
+// `preset` names the dropdown entry a rung answers to, where one does: the
+// mapping is written down rather than recovered by scanning the table for a
+// matching pair.
+const RUNGS = [
+  { hz: 5,  quality: 3, compression: 7 },
+  { hz: 10, quality: 3, compression: 7 },
+  { hz: 20, quality: 3, compression: 7 },
+  { hz: 30, quality: 3, compression: 7, preset: "3,7" },   // Fast, where video settles
+  { hz: 15, quality: 6, compression: 5 },
+  { hz: 20, quality: 6, compression: 5 },
+  { hz: 30, quality: 6, compression: 5, preset: "6,5" },   // Balanced
+  { hz: 30, quality: 9, compression: 3, preset: "9,3" },   // Sharp
+];
+const TOP = RUNGS.length - 1;
+// The rate axis on its own, for the manual case below, where quality is pinned
+// and this is the only dial left to turn. 0 is a rate: it means stop asking.
+const RATES = [0, 5, 10, 15, 20, 30];
 
 // Cheap proxy for "is this a weak machine": Chromebooks commonly report 2-4 cores
-// and 4GB. Only a starting guess; measurement takes over within seconds.
+// and 4GB. A cold-start guess and nothing more - it picks the rung this page
+// opens on and is never consulted again. It used to be ORed into the tier
+// decision itself, which meant a machine flagged weak could never reach the
+// sharp preset however well it was measured to be doing, for the life of the
+// page - and the comment here claimed the opposite. The ladder's own ceiling is
+// what holds a weak device down now, and it earns that from measurement.
 const WEAK = (navigator.hardwareConcurrency || 4) <= 4 ||
              (navigator.deviceMemory || 8) <= 4;
 
 const stats = { rtt: 0, floor: 0, window: 0, mbps: 0 };
+// What the frame pipeline is doing, as opposed to what the probe socket says.
+// Whoever measures frames writes these; the tick below only renders them, so
+// the readout stays honest about knowing nothing while they are all zero.
+const metrics = { fps: 0, duty: 0, streamHz: 0, backlogBytes: 0,
+                  pollMs: 0, rung: 0, ceiling: 0 };
 const hud = {
   rtt: $("hRtt").querySelector("b"),
   rate: $("hRate").querySelector("b"),
   fb: $("hFb").querySelector("b"),
+  fps: $("hFps").querySelector("b"),
 };
 let pingSock = null;
 let pingTimer = null;
 let pingRetryAt = 0;
-let autoTier = WEAK ? "balanced" : "sharp";
 
 function openPing() {
   if (!endpoint) return;
@@ -251,6 +312,12 @@ function openPing() {
   });
 
   sock.addEventListener("message", (e) => {
+    // A reconnect builds a new probe, and the old socket can still be open and
+    // still be echoing. Its samples belong to a tunnel this page has walked away
+    // from, and letting them seed the floor of the new one is how a session
+    // starts life believing it is congested. The close handler below already
+    // guards this way; the sample path has to as well.
+    if (sock !== pingSock) return;
     if (!(e.data instanceof ArrayBuffer) || e.data.byteLength !== 8) return;
     const sample = performance.now() - new Float64Array(e.data)[0];
     // Smoothed, so one scheduling hiccup does not swing the readout or the tier.
@@ -284,11 +351,37 @@ function fmtRate(mbps) {
   return mbps >= 1 ? mbps.toFixed(1) + " Mb/s" : (mbps * 1000).toFixed(0) + " kb/s";
 }
 
-// One timer drives both the readout and the auto tier, so the page does no
-// per-frame work of its own.
+// One timer drives both the readout and the controller, so the page does no
+// per-frame work of its own beyond counting what arrives.
+//
+// It runs only while there is a session. It used to run from module load for
+// the life of the tab: a page sitting on a "Nobody is casting" card did a DOM
+// query and four style writes every second forever, and showed a decaying link
+// figure for a link that was not there instead of an honest dash.
 let lastTick = performance.now();
+let statsTimer = null;
+let lastTitle = "";
 
-setInterval(() => {
+function startStats() {
+  if (statsTimer) return;
+  lastTick = performance.now();
+  statsTimer = setInterval(tick, 1000);
+}
+
+function stopStats() {
+  clearInterval(statsTimer);
+  statsTimer = null;
+  stats.window = 0;
+  stats.mbps = 0;
+  metrics.fps = metrics.duty = metrics.backlogBytes = metrics.streamHz = 0;
+  hud.rtt.textContent = hud.rate.textContent = hud.fb.textContent = "–";
+  hud.fps.textContent = "–";
+  $("hRtt").className = "";
+  $("hFps").className = "";
+  $("hFps").title = lastTitle = "";
+}
+
+function tick() {
   // Divide by the time that actually passed. A hidden tab throttles this timer to
   // once a minute while bytes keep arriving, and assuming one second turned that
   // into a readout sixty times the real rate on the first tick back.
@@ -299,19 +392,41 @@ setInterval(() => {
   stats.window = 0;
 
   // Let the floor drift back up, or a single lucky sample early on becomes a
-  // baseline the link can never live up to again and the tier sinks for good.
-  // Only while the link is quiet, though: a floor measured with nothing in flight
-  // is the real one, and letting a busy link raise it lets sustained congestion
-  // slowly redefine itself as normal until the tier climbs back onto a link that
-  // never recovered.
-  if (stats.floor && stats.rtt && stats.mbps < 0.5) {
-    stats.floor = Math.min(stats.floor * 1.02, stats.rtt);
+  // baseline the link can never live up to again.
+  //
+  // This used to happen only while the link was quiet, and a live cast is never
+  // quiet - mbps is above 0.5 essentially by definition - so in practice the
+  // floor froze at the lowest sample of the first few still seconds and only
+  // ever ratcheted down. A wifi handover or a route change mid-session then read
+  // as permanent congestion for the rest of the session. It re-learns either way
+  // now, just more slowly under load, where a rise is as likely to be our own
+  // bytes as the path's. Relaxing it is safe because RTT no longer sets the
+  // picture on its own: it is a veto on climbing and one of four reasons to drop,
+  // so a floor that reads a little high costs a delayed climb, not a session
+  // pinned to the cheapest rung.
+  if (stats.floor && stats.rtt) {
+    stats.floor = Math.min(stats.floor * (stats.mbps < 0.5 ? 1.02 : 1.005), stats.rtt);
   }
 
   // The probe is a second socket and it dies on its own timetable - an idle
   // timeout on the tunnel is enough. Left dead, the readout freezes on a stale
   // number and the tier goes on trusting it.
   if (rfb && (!pingSock || pingSock.readyState > 1) && performance.now() >= pingRetryAt) openPing();
+
+  // Decide before drawing, so the toolbar shows this second's numbers and this
+  // second's rung rather than the previous one's.
+  govern(dt);
+
+  // The rate the ladder wants and the rate the host acknowledged, reconciled once
+  // a second. Every other call site is an event - a rung change, connect,
+  // disconnect - so a single failed /ctl used to leave the two disagreeing until
+  // the ladder happened to move again: the page believed nothing was streaming,
+  // which silently took the deficit rule out of service, while the bridge went on
+  // injecting at the old rate. A reconnect could lose its rate push the same way,
+  // to a stale call still in flight. pushStream is a no-op unless it has
+  // something to say and its backoff has run, so this costs nothing while the
+  // two agree.
+  if (streamWant !== streamSent) pushStream();
 
   const rtt = stats.rtt;
   hud.rtt.textContent = rtt ? Math.round(rtt) + " ms" : "–";
@@ -322,7 +437,30 @@ setInterval(() => {
   hud.fb.textContent = canvas && canvas.width
     ? canvas.width + "×" + canvas.height : "–";
 
-  if ($("quality").value === "auto") retune();
+  // Frames delivered over the rate that was asked for. A zero requested rate is
+  // not "asked for nothing", it is "nobody is asking" - either nothing drives
+  // the rate yet, or the server pushes frames on its own timetable and there is
+  // no request to fall short of - and inventing a target there would paint a
+  // healthy stream red, so show the delivered number by itself.
+  const want = metrics.streamHz;
+  hud.fps.textContent = metrics.fps || want
+    ? Math.round(metrics.fps) + (want ? " / " + Math.round(want) : "")
+    : "–";
+  const short = want ? 1 - metrics.fps / want : 0;
+  const fpsEl = $("hFps");
+  fpsEl.className = short > 0.35 ? "bad" : short > 0.15 ? "warn" : "";
+  // The whole controller state, in the one place it costs nothing to put it.
+  // A bug report about the rate is unanswerable without it, and the host poll
+  // line is what tells someone their 1 FPS is tune-host.cmd's job, not ours.
+  // Assigned only when it actually changed: a title nobody is hovering over is
+  // not worth a DOM write a second, in a file whose own comments complain about
+  // per-second DOM work.
+  const title = "decode duty " + Math.round(metrics.duty * 100) + "%" +
+    " · backlog " + Math.round(metrics.backlogBytes / 1024) + " KB" +
+    " · stream " + (want ? Math.round(want) + " Hz" : "not set") +
+    " · rung " + metrics.rung + " of " + metrics.ceiling +
+    (metrics.pollMs ? " · host polls every " + metrics.pollMs + " ms" : "");
+  if (title !== lastTitle) { fpsEl.title = lastTitle = title; }
 
   // Every named way focus can leave the canvas already puts it back, but a dead
   // keyboard that needs a Reconnect to clear means at least one way is not named
@@ -338,39 +476,316 @@ setInterval(() => {
     const el = document.activeElement;
     if (!(el && el.closest && el.closest("#bar"))) refocus();
   }
-}, 1000);
+}
 
-// Auto quality, driven by latency alone. Throughput looks like a tempting second
-// signal but it is a trap: lowering quality lowers throughput, which would argue
-// for raising quality again, and the tier oscillates. Round-trip time has no such
-// feedback loop. Hysteresis on top keeps noisy wifi from twitching the tier.
-let tuneHold = 0;
+/* ------------------------------------------------------------- governor -- */
 
-function retune() {
-  const rtt = stats.rtt;
-  if (!rtt || !stats.floor) return;
+// The old tuner read one number - the excess delay of an 8-byte echo - and its
+// only output was JPEG quality. Neither half could express frame rate. Quality
+// is bytes per frame, and the frame period through a tunnel is set by the round
+// trip, so moving Sharp to Fast cut the bytes about threefold and left the rate
+// bit for bit identical: every tier was equally choppy, which is the complaint.
+// The echo also travels its own socket, so a viewer too slow to decode - the
+// weak laptop this page is written for - showed no queueing at all and got
+// climbed into the stall.
+//
+// So: measure the pipeline in band, and control the thing being complained
+// about. RTT keeps a job, but a smaller one - a veto on climbing and one of four
+// reasons to fall - and the signals that actually respond to a change in rate do
+// the driving.
+const UP_DWELL = 6, DOWN_DWELL = 2;
+const SOFT_BACKLOG = 256 * 1024;
+const HARD_BACKLOG = 2 * 1024 * 1024;
+const KILL_BACKLOG = 8 * 1024 * 1024;
 
-  // Absolute thresholds answered the wrong question. A tunnel that idles at 25ms
-  // read as "plenty of headroom" and got the most expensive preset even while
-  // frames were visibly piling up, and a host two countries away idling at 120ms
-  // was pinned to the cheapest one even with the link half empty. Distance is not
-  // congestion. The delay we are adding on top of the link's own floor is.
-  const queued = rtt - stats.floor;
+const CEILING_DECAY = 60000;
 
-  let want;
-  if (queued > 120) want = "fast";
-  else if (queued > 40 || WEAK) want = "balanced";
-  else want = "sharp";
+// The same two pictures this page has always opened on - 15 Hz and 30 Hz, both
+// at the balanced quality pair - now that the two new rungs sit below them.
+let rung = WEAK ? 4 : 6;
+let ceilingRung = TOP;
+let ceilingSince = 0;     // when the ceiling was last lowered, for its decay
+let upHold = 0, downHold = 0;
+let enteredAt = 0;        // when this rung was climbed into; 0 if we fell into it
+let holdUntil = 0;        // the kill switch's flat freeze; nothing else sets it
+let prevBacklog = 0;
+let bestFps = 0;          // the highest rate this session has actually delivered
 
-  if (want === autoTier) { tuneHold = 0; return; }
-  // Asymmetric on purpose: a backed-up link is felt immediately, so give way
-  // quickly, but only climb back after the calm has clearly held.
-  const cheaper = ["fast", "balanced", "sharp"].indexOf(want) <
-                  ["fast", "balanced", "sharp"].indexOf(autoTier);
-  if (++tuneHold < (cheaper ? 2 : 6)) return;
-  tuneHold = 0;
-  autoTier = want;
+// Filled by the framebufferupdate event, drained once a second by the tick.
+const frames = { n: 0, busyMs: 0, bytes: 0, backlog: 0, continuous: false };
+
+function onFrame(d) {
+  frames.n++;
+  // duration spans header to flip, so it includes the wait on the previous
+  // frame's render queue. That is deliberate: the wait is decode cost this
+  // device is paying, and leaving it out would read a stalled decoder as idle.
+  frames.busyMs += d.duration;
+  frames.bytes += d.bytes;
+  if (d.backlog > frames.backlog) frames.backlog = d.backlog;
+  frames.continuous = d.continuous;
+}
+
+function setRung(n) {
+  n = Math.max(0, Math.min(TOP, n));
+  upHold = downHold = 0;
+  if (n === rung) return;
+  enteredAt = n > rung ? performance.now() : 0;
+  rung = n;
+  metrics.rung = n;
   applyQuality();
+  streamWant = RUNGS[n].hz;
+  pushStream();
+}
+
+// A rung climbed into and abandoned within twenty seconds was never sustainable.
+// Remember it as a ceiling instead of climbing back into it six seconds later:
+// without this a marginal link saws between two pictures every eight seconds for
+// the whole session, which is worse to watch than either picture.
+//
+// The ceiling is the whole memory. There used to be a per-rung failure count
+// driving an exponential cooldown on top of it, which made a third and fourth
+// anti-oscillation loop stacked over the dead band and the asymmetric dwell that
+// already do this job - and between them they were what made a ratcheting
+// ceiling impossible to recover from. Last rung that failed, minus one, decayed
+// on a plain timer.
+function failedClimb() {
+  if (!enteredAt || performance.now() - enteredAt > 20000) return;
+  ceilingRung = Math.max(0, rung - 1);
+  ceilingSince = performance.now();
+}
+
+// In manual mode the person pinned the quality, and quality is not ours to
+// change behind their back - the dropdown would go on reading Sharp over a
+// picture we had quietly moved to the cheapest preset. The rate is ours, though:
+// asking the host to inject 30 Hz into a device that cannot decode it is our
+// doing, not theirs. So the stall rules run in both modes; in manual they move
+// the one dial we own, and the pinned rung stays the ceiling for it.
+function setRate(hz) {
+  hz = Math.min(hz, RUNGS[rung].hz);
+  upHold = downHold = 0;
+  if (hz === streamWant) return;
+  streamWant = hz;
+  pushStream();
+}
+
+function stepDown(manual, steps) {
+  if (!manual) { failedClimb(); setRung(rung - steps); return; }
+  const at = RATES.indexOf(streamWant);
+  setRate(RATES[Math.max(0, (at < 0 ? RATES.length - 1 : at) - steps)]);
+}
+
+function stepUp(manual) {
+  // In auto the rung owns both numbers, so a climb also asserts the rate. setRung
+  // is a no-op at the top, and without this second line a rate that manual mode
+  // walked down - or that the continuous branch zeroed - stayed below the rung
+  // for the rest of the session, because the only thing that ever sets the rate
+  // in auto is a rung actually changing.
+  if (!manual) { setRung(rung + 1); setRate(RUNGS[rung].hz); return; }
+  const at = RATES.indexOf(streamWant);
+  setRate(RATES[Math.min(RATES.length - 1, (at < 0 ? 0 : at) + 1)]);
+}
+
+function govern(dt) {
+  const n = frames.n, busyMs = frames.busyMs;
+  const bytes = frames.bytes, backlog = frames.backlog, continuous = frames.continuous;
+  frames.n = frames.busyMs = frames.bytes = frames.backlog = 0;
+  // Cleared with the rest, or a single frame from a server that pushes its own
+  // updates would latch the branch below true for the life of the session and
+  // hold the rate at zero for ever after.
+  frames.continuous = false;
+
+  metrics.fps = dt > 0 ? n / dt : 0;
+  metrics.duty = dt > 0 ? Math.min(1, busyMs / (dt * 1000)) : 0;
+  metrics.backlogBytes = backlog;
+  metrics.rung = rung;
+  metrics.ceiling = ceilingRung;
+  if (!rfb) return;
+
+  const now = performance.now();
+  // A person has the wheel: the quality is theirs and stays theirs. Everything
+  // below still runs, because a stall is not a matter of taste - it just moves
+  // the rate rather than the rung.
+  const manual = $("quality").value !== "auto";
+
+  // Not a rung decision and it waits for nothing: 8 MB of unparsed bytes is a
+  // queue heading for the 40 MB cap where Websock throws and takes the session
+  // with it. Stop asking for frames and do not think about climbing for a minute.
+  if (backlog > KILL_BACKLOG) {
+    holdUntil = now + 60000;
+    if (manual) setRate(0);
+    else { setRung(0); streamWant = 0; pushStream(); }
+    // This is the one rule above the hidden-tab return, so it is also the one
+    // that can fire while the rate the tab is holding for later is the only rate
+    // there is. Coming back must not undo it.
+    if (hiddenWant >= 0) hiddenWant = 0;
+    return;
+  }
+
+  // A background tab's timers fire about once a minute, so every rule here -
+  // the kill switch included - would evaluate once a minute while the bridge
+  // went on injecting at the last rate it was given. The depth-1 loop used to
+  // self-throttle: a viewer that stopped parsing stopped asking. The
+  // visibilitychange handler restores that property by dropping the rate to
+  // zero, and while it holds it, the rate is not ours to move.
+  if (document.hidden) return;
+
+  // A server that pushes frames on its own timetable paces itself, and a second
+  // opinion from here would only fight it. TightVNC does not implement the
+  // extension so this branch never runs - but it is the one that must not be
+  // wrong if some other server ever does.
+  if (continuous) {
+    if (streamWant !== 0) { streamWant = 0; pushStream(); }
+    return;
+  }
+
+  const rising = backlog > prevBacklog;
+  prevBacklog = backlog;
+
+  // Above the motion gate, both of them: a backlog this size is a stall whatever
+  // the frame count, and a second that delivered one frame is exactly how it
+  // presents.
+  if (backlog > HARD_BACKLOG) { stepDown(manual, 2); return; }
+
+  // The motion gate, and the most important line here. A still desktop delivers
+  // nothing forever; a controller that reads that as "the link cannot sustain
+  // this" walks to the floor and then hands over the worst picture it has the
+  // moment somebody moves a window. Nothing is decided and no dwell counter
+  // moves on a quiet second.
+  if (bytes < 150000 && n < 3) return;
+
+  // What the host could actually deliver, not what we asked for.
+  //
+  // pollMs is authoritative where tune-host.cmd has recorded it, and absent -
+  // zero - on every host nobody has run it on, which is exactly the one-frame-a-
+  // second case this whole change is aimed at. Treating an unknown poll as no
+  // ceiling at all measured 1 FPS against 30, read 0.97 short, and walked such a
+  // host to the cheapest preset and pinned it there: 1 FPS *and* a blurry
+  // picture, where the old tuner had at least given it a sharp one. So where the
+  // poll is unknown, the best rate this session has actually delivered is the
+  // honest ceiling - and it caps the known-poll case too, since a host can be
+  // encode-bound well below its own polling rate.
+  if (metrics.fps > bestFps) bestFps = metrics.fps;
+  const capHz = Math.min(metrics.pollMs ? 1000 / metrics.pollMs : Infinity, bestFps);
+  const target = Math.min(metrics.streamHz || 0, capHz);
+
+  // And a shortfall is only evidence about the rate when the host had frames to
+  // send. One 200 KB update in a second clears the motion gate with n = 1, which
+  // at 30 Hz reads as 97% short and costs a rung every two seconds - on content
+  // that changes once a second with a big delta, which is a photo viewer, a
+  // video stepped frame by frame, a slow scroll through images. Duty and backlog
+  // stay in force there; they are measurements of this device either way.
+  //
+  // Three frames, flat. Scaling this with the target inverted the rule it
+  // guards: a down-step needs fps below 0.7 of target, so a threshold at a
+  // quarter of target left it firing only between those two lines and going
+  // quiet again on anything worse - the ladder was then free to climb over a
+  // host delivering four frames a second, because four frames were too few to
+  // judge. Two frames is a still screen twitching; three in a second is a rate.
+  const paced = n >= 3;
+  const deficit = target && paced ? 1 - metrics.fps / target : 0;
+  const queued = stats.rtt && stats.floor ? stats.rtt - stats.floor : 0;
+
+  if (metrics.duty > 0.85 || (backlog > SOFT_BACKLOG && rising) ||
+      deficit > 0.30 || queued > 80) {
+    upHold = 0;
+    if (++downHold >= DOWN_DWELL) stepDown(manual, 1);
+    return;
+  }
+  downHold = 0;
+
+  // A link that genuinely recovered should not be punished for the rest of the
+  // session, so the ceiling earns a step back a minute after it was set. On a
+  // plain timer, not on clean seconds: every rung change used to reset that
+  // count, so on twitchy content the ceiling could only ever ratchet down.
+  if (ceilingRung < TOP && now - ceilingSince > CEILING_DECAY) {
+    ceilingRung++;
+    ceilingSince = now;
+  }
+
+  // Climb only with real headroom on every axis. The gap between 0.55 and the
+  // 0.85 above is the dead band, and it is wide enough to swallow the frame to
+  // frame variance of JPEG decode on real content; 6 seconds up against 2 down
+  // is the same asymmetry the old tuner had, for the same reason - a stalled
+  // picture is felt at once and a premature climb just stalls it again.
+  if (metrics.duty >= 0.55 || backlog >= 64 * 1024 || deficit >= 0.10 ||
+      queued >= 30 || now < holdUntil || (!manual && rung >= ceilingRung)) {
+    upHold = 0;
+    return;
+  }
+  if (++upHold < UP_DWELL) return;
+  stepUp(manual);
+}
+
+/* ------------------------------------------------------ the host's rate -- */
+
+// The bridge sits on loopback, 0 ms from TightVNC, so it can hold the next
+// frame request open on our behalf and take this viewer's round trip out of the
+// frame loop entirely. All we do is say how fast.
+let streamWant = 0;       // the rate the ladder wants
+let streamSent = -1;      // the rate the host last acknowledged; -1 is unknown
+let streamBusy = false;
+let streamOk = true;      // false once a host has proved it has no stream lever
+let streamRetryAt = 0;    // do not call again before this
+let hiddenWant = -1;      // the rate in force when the tab was hidden; -1 if visible
+let streamFails = 0;      // consecutive failures, for the backoff below
+
+function ctlUrl(query) {
+  return endpoint.replace(/^wss:/, "https:").replace(/^ws:/, "http:")
+                 .replace("/ws?", "/ctl?") + "&" + query;
+}
+
+async function pushStream() {
+  if (streamBusy || !streamOk || !endpoint) return;
+  if (streamWant === streamSent) return;
+  // The failure this backs off from is the ordinary one: the host goes away, the
+  // disconnect handler asks for stream=0, the fetch hits a tunnel whose hostname
+  // no longer resolves and rejects at once. The tail of this function used to
+  // re-enter on any mismatch, and -1 never matches anything, so that was a fetch
+  // loop with no delay running for the life of the tab behind a card reading
+  // "Host offline".
+  if (performance.now() < streamRetryAt) return;
+  streamBusy = true;
+  let failed = false;
+  const asked = streamWant;
+  // The host needs a framebuffer size to build the request from, and the canvas
+  // is where this page already reads that.
+  const canvas = screenEl.querySelector("canvas");
+  const size = canvas && canvas.width
+    ? "&w=" + canvas.width + "&h=" + canvas.height : "";
+  try {
+    const r = await fetch(ctlUrl("stream=" + asked + size), { cache: "no-store" });
+    const body = r.ok ? await r.json().catch(() => null) : null;
+    if (body && typeof body.stream === "number") {
+      streamSent = body.stream;
+      metrics.streamHz = body.stream;
+      if (typeof body.pollMs === "number") metrics.pollMs = body.pollMs;
+      streamFails = 0;
+      streamRetryAt = 0;
+    } else {
+      // A host that predates the lever falls through to the share branch and
+      // answers 400 for a mode it cannot parse. It is never going to grow the
+      // feature mid-session, so stop asking and run the depth-1 loop - which is
+      // exactly what this page did before any of this existed.
+      streamOk = false;
+      streamSent = 0;
+      metrics.streamHz = 0;
+    }
+  } catch (_) {
+    // The tunnel having a moment, not a host without the feature. Leave streamOk
+    // alone so a later attempt tries again, but do not go on claiming a rate
+    // nobody acknowledged - and wait, doubling to half a minute, so a host that
+    // is simply gone costs one call every thirty seconds rather than a spin.
+    failed = true;
+    streamSent = -1;
+    metrics.streamHz = 0;
+    streamFails++;
+    streamRetryAt = performance.now() +
+      Math.min(30000, 1000 * Math.pow(2, streamFails - 1));
+  }
+  streamBusy = false;
+  // Only chase the value we still want when the call that just ran actually
+  // landed. Retrying out of the failure path is what made the loop.
+  if (!failed && streamWant !== streamSent) pushStream();
 }
 
 /* ------------------------------------------------------------------ ui -- */
@@ -615,7 +1030,9 @@ async function start() {
       return problem("The site returned an address to refuse",
         "A cast endpoint must be a wss:// tunnel. Restart the host and try again.");
     }
-    endpoint = body.url;
+    // Naming this tab on the socket URL is what lets /ctl move this bridge alone;
+    // ctlUrl is built from the same string, so it carries the id for free.
+    endpoint = body.url + "&v=" + VIEWER;
     hostName = body.name || "";
     if (body.name) document.title = "Cast - " + body.name;
   } catch (e) {
@@ -636,8 +1053,29 @@ function connect() {
   // A reconnect can be to a different tunnel entirely. Carrying the old floor
   // over would read the new host's distance as congestion for the minute or so
   // the floor needs to catch up.
+  //
+  // Tear the probe down before clearing them, not after. The old session's
+  // disconnect handler is guarded by current(), which is already false on this
+  // path, so it never reaches its own closePing - leaving a healthy socket that
+  // goes on writing the old tunnel's samples straight back into the numbers this
+  // line just reset, for the whole length of the new handshake.
+  closePing();
   stats.rtt = 0;
   stats.floor = 0;
+  // A new bridge knows nothing of what the last one was told, and none of what
+  // the last host proved about itself is evidence about this one. streamOk in
+  // particular used to be a one-way latch for the life of the tab: one tunnel
+  // rotation onto a host that answered without a `stream` field, or a single
+  // transient non-JSON 400, and the page ran the depth-1 loop for ever after
+  // with no way back short of a reload.
+  streamSent = -1;
+  streamOk = true;
+  streamFails = 0;
+  streamRetryAt = 0;
+  hiddenWant = -1;
+  bestFps = 0;
+  prevBacklog = 0;
+  metrics.pollMs = 0;
 
   // Building the socket here rather than handing RFB a URL is what makes the link
   // readout possible: noVNC replaces the onmessage property, but a listener added
@@ -698,6 +1136,24 @@ function connect() {
     attempts = 0;
     me.focus();
     openPing();
+    startStats();
+    // Only now: the request the host builds needs a framebuffer size, and the
+    // canvas that carries it does not exist until the session is up.
+    //
+    // A session can come up while the tab is in the background - a retry that
+    // fired after somebody switched away - and asking a hidden tab's bridge to
+    // inject is the thing the visibilitychange handler exists to stop. Nothing
+    // there would have caught it: it only runs on a change, and there is none.
+    streamWant = document.hidden ? 0 : RUNGS[rung].hz;
+    pushStream();
+  });
+
+  // What the controller runs on. One event per completed update, carrying what
+  // it cost - and the guard matters as much here as anywhere: a torn-down
+  // session still has events in flight, and counting them would credit the live
+  // session with the dead one's frames.
+  me.addEventListener("framebufferupdate", (e) => {
+    if (current() && e.detail) onFrame(e.detail);
   });
 
   me.addEventListener("credentialsrequired", () => {
@@ -723,6 +1179,11 @@ function connect() {
     if (!current()) return;
     rfb = null;
     closePing();
+    stopStats();
+    // The rate is remembered by the bridge, not by the connection, so a rate
+    // this viewer chose would otherwise be waiting for whoever connects next.
+    streamWant = 0;
+    pushStream();
     if (manualStop || needPassword) return;
     // A clean close is the host hanging up; anything else is usually the tunnel
     // rotating out from under us, which a fresh /api/cast lookup fixes.
@@ -880,20 +1341,56 @@ function hurry() {
   if (retry) start();
 }
 document.addEventListener("visibilitychange", () => {
+  // A hidden tab keeps the injector and loses the controller: timers here are
+  // throttled to roughly one fire a minute, so every down-step and the kill
+  // switch itself would evaluate once a minute while the bridge went on sending
+  // at the last rate it was given. Before any of this the depth-1 loop
+  // self-throttled - a viewer that stopped parsing stopped asking - and this is
+  // how that comes back. It also stops paying for a tunnel nobody is watching.
+  //
+  // What comes back is the rate that was in force, not the rung's rate. Those
+  // differ exactly when something other than the ladder had lowered it - manual
+  // mode, where the rung is whatever the person pinned and the rate is the only
+  // dial the controller owns, and the kill switch, which sets zero and freezes
+  // climbing for a minute. Restoring the rung's rate there handed a struggling
+  // session its full rate back for a tick just because somebody changed tabs.
+  if (rfb) {
+    if (document.hidden) {
+      if (hiddenWant < 0) hiddenWant = streamWant;
+      streamWant = 0;
+    } else {
+      streamWant = hiddenWant < 0 ? RUNGS[rung].hz : hiddenWant;
+      hiddenWant = -1;
+    }
+    pushStream();
+  }
   if (document.hidden) return;
   refocus();
   hurry();
 });
 window.addEventListener("online", hurry);
 
+// The rung is the single source of both numbers, whether a person picked it or
+// the controller did, so there is one path to apply and one place to read.
+//
+// setQuality rather than the two setters: each of qualityLevel and
+// compressionLevel sends a full SetEncodings on its own, and every rung change
+// moves both - so this used to send the ~25-entry list twice back to back, and a
+// Tight server may discard its per-client encoder state on each one. Two fresh
+// full regions, at exactly the moment the controller decided the link was
+// struggling: a visible hitch caused by the attempt to avoid one.
 function applyQuality() {
   if (!rfb) return;
-  const picked = $("quality").value;
-  const p = picked === "auto"
-    ? PRESETS[autoTier]
-    : { quality: +picked.split(",")[0], compression: +picked.split(",")[1] };
-  rfb.qualityLevel = p.quality;
-  rfb.compressionLevel = p.compression;
+  rfb.setQuality(RUNGS[rung].quality, RUNGS[rung].compression);
+}
+
+// Which rung a dropdown entry pins. Several rungs share a quality pair, so this
+// used to scan the table for the highest match - picking Sharp being a request
+// for the best picture rather than the slowest version of it. The table names
+// its own presets now, so the answer is read rather than reconstructed.
+function rungForPreset(value) {
+  const i = RUNGS.findIndex((r) => r.preset === value);
+  return i < 0 ? rung : i;
 }
 
 // Fit scales the desktop into the window. Off renders 1:1 and lets noVNC's own
@@ -906,15 +1403,25 @@ function applyFit() {
   rfb.dragViewport = false;
 }
 
-$("quality").addEventListener("change", () => { applyQuality(); refocus(); });
+// Picking a quality by hand pins a rung - both numbers and the rate - and the
+// controller stops proposing while it is pinned. Streaming stays on at that
+// rung's rate: turning it off here would make the picture choppier at the moment
+// somebody asked for a better one, and the escape hatch for a host without the
+// lever is pushStream's own fallback, not this control. Back on Auto, the ladder
+// carries on from wherever the manual choice left it rather than jumping.
+$("quality").addEventListener("change", () => {
+  const picked = $("quality").value;
+  if (picked === "auto") { upHold = downHold = 0; }
+  else setRung(rungForPreset(picked));
+  applyQuality();
+  refocus();
+});
 
 // Switching monitors is a host-side change, so it goes to the bridge's control
 // endpoint. The session key already in the endpoint URL is what authorises it.
 $("share").addEventListener("change", async () => {
   if (!endpoint) return;
-  const ctl = endpoint.replace(/^wss:/, "https:").replace(/^ws:/, "http:")
-                      .replace("/ws?", "/ctl?") +
-              "&share=" + encodeURIComponent($("share").value);
+  const ctl = ctlUrl("share=" + encodeURIComponent($("share").value));
   state("wait", "Switching screen…");
   try {
     const r = await fetch(ctl, { cache: "no-store" });
@@ -984,6 +1491,7 @@ $("stop").addEventListener("click", async () => {
   // the session it just asked to end.
   manualStop = true;
   closePing();
+  stopStats();
   if (rfb) { try { rfb.disconnect(); } catch (_) {} rfb = null; }
   backoff = 15000;
   state("wait", "Host offline");

@@ -30,6 +30,16 @@ const slice = src.slice(start, next < 0 ? undefined : next);
 ok("the bundle still carries the local bitmap change",
    /createImageBitmap/.test(slice) && /'type': 'bitmap'/.test(slice));
 
+// The other local change lives in rfb.js: the frame event the page's adaptive
+// controller is built on. It fails the same quiet way the bitmap change does -
+// a re-bundle drops it, nothing throws, and the toolbar just reads a permanent
+// dash while the rung never moves off whatever it started on.
+const rfbAt = src.indexOf('__m["rfb.js"] = function');
+const rfbEnd = src.indexOf("\n__m[", rfbAt + 1);
+const rfbSlice = rfbAt < 0 ? "" : src.slice(rfbAt, rfbEnd < 0 ? undefined : rfbEnd);
+ok("the bundle still carries the frame event",
+   /"framebufferupdate"/.test(rfbSlice) && /rectsThisUpdate/.test(rfbSlice));
+
 /* ------------------------------------------------------------- harness -- */
 
 const drawn = [];

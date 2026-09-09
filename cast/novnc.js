@@ -15286,7 +15286,16 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
       y: 0,
       width: 0,
       height: 0,
-      encoding: null
+      encoding: null,
+      // LOCAL CHANGE (instellar /cast): requestedNext was only ever created on
+      // the first update header, so the flag that decides whether a frame is
+      // asked for existed as `undefined` until then. Same behaviour, but the
+      // lifetime of the thing the frame loop turns on is now written down.
+      // The other three are what the frame event below is measured from.
+      requestedNext: false,
+      startedAt: 0,
+      startedPos: 0,
+      rectsThisUpdate: 0
     };
 
     // Mouse state
@@ -15544,6 +15553,31 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
     }
 
     // ===== PUBLIC METHODS =====
+
+    // LOCAL CHANGE (instellar /cast): the two setters above each send a full
+    // SetEncodings, so changing a quality tier - which always moves both -
+    // sent the whole ~25-entry list twice back to back. A Tight server may
+    // discard its per-client encoder state on each one, which makes that two
+    // fresh full regions at exactly the moment the tuner decided the link was
+    // struggling: a visible hitch caused by the attempt to avoid one. Setting
+    // the pair and sending once is the same wire format and half the messages.
+    // The individual setters are untouched and still work on their own.
+  }, {
+    key: "setQuality",
+    value: function setQuality(quality, compression) {
+      if (!Number.isInteger(quality) || quality < 0 || quality > 9 || !Number.isInteger(compression) || compression < 0 || compression > 9) {
+        Log.Error("setQuality takes two integers between 0 and 9");
+        return;
+      }
+      if (this._qualityLevel === quality && this._compressionLevel === compression) {
+        return;
+      }
+      this._qualityLevel = quality;
+      this._compressionLevel = compression;
+      if (this._rfbConnectionState === 'connected') {
+        this._sendEncodings();
+      }
+    }
   }, {
     key: "disconnect",
     value: function disconnect() {
@@ -17753,12 +17787,52 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
         if (this._sock.rQwait("FBU header", 3, 1)) {
           return false;
         }
+        // Where this update began, for the frame event at the bottom. Taken
+        // before anything is consumed so a slow update is measured over the
+        // whole of itself, including the render flush it may be about to wait
+        // on - that wait is exactly the part the page needs to see.
+        this._FBU.startedAt = Date.now();
+        this._FBU.startedPos = this._sock.rQpos;
+        this._FBU.rectsThisUpdate = 0;
         this._sock.rQskipBytes(1); // Padding
         this._FBU.rects = this._sock.rQshift16();
-        this._FBU.requestedNext = false;
 
-        // An empty update has no rendering to wait for. Let _normalMsg request
-        // again without consuming the following message as rectangle data.
+        // Keep one incremental request ahead of decoding: waiting until the
+        // last rectangle arrived serialized transfer and decode time with the
+        // next round trip.
+        //
+        // This has to sit above the render gate below, not after it. The gate
+        // holds an update back until the *previous* frame's render queue has
+        // drained, and that queue is non-empty after every update that carried
+        // a JPEG rect, because Display.imageRect always queues a bitmap action
+        // whose createImageBitmap promise has not settled yet. So with the
+        // request below the gate, photographic and video-ish content - the case
+        // with the most bytes and the most to gain - paid the round trip again
+        // on essentially every frame, while a code editor, whose flat zlib and
+        // palette rects render synchronously, got the overlap it needed least.
+        //
+        // Moving it up does not weaken the backpressure. What protects a slow
+        // viewer is that _flushing stops parsing - _handleMessage breaks on it -
+        // so no rectangle is decoded over an unfinished frame either way. All
+        // that changes is that the host starts preparing the next frame while
+        // this one renders, and its reply cannot arrive sooner than a round trip
+        // regardless. What can pile up is bounded exactly as before: one request
+        // outstanding is at most one update waiting in the receive queue.
+        //
+        // Sent from inside this block, which runs once per update, so fragmented
+        // rectangles cannot re-send it - the structure now says that rather than
+        // the flag. requestedNext survives to say whether a request is actually
+        // outstanding, which _resize relies on.
+        this._FBU.requestedNext = false;
+        if (!this._enabledContinuousUpdates) {
+          RFB.messages.fbUpdateRequest(this._sock, true, 0, 0, this._fbWidth, this._fbHeight);
+          this._FBU.requestedNext = true;
+        }
+
+        // An empty update has no rendering to wait for. Return without
+        // consuming the following message as rectangle data.
+        // No frame event either: the server said nothing changed, and counting
+        // that as a delivered frame is how an idle desktop reads as 30 FPS.
         if (this._FBU.rects === 0) return true;
 
         // Make sure the previous frame is fully rendered first
@@ -17774,14 +17848,6 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
           });
           return false;
         }
-      }
-      // Keep one incremental request ahead of decoding. Waiting until the last
-      // rectangle arrived serialized transfer/decode time with the next RTT.
-      // The render flush above still gates progress on slow viewers, and this
-      // flag prevents fragmented rectangles from generating extra requests.
-      if (!this._enabledContinuousUpdates && !this._FBU.requestedNext) {
-        RFB.messages.fbUpdateRequest(this._sock, true, 0, 0, this._fbWidth, this._fbHeight);
-        this._FBU.requestedNext = true;
       }
       while (this._FBU.rects > 0) {
         if (this._FBU.encoding === null) {
@@ -17802,9 +17868,45 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
           return false;
         }
         this._FBU.rects--;
+        this._FBU.rectsThisUpdate++;
         this._FBU.encoding = null;
       }
       this._display.flip();
+
+      // LOCAL CHANGE (instellar /cast): the toolbar reports ping, link and
+      // screen size, but not the number the picture is actually judged by.
+      // Frame rate is not derivable from any of the three - through a tunnel
+      // the frame loop is paced by the round trip, so lowering quality moves
+      // bytes and leaves the rate untouched - and a tuner cannot control what
+      // it cannot measure. So the update loop says what it just did, once per
+      // completed update. An event rather than letting the page read these
+      // privates: the page has no business knowing this file's field names.
+      //
+      // Date.now() rather than performance.now() because 1ms is ample for a
+      // duty cycle averaged over a second, and it is the one clock that also
+      // exists in the node:vm sandboxes the cast suites run this file under.
+      // The dispatch is guarded for the same reason - those sandboxes have the
+      // ECMAScript built-ins and none of the DOM ones - and inline rather than
+      // in a method of its own because those suites rebuild the RFB object out
+      // of the two functions they extract, and would not have a third.
+      if (typeof CustomEvent !== "undefined") {
+        this.dispatchEvent(new CustomEvent("framebufferupdate", {
+          detail: {
+            rects: this._FBU.rectsThisUpdate,
+            bytes: this._sock.rQpos - this._FBU.startedPos,
+            startedAt: this._FBU.startedAt,
+            duration: Date.now() - this._FBU.startedAt,
+            // Unparsed bytes still queued. A rising backlog is the difference
+            // between a host with nothing to send and a viewer that cannot
+            // keep up, and it is the only place that difference is visible.
+            backlog: this._sock.rQlen - this._sock.rQi,
+            // False against TightVNC, which does not implement the extension,
+            // so the polling loop above is what runs. A server that does
+            // implement it paces itself and must not also be paced by the page.
+            continuous: this._enabledContinuousUpdates
+          }
+        }));
+      }
       return true; // We finished this FBU
     }
   }, {
@@ -18103,6 +18205,20 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
     value: function _resize(width, height) {
       this._fbWidth = width;
       this._fbHeight = height;
+
+      // The pipelined request for the next update went out with the header of
+      // this one, so it is carrying the geometry these two lines just replaced.
+      // A desktop that grew - a display hot-plugged, an RDP session resized, the
+      // host switching from one screen to both - leaves that request covering
+      // only the old area, and the new part of the screen is not merely one
+      // frame stale: the server has nothing to answer with until something
+      // inside the old rectangle happens to change, which on a static new half
+      // can be never. Saying no request is outstanding makes _normalMsg send a
+      // correctly sized one the moment this update finishes parsing, which costs
+      // the rest of this update rather than a round trip. Harmless on the
+      // handshake call, where nothing has been requested yet.
+      this._FBU.requestedNext = false;
+
       this._display.resize(this._fbWidth, this._fbHeight);
 
       // Adjust the visible viewport based on the new dimensions
@@ -18558,6 +18674,7 @@ var Websock = exports["default"] = /*#__PURE__*/function () {
     this._websocket = null; // WebSocket or RTCDataChannel object
 
     this._rQi = 0; // Receive queue index
+    this._rQconsumed = 0; // Bytes dropped off the front of the queue (see rQpos)
     this._rQlen = 0; // Next write position in the receive queue
     this._rQbufferSize = 1024 * 1024 * 4; // Receive queue buffer size (4 MiB)
     // called in init: this._rQ = new Uint8Array(this._rQbufferSize);
@@ -18598,6 +18715,31 @@ var Websock = exports["default"] = /*#__PURE__*/function () {
     }
 
     // Receive queue
+
+    // LOCAL CHANGE (instellar /cast): how far behind the parser is, exposed.
+    // Bytes arrive on their own schedule and are parsed on ours, and when the
+    // two diverge the gap sits right here - it is the only signal that tells
+    // "the host is sending nothing" apart from "this device cannot keep up".
+    // The page's ping probe is a separate socket and sees neither.
+  }, {
+    key: "rQlen",
+    get: function get() {
+      return this._rQlen;
+    }
+  }, {
+    key: "rQi",
+    get: function get() {
+      return this._rQi;
+    }
+
+    // A monotonic read position. _rQi alone is not one: it is rewound by
+    // rQwait, and reset to zero every time the queue is compacted or drained,
+    // so a byte count taken as a difference of it goes negative at random.
+  }, {
+    key: "rQpos",
+    get: function get() {
+      return this._rQconsumed + this._rQi;
+    }
   }, {
     key: "rQpeek8",
     value: function rQpeek8() {
@@ -18864,6 +19006,7 @@ var Websock = exports["default"] = /*#__PURE__*/function () {
       } else {
         this._rQ.copyWithin(0, this._rQi, this._rQlen);
       }
+      this._rQconsumed += this._rQi;    // both branches drop the first _rQi bytes
       this._rQlen = this._rQlen - this._rQi;
       this._rQi = 0;
     }
@@ -18875,6 +19018,7 @@ var Websock = exports["default"] = /*#__PURE__*/function () {
       if (this._rQlen == this._rQi) {
         // All data has now been processed, this means we
         // can reset the receive queue.
+        this._rQconsumed += this._rQi;
         this._rQlen = 0;
         this._rQi = 0;
       }

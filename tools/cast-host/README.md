@@ -19,8 +19,13 @@ browser ──wss──> cloudflared ──> cast-host bridge :6080 ──tcp─
 
 ## Making it fast
 
-Three things dominate how fast this feels, and the toolbar shows all three live
-so they can be argued with rather than taken on faith.
+Four things dominate how fast this feels, and the toolbar shows all four live so
+they can be argued with rather than taken on faith. The fourth is the one that
+says whether the other three worked: **fps** reads `delivered / asked for` and
+goes amber, then red, as the gap widens — hover it for decode duty, receive
+backlog and the rate currently being requested, which do not deserve toolbar
+width. With nothing driving a rate it shows the delivered number alone rather
+than inventing a target for a healthy stream to fall short of.
 
 **ping — the floor on how fast a keystroke can echo.** Measured on this machine:
 
@@ -59,7 +64,23 @@ tools\cast-host\tune-host.cmd 100      less host CPU, but caps polling at 10 FPS
 It asks for administrator rights, because the setting lives under HKLM where
 only an administrator may even read it, and reloads the service rather than
 restarting it so a cast in progress survives. TightVNC's own floor is 30 ms.
-Nothing else in this tool needs elevation.
+Nothing else in this tool needs elevation. It looks for `tvnserver.exe` in both
+Program Files folders, in the order `cast-host.mjs` probes them, so a 32-bit
+install does not leave the tuner looking broken on a machine the bridge is
+already driving.
+
+The reload is the half that actually changes anything: without it the value sits
+in the registry while the running server keeps polling at the old rate. So the
+script checks that the service accepted it, and if it did not, says so and exits
+non-zero instead of claiming success — the fix there is to restart the tvnserver
+service, which does drop any cast in progress. Only after a reload it watched
+succeed does it record the interval in `%ProgramData%\instellar-cast\poll-ms`,
+so that file never claims a rate the server is not using.
+
+That file exists because the bridge cannot read HKLM. `cast-host.mjs` prints the
+interval next to its `bridge on` line and returns it from `/ctl` as `pollMs`, so
+the toolbar can name the ceiling instead of leaving a 1 FPS host looking like a
+slow network. A host nobody has tuned says so rather than guessing.
 
 The default is 30 ms so video and typing are not capped at ten updates per
 second by the old 100 ms setting. Run the tuner once on existing hosts too;
@@ -85,12 +106,145 @@ editor — through zlib with a palette, and only photographic areas through JPEG
 Dropping quality blurs wallpaper, not text. Override it with Sharp/Balanced/Fast
 if you would rather decide yourself.
 
-For servers without continuous updates, the viewer requests the next update as
-soon as the current update's header arrives and the previous render has drained.
-This overlaps the request round trip with rectangle transfer and decoding,
-instead of waiting for the whole update to finish first. Only one request is
-sent per update; slow rendering holds back further requests. This reduces idle
-time but does not remove the network latency or turn VNC into a video codec.
+The ladder is ordered by bytes per second rather than by frame rate, so every
+down-step buys the link something. That ordering is what the low-quality pair at
+20 and 30 Hz is for. A playing video changes every pixel of the viewport every
+frame and is bound by the link long before anything else, and the ladder used to
+answer that with rate alone: out of Balanced it gave away a third of the motion
+and not one byte per frame, then another third, 30 Hz down to 10, still shipping
+the same expensive frames. Dropping the quality pair instead cuts bytes about
+threefold at the full rate. **Fast** is that rung, so pinning it is also the
+manual answer for video. The ladder is deliberately not monotone in decode work —
+one rung is thirty cheap frames where the one above is fifteen dearer ones — and
+it cannot be, because bytes and decode disagree about what costs what. A viewer
+bound by its own decoder rather than by the link keeps descending past that step.
+
+For servers without continuous updates, the viewer asks for the next update as
+soon as the current update's *header* arrives — before the previous frame has
+finished rendering, not after it. That ordering is the whole of the win. The
+render gate sits just below, and it waits for the last frame's queue to drain;
+that queue is never empty after an update carrying a JPEG rect, because every
+decoded bitmap is a promise that has not settled yet. So while the request sat
+below the gate, photographic and video content — the case with the most bytes and
+the most to gain — paid the round trip again on essentially every frame, and a
+code editor, whose flat zlib and palette rects render synchronously, got the
+overlap it needed least.
+
+Moving it above the gate does not weaken the backpressure, because that was never
+the gate's doing: a viewer that falls behind stops *parsing*, so no rectangle is
+decoded over an unfinished frame either way, and one request outstanding is still
+at most one update waiting in the receive queue. It is sent once per update, from
+the header, so a rectangle split across TCP reads cannot send it twice.
+
+A resize is the one thing that invalidates it. The outstanding request carries the
+geometry the desktop had when it went out, so a screen that grew — a display
+hot-plugged, the **Show** dropdown switching to both monitors — leaves it covering
+only the old area. That is not one stale frame: the server has nothing to answer
+with until something inside the old rectangle happens to change, which on a static
+new half can be never. So a resize marks the request spent, and a correctly sized
+one goes out the moment this update finishes parsing — the cost is the rest of an
+update rather than a round trip.
+
+This reduces idle time but does not remove the network latency or turn VNC into a
+video codec. That is what the next part is for.
+
+**streaming — asking for the next frame from this side of the tunnel.** Which is
+what finally removes that latency. The loop above is still depth-1: the viewer
+asks for one update, waits a full round trip for it, and only then asks again. So
+the frame period is `RTT + poll/2` — about `50 + 15` = 65 ms through a quick
+tunnel, or roughly 15 frames a second, and no quality setting can move it, because
+quality changes bytes per frame and not frames per second. That is why every tier
+looked equally choppy.
+
+The bridge is 0 ms from TightVNC, so it can hold that request open on the viewer's
+behalf and take the viewer's round trip out of the loop:
+
+```
+GET /ctl?k=<session key>&v=<tab id>&stream=<hz>&w=<width>&h=<height>
+```
+
+`hz` is clamped to 0–60, and **0 restores exactly the behaviour above**, so a
+viewer that never asks — or one that hangs up — leaves the host as it was. The
+rate belongs to the viewer, not to the host: every bridge starts at 0, so a rate
+cannot outlive the session that asked for it or reach the next one.
+
+`v` is which viewer is asking. The page mints an id per tab and appends it to the
+endpoint it was handed, so it rides along on both the socket URL and every control
+call for free, and the bridge learns it during the upgrade. Without it a call
+moved every live bridge at once, so two tabs watching the same machine overwrote
+each other's rate all session — and nothing downstream could tell them apart,
+because the shared screen is host-wide and their framebuffers always match. A
+call that names no viewer is still answered the old way, on every live bridge,
+because there is nothing to match on; a name that matches nothing settles nothing
+rather than fanning out to strangers. It is an identifier and not a credential —
+`k` remains the only thing guarding this endpoint.
+
+While the rate is set, the bridge writes a ten-byte `FramebufferUpdateRequest` at
+that rate. It parses no RFB to do it: the request is ten fixed bytes and the
+viewer already knows its own framebuffer size, so it sends it. `w`/`h` are
+remembered per connection between calls; with none ever given the host accepts the
+rate and injects nothing rather than guessing a size, and says so in the reply
+(`{"ok":true,"stream":20,"w":0,"h":0,"pollMs":30}`).
+
+Six things stop a request going out, and each one is a way this could make the
+picture worse rather than better:
+
+* the VNC socket is not connected yet, so there is nothing to ask;
+* this viewer has not yet sent those exact ten bytes itself. A rate on `/ctl`
+  proves only that whoever called it is past their RFB handshake; watching the
+  viewer's own request go past proves it of this one, and proves the rectangle is
+  the one it wants. The handshake is the window where ten stray bytes kill a
+  session, so the bridge stays silent until the compare matches — and a rectangle
+  it has never seen asked for is simply never injected, which is the depth-1 loop
+  above and nothing worse;
+* something of ours is still queued for it — never pile requests onto a socket
+  that is already behind;
+* the viewer is behind and the bridge has stopped reading TightVNC, so more
+  frames would only grow a queue nobody is draining;
+* a client message is half-delivered across WebSocket fragments. The reader hands
+  fragments straight through, so injecting between two of them would splice ten
+  bytes into the middle of another RFB message and desynchronise the server for
+  the rest of the session;
+* a client message of 8 KiB or more went past and nothing smaller has been seen
+  since. noVNC's send buffer is 10 KiB and it flushes when full, so one RFB
+  message larger than that — a paste — leaves the browser as several *whole*
+  messages that the fragment guard cannot see between. Only a message that big can
+  be a piece of a larger one, so only one of those arms the stand-off: standing
+  off after every client write would switch the feature off, because the viewer
+  answers each update with a request of its own.
+
+  What lifts it is the next whole message *smaller* than 8 KiB, because that
+  cannot be a piece of a larger one. That is proof rather than a guess — noVNC
+  pushes every piece of one message in a single synchronous call and a WebSocket
+  delivers in order, so a small one can only turn up once the last piece has gone
+  by — and it costs nothing to wait for, since the viewer sends a ten-byte request
+  after every update it finishes. A **500 ms** deadline is the backstop, for the
+  paste whose last piece is itself over the threshold onto a still screen: no
+  update to answer means no smaller message ever arrives, and without a deadline
+  the feature would switch itself off for the session. Waiting on a deadline
+  *alone* was the first version of this and it was set far too short: the pieces
+  leave the browser together, but they still have to cross the viewer's uplink,
+  and 10 KiB takes longer than 50 ms on anything under about 1.6 Mbit up.
+
+The timer chases deadlines rather than using a flat interval, because Windows
+timers land on a ~15.6 ms tick: `setInterval(50)` fires every 62 ms, and the 20
+fps somebody asked for quietly becomes 16.
+
+Two things this does not do. It is not ContinuousUpdates — TightVNC Server for
+Windows does not implement that extension, and if a server ever did, the viewer
+would stop asking and never call this at all. And it cannot beat the polling
+interval above: asking 60 times a second for a screen the server looks at once a
+second still gets one frame a second. `stream` removes the round trip; only
+`tune-host.cmd` removes the ceiling.
+
+The host prints the interval next to the `bridge on` line at startup and returns
+it from `/ctl` as `pollMs`, reading it from
+`%PROGRAMDATA%\instellar-cast\poll-ms`, which `tune-host.cmd` writes while it is
+elevated. It has to come from there: `HKLM\SOFTWARE\TightVNC\Server` is
+administrator-only even to *read*, so the bridge cannot ask the registry. A host
+that has never been tuned says so instead of guessing. It stays a readout and
+never becomes a lever — the poll rate is a machine-wide setting, and a remote page
+moving it is a different question from which monitor it is looking at.
 
 ## Requirements on the host
 
@@ -140,6 +294,13 @@ normal TightVNC share mode before it exits. A requested cast also comes back
 after a host crash or reboot. To remove the listener, run
 `tools\cast-host\uninstall-agent.cmd`; it first gives a running cast time to stop
 cleanly, then removes the task.
+
+Once the task is registered and running, the installer offers to run
+`tune-host.cmd`, because that is the last moment anyone is standing at the machine
+to answer a UAC prompt — and a host provisioned entirely through the agent is
+otherwise capped at 1 FPS forever, which presents as a bad network rather than as
+a setting. Answering no just says so and carries on. If the tuner has already run
+the `poll-ms` file is there, so it reports the interval instead of asking again.
 
 The agent writes its own activity to `%USERPROFILE%\.instellar-cast\agent.log`
 and the cast-host output to `cast.log`, rotating that file at about 2 MB. It uses
@@ -331,19 +492,24 @@ node tools\cast-host\test\bridge.test.mjs      boots the real bridge against a s
 node tools\cast-host\test\framing.test.mjs     RFC 6455 framing, backpressure, keepalive, lifetime
 node tools\cast-host\test\render.test.mjs      the local bitmap change in cast\novnc.js
 node tools\cast-host\test\pipeline.test.mjs    frame request overlap and render backpressure
+node tools\cast-host\test\adaptive.test.mjs    the fps ladder, and the bridge's update injector
 node tools\cast-host\test\paste.test.mjs       the order the clipboard and the keystroke are sent in
+node tools\cast-host\test\viewer.test.mjs      reconnect backoff, the offline card, and its escaping
 ```
 
-The bridge and framing suites bind loopback ports in the 59000 and 60800 ranges
-and never contact the live site. Framing takes about fifteen seconds, most of it
-deliberately spent watching a stalled viewer to prove the host stalls with it.
+The bridge, framing and adaptive suites bind loopback ports in the 59000 and
+60800 ranges and never contact the live site. Framing takes about fifteen seconds
+and adaptive about twelve, most of both deliberately spent watching a stalled
+viewer to prove the host stalls with it.
 
 `CAST_TUNNEL_BIN` is a test-only override used by the bridge suite to run
 `fake-tunnel.mjs` in place of cloudflared, crash it, and prove the replacement URL
 is published without letting the host exit. It is not a supported cast setting.
 
-What they are for: the framing, the slot ownership and the render queue are all
-hand-rolled here, and their failures are the quiet kind. A wedged render queue
-freezes the picture while input keeps working. A missed backpressure pause shows
-up as memory rather than as an error. Both read as "the cast is being weird" and
-neither throws anything a log would catch.
+What they are for: the framing, the slot ownership, the render queue and the
+update injector are all hand-rolled here, and their failures are the quiet kind.
+A wedged render queue freezes the picture while input keeps working. A missed
+backpressure pause shows up as memory rather than as an error. An injected
+request landing between two halves of a fragmented message desynchronises the
+server for the rest of the session. All of them read as "the cast is being weird"
+and none of them throws anything a log would catch.

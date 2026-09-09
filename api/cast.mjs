@@ -25,9 +25,9 @@
 // keystrokes both, while the real host heartbeated underneath none the wiser.
 // Only the SHA-256 of each is stored.
 //
-// The slot is claimed atomically with SET NX, and only the publish key overwrites
-// or deletes it. Claiming an *empty* slot is still open to anyone unless
-// CAST_TOKEN is set, because the site and the host share no other secret to
+// The slot is claimed atomically by the PUBLISH script, and only the publish key
+// overwrites or deletes it. Claiming an *empty* slot is still open to anyone
+// unless CAST_TOKEN is set, because the site and the host share no other secret to
 // authenticate a first publish with - so CAST_TOKEN is what stops a stranger
 // squatting the slot and locking the real host out.
 //
@@ -51,9 +51,12 @@ const AGENT = "cast:agent";
 const AGENT_TTL = 120;        // seconds; the agent polls every 10
 const WANT = "cast:want";
 const WANT_TTL = 600;         // a wish nobody collects in ten minutes is stale
-const REFRESH = `
+const PUBLISH = `
 local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
+if not raw then
+  redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+  return 2
+end
 local rec = cjson.decode(raw)
 if rec.ph ~= ARGV[1] then return -1 end
 redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
@@ -92,24 +95,34 @@ async function handle(request) {
 
   try {
     if (request.method === "GET") {
+      const given = url.searchParams.get("t") || request.headers.get("x-cast-token") || "";
+      const ip = clientIp(request);
+      // Nothing this path reads depends on anything else it reads, and Upstash
+      // costs the same latency for four commands as for one - so they travel
+      // together. This is the most-executed request in the system: every open
+      // tab retries it every few seconds for as long as nobody is casting, and
+      // that idle loop used to be four serialized round trips.
+      const reads = [["GET", KEY], ["GET", AGENT], ["GET", WANT]];
+      if (ip) reads.push(["HGET", IP_HASH, ip]);
+      const out = await pipe(reads);
+
       // Checked before the key, so a blocked viewer cannot even probe for whether
       // a cast is running. Only on GET: POST and DELETE are the host talking
       // about itself, and blocking the owner's own IP would be a strange way to
       // lock yourself out of your own machine.
-      if (await ipBlocked(clientIp(request))) {
+      if (blocked(out[3])) {
         return json(403, { error: "blocked", detail: "The owner has blocked this device." });
       }
-      const given = url.searchParams.get("t") || request.headers.get("x-cast-token") || "";
-      const rec = await getRecord();
+      const rec = parse(took(out[0]));
       if (!rec) {
         const body = { error: "offline", detail: "No host is casting right now." };
         // Tell the right key that the host can be woken, and what it is called.
         // Only the right key: this body is what a wrong or missing key gets too,
         // and a stranger probing it must not learn that a machine is listening.
-        const agent = await getAgent();
+        const agent = parse(took(out[1]));
         if (agent && safeEqual(await sha256(given), agent.th)) {
           body.agent = agent.name || "";
-          body.want = (await cmd(["GET", WANT])) || null;
+          body.want = took(out[2]) || null;
         }
         return json(404, body);
       }
@@ -118,19 +131,27 @@ async function handle(request) {
     }
 
     if (request.method === "PUT") {
-      // The viewer's side of the remote start. Blocked before the key, as on GET,
-      // and for the same reason: a blocked device does not get to probe.
-      if (await ipBlocked(clientIp(request))) {
-        return json(403, { error: "blocked", detail: "The owner has blocked this device." });
-      }
       const given = url.searchParams.get("t") || request.headers.get("x-cast-token") || "";
       const want = url.searchParams.get("want") || "";
-      const agent = await getAgent();
+      const ip = clientIp(request);
+      // Three unrelated keys again, so one round trip. `casting` is read here
+      // rather than after the write because writing the wish cannot change it -
+      // only the agent acting on the wish can, and that takes seconds.
+      const reads = [["GET", AGENT], ["GET", KEY]];
+      if (ip) reads.push(["HGET", IP_HASH, ip]);
+      const out = await pipe(reads);
+
+      // The viewer's side of the remote start. Blocked before the key, as on GET,
+      // and for the same reason: a blocked device does not get to probe.
+      if (blocked(out[2])) {
+        return json(403, { error: "blocked", detail: "The owner has blocked this device." });
+      }
+      const agent = parse(took(out[0]));
       if (!agent) return json(404, { error: "noagent", detail: "The host is not listening." });
       if (!safeEqual(await sha256(given), agent.th)) return json(401, { error: "Bad token" });
       if (want !== "start" && want !== "stop") return json(400, { error: "want must be start or stop" });
       await cmd(["SET", WANT, want, "EX", String(WANT_TTL)]);
-      return json(200, { ok: true, want, name: agent.name || "", casting: !!(await getRecord()) });
+      return json(200, { ok: true, want, name: agent.name || "", casting: !!parse(took(out[1])) });
     }
 
     if (request.method === "POST") {
@@ -143,8 +164,13 @@ async function handle(request) {
         // key rules as a publish, because these are the same two keys.
         if (token.length < 4) return json(400, { error: "token must be at least 4 chars" });
         if (publish.length < 16) return json(400, { error: "publish key must be at least 16 chars" });
+        // The registration it may have to defer to, the wish it came for and
+        // whether a cast is up are three unrelated keys, so one round trip reads
+        // all three. Read before the SET below for the same reason as on PUT:
+        // writing cast:agent moves neither the wish nor the cast record.
+        const out = await pipe([["GET", AGENT], ["GET", WANT], ["GET", KEY]]);
         const ph = await sha256(publish);
-        const held = await getAgent();
+        const held = parse(took(out[0]));
         // Not the atomic claim the cast record gets, and it does not need one: a
         // registration is repeated every ten seconds, so a lost race is a 409 on
         // the next poll rather than a viewer sent to the wrong machine. Only the
@@ -153,8 +179,7 @@ async function handle(request) {
         await cmd(["SET", AGENT, JSON.stringify({
           th: await sha256(token), ph, name: String(body?.name || "").slice(0, 60), seen: Date.now(),
         }), "EX", String(AGENT_TTL)]);
-        const want = await cmd(["GET", WANT]);
-        return json(200, { ok: true, want: want || null, casting: !!(await getRecord()) });
+        return json(200, { ok: true, want: took(out[1]) || null, casting: !!parse(took(out[2])) });
       }
       // ws:// stays rejected: the viewer page runs on https and a browser refuses
       // a plaintext socket from it, so such a record could only ever be a dead
@@ -175,20 +200,19 @@ async function handle(request) {
         url: target, name: String(body?.name || "").slice(0, 60), th, ph, at: Date.now(),
       });
 
-      // Claim an empty slot atomically. Read-then-write let two hosts both see no
-      // record, both write, and both come away believing they held the slot while
-      // viewers reached only one of them.
-      if (await cmd(["SET", KEY, next, "EX", String(TTL), "NX"])) {
-        return json(200, { ok: true, expiresIn: TTL, claimed: true });
-      }
-
-      // Occupied, so this is either the owner's heartbeat or somebody else. Only
-      // the publish key may overwrite.
-      // Compare the owner and refresh in one Redis operation. A record expiring
-      // between GET and SET used to let an old heartbeat overwrite a new claim.
-      const refreshed = await cmd(["EVAL", REFRESH, "1", KEY, ph, next, String(TTL)]);
-      if (refreshed === 0) return json(409, { error: "Slot changed hands mid-write, retry" });
-      if (refreshed !== 1) return json(409, { error: "Another host holds the slot" });
+      // Claim an empty slot, or refresh an occupied one for the key that owns it
+      // - one script, because they are one decision. Read-then-write let two
+      // hosts both see no record, both write, and both come away believing they
+      // held the slot while viewers reached only one of them. Claiming with a
+      // separate SET NX in front had the mirror problem: a record expiring
+      // between the claim attempt and the refresh let an old heartbeat overwrite
+      // a new claim. Redis runs the whole script as one operation, so neither
+      // window exists - and the steady state, a heartbeat against a slot this
+      // host already holds, is one round trip instead of a failed claim followed
+      // by a refresh.
+      const claimed = await cmd(["EVAL", PUBLISH, "1", KEY, ph, next, String(TTL)]);
+      if (claimed === 2) return json(200, { ok: true, expiresIn: TTL, claimed: true });
+      if (claimed !== 1) return json(409, { error: "Another host holds the slot" });
       return json(200, { ok: true, expiresIn: TTL });
     }
 
@@ -238,13 +262,36 @@ async function cmd(args) {
   return (await r.json()).result;
 }
 
-// Same shape as the proxy's, including that a KV hiccup fails OPEN. A blocklist
-// that locks everyone out - the owner included - the moment Upstash is slow is
-// worse than one that lets a blocked viewer through for a few seconds, and the
-// access key is still in front of them either way.
-async function ipBlocked(ip) {
-  if (!ip) return false;
-  try { return !!(await cmd(["HGET", IP_HASH, ip])); } catch (_) { return false; }
+// Several commands in one round trip. Upstash answers /pipeline with one
+// {result} or {error} per command, in the order given. The entries come back raw
+// because the callers disagree about what an error means - see took() and
+// blocked().
+async function pipe(cmds) {
+  const r = await fetch(KV_URL + "/pipeline", {
+    method: "POST",
+    headers: { authorization: "Bearer " + KV_TOKEN, "content-type": "application/json" },
+    body: JSON.stringify(cmds),
+    signal: AbortSignal.timeout(6000),
+  });
+  if (!r.ok) throw new Error("kv " + r.status);
+  return await r.json();
+}
+
+// One pipeline entry, on cmd()'s terms: the value, or a throw the handler turns
+// into a 502.
+function took(entry) {
+  if (entry?.error) throw new Error("kv " + entry.error);
+  return entry?.result;
+}
+
+// The block check, which is the one read that must NOT throw. Same shape as the
+// proxy's, including that a KV hiccup fails OPEN: a blocklist that locks everyone
+// out - the owner included - the moment Upstash is slow is worse than one that
+// lets a blocked viewer through for a few seconds, and the access key is still in
+// front of them either way. A missing entry is a request that carried no client
+// IP, which is nobody the owner can have blocked.
+function blocked(entry) {
+  return !!entry?.result;
 }
 
 function clientIp(request) {
@@ -252,16 +299,15 @@ function clientIp(request) {
   return xff.split(",")[0].trim();
 }
 
-async function getRecord() {
-  const raw = await cmd(["GET", KEY]);
+// Only this file writes these records, so anything that will not parse was
+// written by somebody else: treat it as no record rather than as an error.
+function parse(raw) {
   if (!raw) return null;
   try { return JSON.parse(raw); } catch (_) { return null; }
 }
 
 async function getAgent() {
-  const raw = await cmd(["GET", AGENT]);
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch (_) { return null; }
+  return parse(await cmd(["GET", AGENT]));
 }
 
 /* ----------------------------------------------------------------- util -- */

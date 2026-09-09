@@ -64,6 +64,11 @@ const PUBLISH_KEY = process.env.CAST_PUBLISH_KEY || loadSecret("publish-key", 24
 // and publishing a loopback URL shipped this run's session key to the registry
 // for an endpoint no viewer could ever open.
 const TUNNELLESS = TUNNEL === "none" && !FIXED_URL;
+// TightVNC's polling interval is the hard ceiling on frames per second, and it
+// lives under an HKLM key this process may not even read. tune-host.cmd is
+// elevated when it writes that key, so it leaves the number here on its way out.
+// A readout, never a lever: 0 means nobody has run the tuner on this machine.
+const POLL_MS = readPollMs();
 
 /* -------------------------------------------------------------- ws bridge -- */
 
@@ -92,10 +97,22 @@ const server = http.createServer((req, res) => {
       res.writeHead(403, { "content-type": "application/json" });
       return res.end(JSON.stringify({ error: "bad key" }));
     }
+    // Same endpoint, second lever: how fast this bridge should ask TightVNC for
+    // updates on the viewer's behalf. See setStream - the parameter is a clamped
+    // integer that never reaches a command line, unlike share, which is why this
+    // one needs no whitelist. Checked before share so a stream call cannot be
+    // mistaken for a share call with a missing mode.
+    if (url.searchParams.has("stream")) {
+      const s = setStream(url.searchParams.get("stream"),
+                          url.searchParams.get("w"), url.searchParams.get("h"),
+                          url.searchParams.get("v") || "");
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ ok: true, ...s, pollMs: POLL_MS }));
+    }
     const mode = url.searchParams.get("share") || "";
     return applyShareAsync(mode).then((applied) => {
       res.writeHead(applied ? 200 : 400, { "content-type": "application/json" });
-      res.end(JSON.stringify(applied ? { ok: true, share: mode }
+      res.end(JSON.stringify(applied ? { ok: true, share: mode, pollMs: POLL_MS }
                                      : { error: "bad share mode" }));
     });
   }
@@ -188,7 +205,10 @@ server.on("upgrade", (req, socket, head) => {
     return;
   }
   if (url.pathname === "/ping") pingProbe(socket, head);
-  else bridge(socket, head);
+  // Which tab this socket belongs to, so /ctl can name it later. Not a
+  // credential - the key above is - just an identifier, and an absent one means
+  // an older page and the old whole-host behaviour.
+  else bridge(socket, head, url.searchParams.get("v") || "");
 });
 
 // Completes the RFC 6455 handshake. Returns false if this was not a WebSocket
@@ -227,6 +247,11 @@ function wsReader(sock, onData, onClose, onPong) {
       if (dead) return;
       if (buf.length < 2) return;
       const op = buf[0] & 0x0f;
+      // FIN says whether this frame finishes the message. Everything below still
+      // treats continuation, text and binary alike, but a caller that writes the
+      // payload straight on to something with its own framing needs to know when it
+      // is holding half of one - see the injector in bridge().
+      const fin = (buf[0] & 0x80) !== 0;
       const masked = (buf[1] & 0x80) !== 0;
       let len = buf[1] & 0x7f;
       let off = 2;
@@ -269,7 +294,7 @@ function wsReader(sock, onData, onClose, onPong) {
       if (op === 0x9) { frame(sock, 0x0a, payload); continue; }   // ping -> pong
       if (op === 0x0a) { if (onPong) onPong(payload); continue; } // pong
       // Continuation / text / binary are all just payload as far as we care.
-      onData(payload);
+      onData(payload, fin);
     }
   };
 }
@@ -285,7 +310,92 @@ function pingProbe(ws, head) {
   if (head && head.length) feed(head);
 }
 
-function bridge(ws, head) {
+/* ------------------------------------------------------------- streaming -- */
+
+// The viewer's frame loop is depth-1: it asks for one incremental update, waits a
+// full round trip for the answer, and only then asks again. Through the tunnel that
+// round trip is 50ms, so the picture sits near 15fps whatever the screen is doing,
+// and no quality setting can move it - quality changes bytes per frame, not frames
+// per second. This bridge is 0ms from TightVNC, so it can hold that request open on
+// the viewer's behalf and take the viewer's round trip out of the loop entirely.
+//
+// It does that without parsing a byte of RFB. A FramebufferUpdateRequest is ten
+// fixed bytes and the viewer already knows its own framebuffer size, so it sends it
+// on /ctl?stream=. Teaching the bridge to speak RFB instead would put a stateful
+// parser in the one part of this tool that is currently simple enough to be
+// obviously correct, and a timer needs none of it.
+//
+// TightVNC Server for Windows does not implement the ContinuousUpdates extension,
+// which is the thing that would make all of this unnecessary. If a server ever does
+// negotiate it, the viewer stops asking for updates and simply never calls this -
+// the extra requests would be harmless anyway, since incremental requests to a
+// server with nothing to report are answered with nothing.
+// The rate belongs to the viewer connection, not to the host. Kept here it
+// outlived the session that asked for it: closing a tab does not run the page's
+// disconnect handler, so the rate stayed set, and the next viewer's bridge began
+// injecting at TCP connect - several round trips before its RFB handshake has
+// finished. Ten bytes landing inside the version exchange or the auth reply is a
+// session that dies or mis-authenticates. Per connection, every bridge starts at
+// 0, and two viewers watching at once stop overwriting each other's rate and
+// each other's framebuffer size.
+const streamers = new Set();       // { id, take } per live viewer
+
+// noVNC's send buffer is 10KiB and it flushes when full, so a client message at
+// least this big may be one piece of a larger one however the browser framed it.
+// The injector then stands off until a message small enough to be a whole one
+// goes past, and STREAM_QUIET_MS is the backstop on that wait. See bridge().
+const FRAGMENT_BYTES = 8192;
+const STREAM_QUIET_MS = 500;
+
+// hz is clamped to 0..60, and 0 restores today's behaviour exactly - so a viewer
+// that never calls this, or one that hangs up, leaves the bridge exactly as it was.
+// w/h are remembered per connection from the last call that carried them: the
+// bridge cannot know the framebuffer size on its own, so given none it accepts the
+// rate and injects nothing rather than guessing a size and desynchronising
+// TightVNC.
+//
+// `v` is which viewer is asking. The page puts a per-tab id in the URL it opens
+// the socket with, so the bridge learns it during the upgrade and /ctl can name
+// it - which is what makes the rate the session's rather than the host's. Two
+// tabs watching at once each run their own ladder, and without this each call
+// moved both: they overwrote each other's rate all session, and since the shared
+// screen is host-wide their framebuffers always match, so nothing downstream
+// could tell the two apart. A page that names no viewer - an older one - is
+// answered the old way, every live bridge, because there is nothing to match on.
+function setStream(hz, w, h, v) {
+  const rate = clampInt(hz, 0, 60);
+  const w16 = clampInt(w, 0, 65535);
+  const h16 = clampInt(h, 0, 65535);
+  const targets = v ? [...streamers].filter((s) => s.id === v) : [...streamers];
+  // Nothing to settle it, so the answer is what was asked for: a named viewer
+  // whose bridge has already gone is the disconnect handler's stream=0 arriving
+  // after the socket it was about to quieten. Deliberately not fanned out to
+  // whoever else is watching.
+  let settled = { stream: rate, w: w16, h: h16 };
+  for (const s of targets) settled = s.take(rate, w16, h16);
+  return settled;
+}
+
+function clampInt(v, lo, hi) {
+  const n = Math.floor(Number(v));
+  if (!Number.isFinite(n)) return lo;      // absent or not a number at all
+  return n < lo ? lo : n > hi ? hi : n;
+}
+
+// FramebufferUpdateRequest: type 3, incremental 1, then x/y/w/h as big-endian u16.
+// Incremental is what makes this cheap - TightVNC answers with whatever changed, and
+// with nothing to report it does not answer at all, so a still screen costs these
+// ten bytes and nothing else.
+function fbUpdateRequest(w, h) {
+  const b = Buffer.alloc(10);
+  b[0] = 3;
+  b[1] = 1;
+  b.writeUInt16BE(w, 6);
+  b.writeUInt16BE(h, 8);
+  return b;
+}
+
+function bridge(ws, head, viewerId) {
   const vnc = net.connect(Number(VNC_PORT), VNC_HOST);
   vnc.setNoDelay(true);                       // every keystroke is its own packet
   vnc.setKeepAlive(true, 20000);
@@ -297,6 +407,22 @@ function bridge(ws, head) {
   let pending = [];
   let pendingBytes = 0;
   let missedPongs = 0;
+  // Guards of the update injector below, each tracked where it happens: the
+  // viewer is behind so we stopped reading TightVNC, a client message is only
+  // half delivered across WebSocket fragments, and a client message big enough to
+  // have been flushed mid-message has just gone past.
+  let paused = false;
+  let midMessage = false;
+  let clientMsgBytes = 0;            // of the client message currently arriving
+  let midFlush = false;              // a message big enough to be a piece went past
+  let quietUntil = 0;                // ...and the backstop on waiting for its end
+  // This viewer's own rate and rectangle. Nobody else's, and nothing until it
+  // asks: see setStream.
+  let streamHz = 0;
+  let streamW = 0;
+  let streamH = 0;
+  let streamReq = null;              // the ten bytes, rebuilt only when w/h change
+  let streamSeen = false;            // this viewer has itself sent exactly those
 
   live++;
   const since = Date.now();
@@ -316,11 +442,112 @@ function bridge(ws, head) {
     frame(ws, 0x9, Buffer.alloc(0));
   }, KEEPALIVE_MS);
 
+  // Ask TightVNC for the next update on this viewer's behalf, so that the viewer's
+  // round trip stops being the frame period. Seven guards, and every one of them is
+  // a way this could make the picture worse rather than faster:
+  //
+  //   open           there is a VNC socket to ask at all
+  //   streamSeen     this viewer has itself sent these exact ten bytes at least
+  //                  once, so its own handshake is provably behind it and the
+  //                  rectangle is provably its own. A rate arriving on /ctl only
+  //                  proves that of whoever called; with a second viewer watching
+  //                  it proves nothing about this one, and the handshake is the
+  //                  window where ten stray bytes are fatal. Watching the viewer's
+  //                  own request go past costs a ten-byte compare and settles it
+  //                  per connection. A rectangle we have never seen asked for is
+  //                  simply not injected - the depth-1 loop, which is where this
+  //                  started.
+  //   writableLength nothing of ours is still queued for it - never pile requests
+  //                  onto a socket that is already behind
+  //   paused         the viewer is behind and we have stopped reading TightVNC, so
+  //                  asking for more would grow a queue nobody is draining
+  //   midMessage     a client message is half written. wsReader hands fragments
+  //                  straight through, so injecting between two of them would
+  //                  splice these ten bytes into the middle of another RFB message
+  //                  and desynchronise TightVNC's parser for the rest of the
+  //                  session.
+  //   midFlush       the same splice one level up, and the one FIN cannot see:
+  //                  noVNC flushes its 10KiB send buffer when it fills, so a
+  //                  client message larger than that - a paste - leaves the
+  //                  browser as several whole, FIN-set messages. Only a message
+  //                  that big can be a piece of a larger one, so one of those
+  //                  stands the injector down. Standing off after every client
+  //                  write would have been simpler and would also have switched
+  //                  the feature off: the viewer answers each update with a
+  //                  request of its own, so at any rate worth asking for its
+  //                  writes are never 50ms apart.
+  //
+  //                  What lifts it is a whole client message smaller than the
+  //                  buffer, because that cannot be a piece of a larger one. It
+  //                  is proof rather than a guess: noVNC pushes every piece of
+  //                  one message in a single synchronous call, and a WebSocket
+  //                  delivers in order, so nothing else can appear between them.
+  //                  Waiting on a deadline instead was the whole flaw in the
+  //                  first version of this - the pieces leave together but they
+  //                  still have to cross the viewer's uplink, and 10KiB takes
+  //                  longer than 50ms on anything under about 1.6Mbit up.
+  //   quietUntil     the backstop on that wait, because "a smaller message" can
+  //                  fail to arrive: a paste whose last piece is itself over the
+  //                  threshold, onto a still screen, leaves no update to answer
+  //                  and so nothing more to send. Without a deadline the feature
+  //                  would switch itself off for the session there.
+  let streamTimer = null;
+  let armedHz = 0;
+  const arm = () => {
+    // No w/h means no request to send, so that is the same as no rate at all.
+    const want = streamReq && !done ? streamHz : 0;
+    if (want === armedHz) return;      // same rate: keep the phase we are already on
+    armedHz = want;
+    clearTimeout(streamTimer);
+    streamTimer = null;
+    if (!want) return;
+
+    // Deadline-chasing rather than setInterval, because Windows timers land on a
+    // ~15.6ms tick: a flat setInterval(50) fires every 62ms and the 20fps somebody
+    // asked for quietly becomes 16. Aiming at the next deadline lets each fire
+    // absorb the rounding of the one before it. Never catch up on a missed
+    // deadline, though - falling behind means a guard was holding us back, and a
+    // burst of requests is the exact thing guard 2 is there to prevent.
+    const period = 1000 / want;
+    let next = Date.now() + period;
+    const tick = () => {
+      const now = Date.now();
+      next += period;
+      if (next < now - period) next = now + period;
+      streamTimer = setTimeout(tick, Math.max(0, next - now));
+      if (done || !open || paused || midMessage) return;
+      if (!streamSeen || (midFlush && now < quietUntil)) return;
+      if (vnc.writableLength !== 0) return;
+      vnc.write(streamReq);
+    };
+    streamTimer = setTimeout(tick, period);
+  };
+
+  // What /ctl?stream= reaches. A rectangle this viewer has not asked for yet has
+  // to be proven again before anything goes out at it.
+  const take = (hz, w, h) => {
+    streamHz = hz;
+    streamW = w || streamW;
+    streamH = h || streamH;
+    const req = streamW && streamH ? fbUpdateRequest(streamW, streamH) : null;
+    if (!req || !streamReq || !req.equals(streamReq)) streamSeen = false;
+    streamReq = req;
+    arm();
+    return { stream: streamHz, w: streamW, h: streamH };
+  };
+  const streamer = { id: viewerId, take };
+  streamers.add(streamer);
+
   const shut = (why) => {
     if (done) return;
     done = true;
     live--;
     clearInterval(keepalive);
+    // Either socket going means there is nobody to ask for, so stop asking. Left
+    // behind, this timer would hold the process open and keep writing into a
+    // destroyed socket for as long as the host ran.
+    streamers.delete(streamer);
+    clearTimeout(streamTimer);
     // How long it lasted is the difference between a timeout and bad luck: drops
     // that cluster around one duration are something expiring on a timer, drops
     // scattered across seconds and hours are the link itself.
@@ -335,7 +562,28 @@ function bridge(ws, head) {
 
   // Browser -> VNC. Anything the client sends before the VNC socket is up waits
   // in `pending` rather than being dropped.
-  const feed = wsReader(ws, (payload) => {
+  const feed = wsReader(ws, (payload, fin) => {
+    // Half a client message is on its way to vnc until the frame carrying FIN
+    // arrives; the injector must not write anything between the pieces.
+    midMessage = !fin;
+    clientMsgBytes += payload.length;
+    if (fin) {
+      // A whole message this big is noVNC's send buffer emptying mid-message, so
+      // the rest of that message is right behind it whatever FIN said - and one
+      // smaller than the buffer is a message that ended, which is what says the
+      // sequence is over. See the injector's guards.
+      if (clientMsgBytes >= FRAGMENT_BYTES) {
+        midFlush = true;
+        quietUntil = Date.now() + STREAM_QUIET_MS;
+      } else {
+        midFlush = false;
+      }
+      clientMsgBytes = 0;
+    }
+    // The viewer asking for the rectangle we would inject: proof that its own
+    // handshake is done and that the rectangle is the one it wants. Nothing is
+    // injected before this, and the compare stops the moment it is true.
+    if (streamReq && !streamSeen && payload.includes(streamReq)) streamSeen = true;
     if (!open) {
       // Capped. If TightVNC is restarting the SYN goes unanswered rather than
       // refused, and an unbounded queue let anyone holding the session key grow
@@ -375,12 +623,18 @@ function bridge(ws, head) {
   vnc.on("drain", () => ws.resume());
 
   // VNC -> browser, one frame per read so updates leave as soon as they exist.
-  vnc.on("data", (d) => { if (!frame(ws, 0x02, d)) vnc.pause(); });
-  ws.on("drain", () => vnc.resume());
+  // The pause is also guard 3 above: while the viewer is behind, this session has
+  // no business asking TightVNC for more frames.
+  vnc.on("data", (d) => { if (!frame(ws, 0x02, d)) { paused = true; vnc.pause(); } });
+  ws.on("drain", () => { paused = false; vnc.resume(); });
 }
 
-// Server-to-client frames are never masked. Header and payload go out in a single
-// write: two writes would be two packets, and this runs with Nagle disabled.
+// Server-to-client frames are never masked. Header and payload leave in a single
+// packet, which matters because this runs with Nagle disabled - but corking is what
+// buys that, not concatenation. Node coalesces writes issued while corked into one
+// writev, so the header goes out ahead of the payload without the payload being
+// copied. It used to be a Buffer.concat, which meant memcpying every byte of the
+// pixel stream to prepend at most ten bytes to it.
 function frame(sock, op, payload) {
   const n = payload.length;
   let head;
@@ -397,7 +651,12 @@ function frame(sock, op, payload) {
     head.writeBigUInt64BE(BigInt(n), 2);
   }
   head[0] = 0x80 | op;
-  return sock.write(Buffer.concat([head, payload], head.length + n));
+  if (n === 0) return sock.write(head);         // close and keepalive pings
+  sock.cork();
+  sock.write(head);
+  const ok = sock.write(payload);
+  sock.uncork();
+  return ok;
 }
 
 /* ----------------------------------------------------------------- share -- */
@@ -486,11 +745,15 @@ function startTunnel() {
 
   // cloudflared first: its quick tunnels need no account, have no bandwidth cap
   // and put no browser-warning interstitial in front of the WebSocket upgrade.
-  const kind = TUNNEL === "auto" ? (findBin("cloudflared") ? "cloudflared" : "ngrok") : TUNNEL;
+  // Keep what the probe found. findBin spawns a process to answer, so asking it
+  // twice for the same binary - once for "is cloudflared here", once for "where" -
+  // was two process launches for a path we were already holding.
+  const probed = TUNNEL === "auto" ? findBin("cloudflared") : null;
+  const kind = TUNNEL === "auto" ? (probed ? "cloudflared" : "ngrok") : TUNNEL;
   // Test-only: lets the bridge suite stand in for cloudflared without installing
   // it or opening a real public tunnel. A JS file is run through this Node.
   const override = process.env.CAST_TUNNEL_BIN || "";
-  const found = override || findBin(kind);
+  const found = override || (kind === "cloudflared" && probed) || findBin(kind);
   const bin = override && /\.[cm]?js$/i.test(override) ? process.execPath : found;
   if (!bin) {
     return Promise.reject(new Error(
@@ -687,7 +950,10 @@ const WELL_KNOWN = {
 
 function findBin(cmd) {
   const probe = process.platform === "win32" ? "where" : "which";
-  const r = spawnSync(probe, [cmd], { shell: true, encoding: "utf8" });
+  // No shell: `where` and `which` are real executables, so a shell here only added
+  // a cmd.exe between us and the answer. A probe that cannot run at all leaves
+  // status unset, which falls through to WELL_KNOWN exactly as a miss does.
+  const r = spawnSync(probe, [cmd], { encoding: "utf8" });
   if (r.status === 0) {
     // `where` can list several matches; the first is the one PATH would pick.
     const hit = String(r.stdout || "").split(/\r?\n/)
@@ -835,6 +1101,23 @@ function loadSecret(name, bytes) {
   return fresh;
 }
 
+// tune-host.cmd leaves the polling interval it wrote here, because it is elevated
+// at the time and this process is not: HKLM\SOFTWARE\TightVNC\Server is
+// administrator-only even to read, so the bridge cannot ask the registry what the
+// interval is. A readout and nothing more - the poll rate is machine-wide, and a
+// remote page moving it is a different question from "which monitor am I looking
+// at". 0 means the tuner has not been run here, not that the interval is zero.
+function readPollMs() {
+  const base = process.env.PROGRAMDATA || "";
+  if (!base) return 0;
+  try {
+    const n = Number(fs.readFileSync(path.join(base, "instellar-cast", "poll-ms"), "utf8").trim());
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  } catch (_) {
+    return 0;                        // never tuned, or not a Windows host
+  }
+}
+
 // Picking the first non-internal address gets it wrong on any real machine: VPN,
 // WSL and VirtualBox adapters all look like candidates. Connecting a UDP socket
 // asks the routing table which address actually reaches the outside world, which
@@ -871,22 +1154,39 @@ function checkVnc() {
 }
 
 async function main() {
+  // The tunnel is the long pole - a quick tunnel takes seconds to print its URL -
+  // and it depends on neither of the checks below, so start it first and join it at
+  // the end. The catch is not cosmetic: without a handler attached now, a tunnel
+  // that fails while we are still probing VNC is an unhandled rejection, and the
+  // real await further down would arrive too late to claim it.
+  const tunnelUp = startTunnel();
+  tunnelUp.catch(() => {});
+
   if (!(await checkVnc())) {
+    if (tunnelProc) tunnelProc.kill();     // started above; do not orphan it
     console.error("\n  No VNC server answering on " + VNC_HOST + ":" + VNC_PORT + ".");
     console.error("  Start TightVNC Server (it installs as the tvnserver service) and");
     console.error("  make sure it has a password set, then run this again.\n");
     process.exit(1);
   }
 
-  if (!applyShare(SHARE)) {
+  // The async twin, so the few hundred ms Windows takes to start tvnserver and
+  // reach the service is spent reading the tunnel's output rather than blocking on
+  // it. restoreShare still uses the sync one: exit paths have nothing to overlap.
+  if (!(await applyShareAsync(SHARE))) {
     log("could not set share mode \"" + SHARE + "\" - carrying on with whatever\n           TightVNC is already sharing");
   }
 
   await new Promise((r) => server.listen(PORT, LAN ? "0.0.0.0" : "127.0.0.1", r));
   log("bridge on " + (LAN ? "0.0.0.0" : "127.0.0.1") + ":" + PORT +
       " -> " + VNC_HOST + ":" + VNC_PORT);
+  // The ceiling on frames per second, and the one number nothing in the browser can
+  // argue with. Saying nothing when it is unknown is what let a host sit at 1 FPS
+  // with a healthy-looking ping and everyone blaming the network.
+  log(POLL_MS ? "polling interval " + POLL_MS + " ms (~" + Math.round(1000 / POLL_MS) + " fps)"
+              : "polling interval unknown - run tools\\cast-host\\tune-host.cmd once on this machine");
 
-  const base = await startTunnel();
+  const base = await tunnelUp;
   let wsUrl = base + "/ws?k=" + SESSION_KEY;
 
   // With no tunnel there is no address a viewer could reach, so the registry has

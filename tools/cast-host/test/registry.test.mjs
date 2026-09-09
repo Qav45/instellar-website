@@ -9,31 +9,49 @@ process.env.KV_REST_API_TOKEN = "kv-token";
 
 let store = new Map();
 let hashes = new Map();          // hash name -> Map(field -> value), for pxbip
-globalThis.fetch = async (url, init) => {
-  const [op, key, val, , , nx] = JSON.parse(init.body);
-  let result = null;
-  if (op === "GET") result = store.get(key) ?? null;
-  else if (op === "DEL") { store.delete(key); result = 1; }
-  else if (op === "SET") {
-    if (nx === "NX" && store.has(key)) result = null;
-    else { store.set(key, val); result = "OK"; }
-  } else if (op === "HGET") {
-    result = (hashes.get(key) || new Map()).get(val) ?? null;
-  } else if (op === "EVAL") {
-    const [, script, , evalKey, owner, nextOrTarget] = JSON.parse(init.body);
-    const refresh = /redis\.call\('SET'/.test(script);
-    const raw = store.get(evalKey);
-    if (!raw) result = refresh ? 0 : 1;
-    else {
-      const rec = JSON.parse(raw);
-      if (rec.ph !== owner) result = -1;
-      else if (refresh) {
-        store.set(evalKey, nextOrTarget); result = 1;
-      } else if (nextOrTarget && rec.url !== nextOrTarget) result = 0;
-      else { store.delete(evalKey); result = 1; }
-    }
+// One command, answered the way Upstash answers one: {result}, or {error} for a
+// command it does not know.
+const run = (args) => {
+  const [op, key, val, , , nx] = args;
+  if (op === "GET") return { result: store.get(key) ?? null };
+  if (op === "DEL") { store.delete(key); return { result: 1 }; }
+  if (op === "SET") {
+    if (nx === "NX" && store.has(key)) return { result: null };
+    store.set(key, val);
+    return { result: "OK" };
   }
-  return new Response(JSON.stringify({ result }), { status: 200 });
+  if (op === "HGET") return { result: (hashes.get(key) || new Map()).get(val) ?? null };
+  if (op === "EVAL") {
+    const [, script, , evalKey, owner, nextOrTarget] = args;
+    // The publish script writes the record; the remove script only deletes it.
+    const publish = /redis\.call\('SET'/.test(script);
+    const raw = store.get(evalKey);
+    if (!raw) {
+      if (!publish) return { result: 1 };
+      // An empty slot is claimed by the same script that refreshes a held one.
+      store.set(evalKey, nextOrTarget);
+      return { result: 2 };
+    }
+    const rec = JSON.parse(raw);
+    if (rec.ph !== owner) return { result: -1 };
+    if (publish) { store.set(evalKey, nextOrTarget); return { result: 1 }; }
+    if (nextOrTarget && rec.url !== nextOrTarget) return { result: 0 };
+    store.delete(evalKey);
+    return { result: 1 };
+  }
+  return { error: "ERR unknown command '" + op + "'" };
+};
+
+globalThis.fetch = async (url, init) => {
+  const body = JSON.parse(init.body);
+  // /pipeline takes an array of commands and answers with one entry per command
+  // in the same order, always 200; the plain endpoint takes one command and
+  // answers 400 when it fails, which is what cmd() turns into a throw.
+  if (String(url).endsWith("/pipeline")) {
+    return new Response(JSON.stringify(body.map(run)), { status: 200 });
+  }
+  const one = run(body);
+  return new Response(JSON.stringify(one), { status: one.error ? 400 : 200 });
 };
 
 const blockIp = (ip) => {

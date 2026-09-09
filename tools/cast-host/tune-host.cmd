@@ -21,7 +21,15 @@ REM write a number it will not honour.
 set /a MS=%MS% 2>nul >nul
 if %MS% LSS 30 set "MS=30"
 set "KEY=HKLM\SOFTWARE\TightVNC\Server"
-set "TVN=C:\Program Files\TightVNC\tvnserver.exe"
+REM Both Program Files folders, in the order cast-host.mjs probes them: a
+REM 32-bit TightVNC on 64-bit Windows is a perfectly ordinary install, and a
+REM tuner that cannot find the server the bridge is already driving looks
+REM broken when the machine is merely misconfigured.
+set "TVN="
+for %%P in (
+  "C:\Program Files\TightVNC\tvnserver.exe"
+  "C:\Program Files (x86)\TightVNC\tvnserver.exe"
+) do if not defined TVN if exist %%P set "TVN=%%~P"
 
 net session >nul 2>&1
 if errorlevel 1 (
@@ -30,8 +38,8 @@ if errorlevel 1 (
   exit /b 0
 )
 
-if not exist "%TVN%" (
-  echo Could not find TightVNC at "%TVN%".
+if not defined TVN (
+  echo Could not find tvnserver.exe in either Program Files folder.
   goto :fail
 )
 
@@ -44,8 +52,34 @@ if defined WASMS (echo Polling interval was %WASMS% ms.) else (echo No polling i
 
 reg add "%KEY%" /v PollingInterval /t REG_DWORD /d %MS% /f >nul || goto :fail
 REM Reload rather than restart: restarting the service drops any cast that is
-REM running, and the setting is one the service re-reads on its own.
+REM running, and the setting is one the service re-reads on its own. The
+REM reload is also the half that changes anything - without it the value sits
+REM in the registry while the server keeps polling at the old rate, so it is
+REM checked like every other fallible line here rather than assumed.
 "%TVN%" -controlservice -reload
+if errorlevel 1 (
+  echo.
+  echo The value is written, but tvnserver would not take the reload - most
+  echo often because the service is not running - so it is still polling at
+  echo the old rate. Restart the tvnserver service to pick up %MS% ms:
+  echo   net stop tvnserver ^&^& net start tvnserver
+  echo A restart drops any cast that is running.
+  pause
+  exit /b 1
+)
+
+REM Leave the applied value where the bridge can read it. HKLM is
+REM administrator-only even to read, so cast-host - which runs unelevated -
+REM cannot ask the registry what the interval is, and a host nobody tuned is
+REM otherwise silently capped at 1 FPS with nothing anywhere saying so.
+REM Anything created under ProgramData is readable by everyone by
+REM inheritance, so no ACL work is needed. Redirect before echo, or the
+REM value picks up a trailing space.
+set "STATE=%ProgramData%\instellar-cast"
+if not exist "%STATE%" mkdir "%STATE%" >nul 2>&1
+>"%STATE%\poll-ms" echo %MS%
+if errorlevel 1 echo Note: could not write "%STATE%\poll-ms", so the cast toolbar cannot report the interval.
+
 echo.
 echo Polling interval is now %MS% ms. Casts should track moving windows and
 echo video far more closely. At 30 ms the capture ceiling is about 33 FPS.
