@@ -29,8 +29,8 @@ const grab = (from, to) => {
 
 const sandbox = {};
 vm.createContext(sandbox);
-const { LAG_QUEUE, STREAM_CODECS, STRAIN_DROPS, STRAIN_DROP_MS, STRAIN_RATIO, STRAIN_SLOW_MS,
-        parseVideoFrame, streamGate, streamReason, streamCodecs, streamFamily, streamSlow, streamStrain } = vm.runInContext(
+const { LAG_QUEUE, STREAM_CODECS, STREAM_STEPS, STEP_UP_MS, PROBATION_MS, STRIKE_MS, STRAIN_DROPS, STRAIN_DROP_MS, STRAIN_RATIO, STRAIN_SLOW_MS,
+        parseVideoFrame, streamGate, streamReason, streamCodecs, streamNext, streamFamily, streamSlow, streamStrain } = vm.runInContext(
   grab("const LAG_QUEUE = ", ";\n") +
   // These four carry a trailing comment, so the line end is the marker.
   grab("const STRAIN_DROPS = ", "\n") +
@@ -38,15 +38,20 @@ const { LAG_QUEUE, STREAM_CODECS, STRAIN_DROPS, STRAIN_DROP_MS, STRAIN_RATIO, ST
   grab("const STRAIN_RATIO = ", "\n") +
   grab("const STRAIN_SLOW_MS = ", "\n") +
   grab("const STREAM_CODECS = ", ";\n") +
+  grab("const STREAM_STEPS = ", ";\n") +
+  grab("const STEP_UP_MS = ", "\n") +
+  grab("const PROBATION_MS = ", "\n") +
+  grab("const STRIKE_MS = ", "\n") +
   grab("function parseVideoFrame(buf) {", "\n}\n") +
   grab("function streamGate(waitKey, key, queued) {", "\n}\n") +
   grab("function streamReason(why, code, reason) {", "\n}\n") +
   grab("function streamCodecs(supported, bad = [], first = \"\") {", "\n}\n") +
+  grab("function streamNext(supported, bad, from) {", "\n}\n") +
   grab("function streamFamily(codec) {", "\n}\n") +
   grab("function streamSlow(deliveredFps, decodedFps) {", "\n}\n") +
   grab("function streamStrain(drops, now, slowMs) {", "\n}\n") +
-  "({ LAG_QUEUE, STREAM_CODECS, STRAIN_DROPS, STRAIN_DROP_MS, STRAIN_RATIO, STRAIN_SLOW_MS," +
-  " parseVideoFrame, streamGate, streamReason, streamCodecs, streamFamily, streamSlow, streamStrain });",
+  "({ LAG_QUEUE, STREAM_CODECS, STREAM_STEPS, STEP_UP_MS, PROBATION_MS, STRIKE_MS, STRAIN_DROPS, STRAIN_DROP_MS, STRAIN_RATIO, STRAIN_SLOW_MS," +
+  " parseVideoFrame, streamGate, streamReason, streamCodecs, streamNext, streamFamily, streamSlow, streamStrain });",
   sandbox);
 
 // The bridge's header, built the way the wire carries it: flags, u32 BE ms.
@@ -199,20 +204,144 @@ ok("drops are judged before slowness when both apply",
    streamStrain([45000, 50000], 50000, 5000) === "dropping frames");
 ok("either verdict fits the state line", ["dropping frames", "decoding too slowly"].every((w) => w.length < 30));
 
+/* ------------------------------------------------------------ downgrade -- */
+
+// What is left to fall to, which is not the question streamCodecs answers:
+// that one always names something for the URL.
+ok("av1 falls to hevc", streamNext(ALL, [], "av1") === "hevc");
+ok("hevc falls to h264 even with av1 unstruck above it",
+   streamNext(ALL, ["av1"], "hevc") === "h264");
+ok("h264 with av1 still untried goes back up to it", streamNext(ALL, [], "h264") === "av1");
+ok("the last codec standing has nowhere to fall",
+   streamNext(ALL, ["av1", "hevc"], "h264") === "");
+ok("a browser with only h264 has nowhere to fall from the start",
+   streamNext([false, false, true], [], "h264") === "");
+ok("no probe answers at all is nowhere to fall", streamNext([], [], "h264") === "");
+
+// The demand ladder the downgrade walks down once the codecs run out.
+ok("three steps, each asking for fewer frames and fewer bytes than the last",
+   STREAM_STEPS.length === 3 &&
+   STREAM_STEPS.every((s, i) => i === 0 ||
+     (s.fps < STREAM_STEPS[i - 1].fps && s.mbps < STREAM_STEPS[i - 1].mbps)));
+ok("the top step is the full ask, unchanged",
+   STREAM_STEPS[0].fps === 60 && STREAM_STEPS[0].mbps === 1);
+ok("the bottom step still clears the host's floor of one frame and one megabit",
+   STREAM_STEPS[2].fps >= 1 && STREAM_STEPS[2].mbps * 8 >= 1);
+
+// The decision itself: strike a codec while there is one left, pace the ask
+// when there is not, and give up only at the bottom step or on a decoder that
+// errored outright.
+{
+  // `age` is how long the codec has been decoding, `up` how long ago the pace
+  // was last asked back for; both are what the two time rules read.
+  const run = (codec, bad, supported, step, why, detail, { age = 0, up = 0, ceil = 0 } = {}) => {
+    const out = { off: null, opened: 0 };
+    const NOW = 1000000;
+    const ctx = vm.createContext({
+      STREAM_CODECS, STREAM_STEPS, STRIKE_MS, PROBATION_MS, streamFamily, streamNext, out,
+      performance: { now: () => NOW },
+      vidCodec: codec, vidBad: new Set(bad), vidSupported: supported, vidStep: step,
+      vidCeil: ceil, vidCodecSince: age ? NOW - age : 0, vidUp: up ? NOW - up : 0,
+      vidCodecs: "", vidNote: "",
+      chooseCodecs() {}, state() {},
+      openVideo() { out.opened++; },
+      streamOff(w, code, reason) { out.off = reason; },
+    });
+    vm.runInContext(grab("function streamDowngrade(why, detail) {", "\n}\n") +
+      "streamDowngrade(" + JSON.stringify(why) + ", " + JSON.stringify(detail || "") + ");", ctx);
+    return { off: out.off, opened: out.opened, step: ctx.vidStep, ceil: ctx.vidCeil,
+             bad: Array.from(ctx.vidBad).join(), note: ctx.vidNote };
+  };
+
+  let r = run("av01.0.08M.08", [], ALL, 0, "dropping frames");
+  ok("a strained av1 is struck and hevc asked for at the same pace",
+     r.bad === "av1" && r.step === 0 && r.opened === 1 && r.off === null, JSON.stringify(r));
+
+  r = run("avc1.64002a", [], [false, false, true], 0, "dropping frames");
+  ok("h264 alone is paced down rather than losing Stream for the session",
+     r.off === null && r.step === 1 && r.opened === 1 && r.bad === "", JSON.stringify(r));
+  ok("the note says what it came back at", /30 fps/.test(r.note), r.note);
+
+  r = run("avc1.64002a", ["av1", "hevc"], ALL, 1, "decoding too slowly");
+  ok("the last codec keeps stepping down while there are steps left",
+     r.off === null && r.step === 2 && r.opened === 1, JSON.stringify(r));
+
+  r = run("avc1.64002a", ["av1", "hevc"], ALL, 2, "dropping frames");
+  ok("the bottom step is where it finally gives up",
+     r.off === "dropping frames" && r.opened === 0 && r.step === 2, JSON.stringify(r));
+
+  r = run("avc1.64002a", [], [false, false, true], 0, "decoder error", "Unsupported codec");
+  ok("a decoder that errored outright is reported, not paced",
+     r.off === "Unsupported codec" && r.opened === 0 && r.step === 0, JSON.stringify(r));
+
+  r = run("", [], ALL, 0, "dropping frames");
+  ok("strain with no codec named at all gives up",
+     r.off === "dropping frames" && r.opened === 0, JSON.stringify(r));
+
+  // The strike rule: a hard scene arriving half a minute in is the picture
+  // getting harder, not the wrong codec.
+  r = run("av01.0.08M.08", [], ALL, 0, "dropping frames", "", { age: STRIKE_MS + 10000 });
+  ok("a codec that has been decoding for a while is paced, not struck",
+     r.bad === "" && r.step === 1 && r.opened === 1, JSON.stringify(r));
+  r = run("av01.0.08M.08", [], ALL, 0, "dropping frames", "", { age: 5000 });
+  ok("a codec that strains in its first seconds is still struck",
+     r.bad === "av1" && r.step === 0, JSON.stringify(r));
+  r = run("av01.0.08M.08", [], ALL, 0, "decoder error", "Unsupported", { age: STRIKE_MS + 10000 });
+  ok("a decoder error is a codec verdict however long it ran",
+     r.bad === "av1" && r.opened === 1 && r.off === null, JSON.stringify(r));
+  ok("half a minute is the line, and the same one on both sides",
+     STRIKE_MS === 30000 && STEP_UP_MS === 30000);
+
+  // Probation: a step that strains again right after being asked back for is
+  // one this session cannot hold.
+  r = run("avc1.64002a", ["av1", "hevc"], ALL, 0, "dropping frames", "", { up: 5000 });
+  ok("straining on probation puts the step just left out of reach",
+     r.step === 1 && r.ceil === 1, JSON.stringify(r));
+  r = run("avc1.64002a", ["av1", "hevc"], ALL, 0, "dropping frames", "", { up: PROBATION_MS + 1000 });
+  ok("a step that held for a full probation is not held against it",
+     r.step === 1 && r.ceil === 0, JSON.stringify(r));
+  r = run("avc1.64002a", ["av1", "hevc"], ALL, 0, "dropping frames");
+  ok("a step down that follows no climb at all leaves the ceiling alone",
+     r.step === 1 && r.ceil === 0, JSON.stringify(r));
+}
+
+// Climbing back up, one step and one encoder restart at a time.
+{
+  const out = { opened: 0, line: "" };
+  const NOW = 1000000;
+  const ctx = vm.createContext({
+    STREAM_STEPS, out, performance: { now: () => NOW },
+    vidStep: 2, vidUp: 0, vidNote: "",
+    state(_, line) { out.line = line; },
+    openVideo() { out.opened++; },
+  });
+  vm.runInContext(grab("function streamRecover() {", "\n}\n") + "streamRecover();", ctx);
+  ok("a calm stretch buys one step back, not the whole ladder",
+     ctx.vidStep === 1 && out.opened === 1);
+  ok("the climb starts a probation", ctx.vidUp === NOW);
+  ok("the state line names the pace it went back to", /30 fps/.test(out.line), out.line);
+}
+
 // Exercise the real decoder lifecycle with synthetic frames and a fake clock.
 // A config is not a picture, and callbacks from a replaced decoder are stale.
 {
   const timers = new Map();
   const instances = [];
-  let nextTimer = 0, saved = 0, painted = 0, downgraded = "";
+  let nextTimer = 0, saved = 0, painted = 0, downgraded = "", refuseHw = false;
   const ctx = vm.createContext({
     setTimeout(fn) { timers.set(++nextTimer, fn); return nextTimer; },
     clearTimeout(id) { timers.delete(id); },
     performance: { now: () => 100 },
     localStorage: { setItem() { saved++; } },
     VideoDecoder: class {
-      constructor(callbacks) { this.callbacks = callbacks; instances.push(this); }
-      configure() { this.state = "configured"; }
+      constructor(callbacks) { this.callbacks = callbacks; instances.push(this); this.configs = []; }
+      configure(c) {
+        this.configs.push(c);
+        // Stands in for a browser that treats prefer-hardware as a requirement
+        // and refuses the configure rather than falling back on its own.
+        if (refuseHw && c.hardwareAcceleration === "prefer-hardware") throw new Error("no hw");
+        this.state = "configured";
+      }
       close() { this.state = "closed"; }
     },
     vidCanvas: () => ({ width: 100, height: 100, getContext: () => ({ drawImage() { painted++; } }) }),
@@ -222,10 +351,11 @@ ok("either verdict fits the state line", ["dropping frames", "decoding too slowl
   });
   vm.runInContext(`let decoder = null, vidTimer = 0, vidReady = false;
     let vidFrames = 0, vidDelivered = 0, vidDrops = [], vidSlowSince = 0;
-    let vidSince = 0, vidWaitKey = true, vidHz = 0, vidEncoder = '', vidCodec = '', vidNote = '';
-    let streamWant = 30, vidSock = null;
+    let vidSince = 0, vidCalm = 0, vidCodecSince = 0, vidWaitKey = true, vidHz = 0, vidEncoder = '', vidCodec = '', vidNote = '';
+    let streamWant = 30, vidSock = null, vidSoft = false;
     const rfb = { pixels: true };`, ctx);
-  vm.runInContext(grab("function configureVideo(cfg) {", "\n}\n") +
+  vm.runInContext(grab("function videoConfig(codec) {", "\n}\n") +
+    grab("function configureVideo(cfg) {", "\n}\n") +
     grab("function closeVideo() {", "\n}\n"), ctx);
   const configure = () => vm.runInContext('configureVideo({ codec: "avc1.64002a", fps: 60 })', ctx);
   configure();
@@ -245,6 +375,22 @@ ok("either verdict fits the state line", ["dropping frames", "decoding too slowl
   ok("stale decoder frames are closed without painting", painted === 2 && closed === 3);
   [...timers.values()][0]();
   ok("a decoder producing no pictures triggers fallback", downgraded === "not producing frames");
+
+  // A browser that refuses the hardware preference gets asked again without
+  // it, in the same decoder, rather than being called a decoder error.
+  refuseHw = true;
+  const was = instances.length;
+  configure();
+  const d = instances[instances.length - 1];
+  ok("a refused hardware preference is asked again without one",
+    instances.length === was + 1 && d.configs.length === 2 &&
+    d.configs[0].hardwareAcceleration === "prefer-hardware" &&
+    d.configs[1].hardwareAcceleration === "no-preference" && d.state === "configured",
+    JSON.stringify(d.configs.map((c) => c.hardwareAcceleration)));
+  ok("and the page stops asking for hardware for the rest of the session",
+    vm.runInContext("vidSoft", ctx) === true);
+  ok("nothing was downgraded over it", downgraded === "not producing frames");
+  refuseHw = false;
   vm.runInContext("closeVideo()", ctx);
   ok("closing cancels the first-picture timeout", timers.size === 0);
 }

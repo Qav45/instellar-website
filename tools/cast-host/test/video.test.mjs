@@ -430,15 +430,23 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
   ok("after the replay both viewers see the same AUs in order", tailA === tailB);
 
   // Backpressure: a viewer a megabyte behind gets nothing until the next
-  // keyframe, and then resumes on that keyframe.
+  // keyframe, and then resumes on that keyframe. The limit has to stay clear
+  // of a single keyframe: one that trips on its own starves the viewer to a
+  // picture per GOP.
   b.backlog = 2 * 1024 * 1024;
-  const before = b.aus.length;
+  let before = b.aus.length;
   await sleep(1100);
   ok("viewer over the backlog limit receives no AUs", b.aus.length === before);
   b.backlog = 0;
   await until(() => b.aus.length > before, 1500);
   ok("viewer resumes on a keyframe once its backlog drains",
     b.aus.length > before && (b.aus[before].flags & 1) === 1);
+  b.backlog = 300 * 1024;
+  before = b.aus.length;
+  await until(() => b.aus.length > before, 1500);
+  ok("a backlog bigger than a keyframe but inside the limit still delivers",
+    b.aus.length > before, b.aus.length - before + " AUs");
+  b.backlog = 0;
   ok("the other viewer never dropped", a.aus.every((x, i) => i === 0 || x.ts >= a.aus[i - 1].ts) && a.aus.length > 60);
 
   // Idle stop: the encoder outlives a quick reconnect but not 3 s of nobody.

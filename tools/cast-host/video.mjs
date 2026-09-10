@@ -605,6 +605,14 @@ export function createVideoSource(opts) {
   // fallen a megabyte behind is skipped until the next keyframe rather than
   // buffered without limit: a delta whose predecessors were dropped would only
   // corrupt the picture, and a keyframe puts it right again.
+  //
+  // The limit is a size and not a duration, though queued bytes are input
+  // delay and a megabyte is most of a second of them. A duration was tried and
+  // reverted: a tenth of a second at these bitrates is smaller than one
+  // keyframe, so queueing a keyframe put the socket over the limit by itself,
+  // every delta behind it was skipped, and the viewer got one picture per GOP.
+  // Anything tighter than this has to measure itself against the keyframe, not
+  // against the average frame.
   const deliver = (e, au) => {
     if (e.sink.buffered() > BACKLOG_LIMIT) {
       e.waitKey = true;
@@ -721,9 +729,9 @@ export function createVideoSource(opts) {
       // Joining a running stream: the config and the cached GOP let the
       // decoder start on the keyframe it needs instead of waiting for the
       // next one. A five-second GOP at the top bitrate is several megabytes,
-      // and a replay past the backlog limit would only be skipped by deliver
-      // part way through, leaving the viewer on a half GOP; that viewer waits
-      // for the next keyframe instead, as it would with no cache at all.
+      // and a replay that big would only be skipped by deliver part way
+      // through, leaving the viewer on a half GOP; that viewer waits for the
+      // next keyframe instead, as it would with no cache at all.
       if (config) {
         sink.config(config);
         if (gopBytes <= BACKLOG_LIMIT) for (const au of gop) deliver(entry, au);

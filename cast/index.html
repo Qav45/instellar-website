@@ -485,8 +485,16 @@ function tick() {
   if (decoder && vidReady) {
     if (streamSlow(vidIn, vidFps)) { if (!vidSlowSince) vidSlowSince = now; }
     else vidSlowSince = 0;
+    // Aged out here as well as where they are recorded: with the drops stopped
+    // nothing else touches the list, and a stale entry would read as a rough
+    // second for ever and no pace would ever be asked back for.
+    vidDrops = vidDrops.filter((t) => now - t <= STRAIN_DROP_MS);
     const why = streamStrain(vidDrops, now, vidSlowSince ? now - vidSlowSince : 0);
+    // Anything short of a verdict still counts as a rough second, and the calm
+    // that earns the pace back has to be an unbroken one.
+    if (vidSlowSince || vidDrops.length) vidCalm = now;
     if (why) streamDowngrade(why);
+    else if (vidStep > vidCeil && now - vidCalm >= STEP_UP_MS) streamRecover();
   }
   const want = decoder ? vidHz : metrics.streamHz;
   const fps = decoder ? vidFps : metrics.fps;
@@ -1203,6 +1211,9 @@ function connect() {
   closeVideo();
   hostVideo = true;
   vidTried = false;
+  vidStep = vidCeil = 0;
+  vidUp = vidCodecSince = 0;
+  vidSoft = false;
 
   // Building the socket here rather than handing RFB a URL is what makes the link
   // readout possible: noVNC replaces the onmessage property, but a listener added
@@ -1711,6 +1722,14 @@ const STRAIN_DROP_MS = 10000;
 const STRAIN_RATIO = 0.85;     // decoded under this share of what arrives, for STRAIN_SLOW_MS
 const STRAIN_SLOW_MS = 2000;
 const STRAIN_GRACE_MS = 1000;  // a fresh decoder's first second is the GOP replay, not strain
+// What to ask the host for, most demanding first. A viewer that keeps up with
+// no codec at all does not have a codec problem: it has more frames and more
+// bytes arriving than it or its link can carry. `mbps` is a share of what the
+// Video toggle would have asked for.
+const STREAM_STEPS = [{ fps: 60, mbps: 1 }, { fps: 30, mbps: 0.5 }, { fps: 20, mbps: 0.25 }];
+const STEP_UP_MS = 30000;      // this long without strain and the pace is asked for back
+const PROBATION_MS = 60000;    // strain this soon after a step up puts that step out of reach
+const STRIKE_MS = 30000;       // a codec that ran this long before straining is not the problem
 let stream = false;      // the toggle, as the person left it
 let hostVideo = true;    // false once /ctl said this host has no video route
 let vidSock = null;
@@ -1728,6 +1747,12 @@ let vidDrops = [];       // when the lag control last fired, newest last
 let vidSlowSince = 0;    // when decoded output first fell short of the arrivals
 let vidSince = 0;        // when the current decoder was configured
 let vidNote = "";        // what the state line says about the last downgrade
+let vidStep = 0;         // how far down STREAM_STEPS this session has had to go
+let vidCeil = 0;         // the most demanding step still worth trying this session
+let vidCalm = 0;         // when the current step last saw strain, or started
+let vidUp = 0;           // when the pace was last asked for back
+let vidCodecSince = 0;   // when the current codec family started decoding here
+let vidSoft = false;     // the hardware preference was refused here; stop asking for it
 
 // Which codecs this browser decodes in hardware, in the order worth having
 // them: bytes are what the tunnel is short of, and AV1 buys the most picture
@@ -1780,6 +1805,15 @@ function streamStrain(drops, now, slowMs) {
   if (recent.length >= STRAIN_DROPS) return "dropping frames";
   if (slowMs >= STRAIN_SLOW_MS) return "decoding too slowly";
   return "";
+}
+
+// The codec to fall to when `from` stops working: the best of what the probe
+// found that this session has not already given up on. Empty when there is
+// none - unlike streamCodecs, which has to name something for the URL whether
+// or not anything is left.
+function streamNext(supported, bad, from) {
+  return STREAM_CODECS.filter((c, i) => supported[i]).map((c) => c[0])
+    .filter((c) => c !== from && !bad.includes(c))[0] || "";
 }
 
 // The list to ask the host for now, from the probe, the session's bad list
@@ -1868,7 +1902,9 @@ function openVideo() {
   // Video mode is a picture that is all motion, so it gets the bytes. The
   // display is the share dropdown's own vocabulary; the bridge whitelists it
   // and the codec list too.
-  const url = endpoint.replace("/ws?", "/video?") + "&fps=60&mbps=" + (video ? 12 : 8) +
+  const step = STREAM_STEPS[vidStep];
+  const url = endpoint.replace("/ws?", "/video?") + "&fps=" + step.fps +
+              "&mbps=" + Math.round((video ? 12 : 8) * step.mbps * 10) / 10 +
               "&display=" + encodeURIComponent($("share").value) + "&codecs=" + vidCodecs;
   let sock;
   try {
@@ -1899,12 +1935,14 @@ function openVideo() {
     if (!f) return;
     vidDelivered++;
     const g = streamGate(vidWaitKey, f.key, decoder.decodeQueueSize);
-    // The gate closing on an open stream is the lag control firing. The first
-    // second after a configure is the cached GOP arriving in one burst, which
-    // fills the queue whatever the decoder, so that closing is not counted.
-    if (g.waitKey && !vidWaitKey && performance.now() - vidSince > STRAIN_GRACE_MS) {
+    // The gate closing on an open stream is the lag control firing. Nothing
+    // before the first picture counts, and neither does the first second after
+    // a configure: that is the cached GOP arriving in one burst, which fills
+    // the queue whatever the decoder is.
+    if (g.waitKey && !vidWaitKey && vidReady && performance.now() - vidSince > STRAIN_GRACE_MS) {
       const now = performance.now();
       vidDrops = vidDrops.filter((t) => now - t <= STRAIN_DROP_MS).concat(now);
+      vidCalm = now;
       const why = streamStrain(vidDrops, now, 0);
       if (why) { streamDowngrade(why); return; }
     }
@@ -1920,6 +1958,15 @@ function openVideo() {
   sock.addEventListener("close", (e) => {
     if (mine()) streamOff("close", e.code, e.reason);
   });
+}
+
+// What the decoder is asked for. Hardware is worth preferring: it is the
+// difference between a laptop fan and a quiet one, and on a weak machine
+// between a picture and a slideshow. It is only a preference until a browser
+// treats it as a requirement, which is what vidSoft records.
+function videoConfig(codec) {
+  return { codec, optimizeForLatency: true,
+           hardwareAcceleration: vidSoft ? "no-preference" : "prefer-hardware" };
 }
 
 // A config message is the encoder starting - or restarting with new settings,
@@ -1956,18 +2003,49 @@ function configureVideo(cfg) {
         c.getContext("2d").drawImage(frame, 0, 0, c.width, c.height);
       } } finally { frame.close(); }
     },
-    error: (e) => { if (decoder === d) streamDowngrade("decoder error", String(e.message || e)); },
+    // An error that arrives later says the same thing as a refused configure,
+    // just after the fact: the same one more go, then the usual verdict.
+    error: (e) => {
+      if (decoder !== d) return;
+      if (!vidSoft) {
+        vidSoft = true;
+        state("live", "Stream: retrying the decoder without the hardware preference");
+        openVideo();
+        return;
+      }
+      streamDowngrade("decoder error", String(e.message || e));
+    },
   });
+  // prefer-hardware is a preference everywhere except where it is not. A
+  // Chromebook whose decoder cannot take 1080p60 in hardware refuses the
+  // configure outright rather than quietly picking software, and the page then
+  // reported a decoder error for a stream the same machine can decode a step
+  // or two down the ladder. Asked again without the preference, the browser
+  // chooses for itself, and anything too slow is what the pacing is for.
   try {
-    d.configure({ codec: cfg.codec, optimizeForLatency: true,
-                  hardwareAcceleration: "prefer-hardware" });
+    d.configure(videoConfig(cfg.codec));
   } catch (e) {
-    try { d.close(); } catch (_) {}
-    vidCodec = cfg.codec || "";
-    streamDowngrade("decoder error", String(e.message || e));
-    return;
+    if (!vidSoft) {
+      vidSoft = true;
+      try {
+        d.configure(videoConfig(cfg.codec));
+      } catch (e2) {
+        try { d.close(); } catch (_) {}
+        vidCodec = cfg.codec || "";
+        streamDowngrade("decoder error", String(e2.message || e2));
+        return;
+      }
+    } else {
+      try { d.close(); } catch (_) {}
+      vidCodec = cfg.codec || "";
+      streamDowngrade("decoder error", String(e.message || e));
+      return;
+    }
   }
   decoder = d;
+  // How long this codec has been decoding here, which the strike rule reads.
+  // Steps down and back up reconfigure the same codec and must not reset it.
+  if (streamFamily(cfg.codec || "") !== streamFamily(vidCodec)) vidCodecSince = performance.now();
   vidWaitKey = true;
   vidHz = cfg.fps || 0;
   vidEncoder = cfg.encoder || "";
@@ -1975,25 +2053,62 @@ function configureVideo(cfg) {
   vidFrames = vidDelivered = 0;
   vidDrops = [];
   vidSlowSince = 0;
-  vidSince = performance.now();
+  vidSince = vidCalm = performance.now();
 }
 
 // The codec is not keeping up here, or will not decode at all: strike it for
 // the session and ask the host again with the rest of the list, so a
 // Chromebook that decodes AV1 in software is on HEVC within seconds rather
 // than the tens the retry-and-hope path took. The host restarts its encoder
-// for the new list. With nothing left to fall to, this is the old failure.
+// for the new list.
+//
+// With no codec left to fall to, a codec that decodes but cannot keep up is
+// asked for fewer frames and fewer bytes rather than abandoned: the pace is
+// what it cannot carry, not the format, and a browser that only decodes H.264
+// used to lose Stream for the session on the first two dropped frames. A
+// codec that errored outright - `detail` is the decoder's own words - is past
+// being paced, and so are a codec with no name to it and the bottom step of
+// the ladder. Those are the old failure.
 function streamDowngrade(why, detail) {
   const from = streamFamily(vidCodec);
-  if (from) vidBad.add(from);
-  chooseCodecs();
-  const to = vidCodecs.split(",")[0];
-  if (!from || vidBad.has(to)) {
+  // A codec that decoded this scene for half a minute and then fell behind is
+  // not the wrong codec: the picture got harder. Subnautica underwater is the
+  // case that made this rule - caustics and particles at sixty frames are more
+  // decoding than a menu screen, and striking a codec per hard scene walked
+  // through the whole list without ever addressing the pace. A decoder that
+  // errored outright is still a codec verdict however long it ran.
+  const settled = !detail && vidCodecSince && performance.now() - vidCodecSince > STRIKE_MS;
+  const to = from && !settled ? streamNext(vidSupported || [], Array.from(vidBad), from) : "";
+  if (to) {
+    vidBad.add(from);
+    chooseCodecs();
+    vidNote = " after " + from + " was " + why;
+    state("live", "Stream: " + from + " " + why + ", switching to " + to);
+    openVideo();
+    return;
+  }
+  if (!from || detail || vidStep + 1 >= STREAM_STEPS.length) {
     streamOff("decode", 0, detail || why);
     return;
   }
-  vidNote = " after " + from + " was " + why;
-  state("live", "Stream: " + from + " " + why + ", switching to " + to);
+  // A step that strained again this soon after being asked for back is one
+  // this session cannot hold; stop climbing to it.
+  if (vidUp && performance.now() - vidUp < PROBATION_MS) vidCeil = vidStep + 1;
+  vidStep++;
+  vidNote = " at " + STREAM_STEPS[vidStep].fps + " fps after " + why;
+  state("live", "Stream: " + why + ", retrying at " + STREAM_STEPS[vidStep].fps + " fps");
+  openVideo();
+}
+
+// The scene calmed down. A step is asked for back rather than kept for the
+// session, or one hard minute in a game would leave the rest of it at twenty
+// frames. Climbing costs an encoder restart, so it is one step at a time, and
+// a step that fails on probation is not tried again.
+function streamRecover() {
+  vidStep--;
+  vidUp = performance.now();
+  vidNote = " at " + STREAM_STEPS[vidStep].fps + " fps";
+  state("live", "Stream: steady, back to " + STREAM_STEPS[vidStep].fps + " fps");
   openVideo();
 }
 
@@ -2041,7 +2156,7 @@ $("stream").addEventListener("click", () => {
   stream = !stream;
   try { localStorage.setItem(STREAM_KEY, stream ? "1" : "0"); } catch (_) {}
   reflectStream();
-  if (stream) { vidTried = false; openVideo(); }
+  if (stream) { vidTried = false; vidStep = vidCeil = 0; vidUp = 0; openVideo(); }
   else streamOff("");
   refocus();
 });
