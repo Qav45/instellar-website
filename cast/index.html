@@ -2004,43 +2004,27 @@ function configureVideo(cfg) {
       } } finally { frame.close(); }
     },
     // An error that arrives later says the same thing as a refused configure,
-    // just after the fact: the same one more go, then the usual verdict.
-    error: (e) => {
-      if (decoder !== d) return;
-      if (!vidSoft) {
-        vidSoft = true;
-        state("live", "Stream: retrying the decoder without the hardware preference");
-        openVideo();
-        return;
-      }
-      streamDowngrade("decoder error", String(e.message || e));
-    },
+    // just after the fact, and gets the same walk down.
+    error: (e) => { if (decoder === d) streamRefused(String(e.message || e)); },
   });
   // prefer-hardware is a preference everywhere except where it is not. A
-  // Chromebook whose decoder cannot take 1080p60 in hardware refuses the
-  // configure outright rather than quietly picking software, and the page then
-  // reported a decoder error for a stream the same machine can decode a step
-  // or two down the ladder. Asked again without the preference, the browser
-  // chooses for itself, and anything too slow is what the pacing is for.
+  // Chromebook whose decoder cannot take 1080p60 refuses the configure
+  // outright rather than quietly picking software.
+  //
+  // Which is a pace problem before it is a hardware one: 1080p60 in H.264
+  // needs level 4.2, several rungs above what a lot of built-in decoders
+  // carry, and the same decoder takes 1080p30 without complaint. So a refusal
+  // walks down the ladder first, asking for hardware each time. Software is
+  // the answer only at the bottom, because software 1080p60 on a machine like
+  // that is a queue that never empties and every frame arriving late - worse
+  // to use than the smaller picture it refused.
   try {
     d.configure(videoConfig(cfg.codec));
   } catch (e) {
-    if (!vidSoft) {
-      vidSoft = true;
-      try {
-        d.configure(videoConfig(cfg.codec));
-      } catch (e2) {
-        try { d.close(); } catch (_) {}
-        vidCodec = cfg.codec || "";
-        streamDowngrade("decoder error", String(e2.message || e2));
-        return;
-      }
-    } else {
-      try { d.close(); } catch (_) {}
-      vidCodec = cfg.codec || "";
-      streamDowngrade("decoder error", String(e.message || e));
-      return;
-    }
+    try { d.close(); } catch (_) {}
+    vidCodec = cfg.codec || "";
+    streamRefused(String(e.message || e));
+    return;
   }
   decoder = d;
   // How long this codec has been decoding here, which the strike rule reads.
@@ -2091,13 +2075,35 @@ function streamDowngrade(why, detail) {
     streamOff("decode", 0, detail || why);
     return;
   }
+  streamPace(why);
+}
+
+// One step down the ladder and round again. The hardware preference comes back
+// with it: a decoder that would not take the last pace may well take this one,
+// and that is the whole reason to step rather than reach for software.
+function streamPace(why) {
   // A step that strained again this soon after being asked for back is one
   // this session cannot hold; stop climbing to it.
   if (vidUp && performance.now() - vidUp < PROBATION_MS) vidCeil = vidStep + 1;
   vidStep++;
+  vidSoft = false;
   vidNote = " at " + STREAM_STEPS[vidStep].fps + " fps after " + why;
   state("live", "Stream: " + why + ", retrying at " + STREAM_STEPS[vidStep].fps + " fps");
   openVideo();
+}
+
+// The decoder would not take this stream, either at configure time or a moment
+// later. Try an easier one before trying a slower way of decoding this one,
+// and only call it an error when both are spent.
+function streamRefused(detail) {
+  if (vidStep + 1 < STREAM_STEPS.length) { streamPace("the decoder refused it"); return; }
+  if (!vidSoft) {
+    vidSoft = true;
+    state("live", "Stream: retrying without the hardware preference");
+    openVideo();
+    return;
+  }
+  streamDowngrade("decoder error", detail);
 }
 
 // The scene calmed down. A step is asked for back rather than kept for the

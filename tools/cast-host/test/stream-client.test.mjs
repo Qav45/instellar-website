@@ -242,12 +242,13 @@ ok("the bottom step still clears the host's floor of one frame and one megabit",
       performance: { now: () => NOW },
       vidCodec: codec, vidBad: new Set(bad), vidSupported: supported, vidStep: step,
       vidCeil: ceil, vidCodecSince: age ? NOW - age : 0, vidUp: up ? NOW - up : 0,
-      vidCodecs: "", vidNote: "",
+      vidCodecs: "", vidNote: "", vidSoft: false,
       chooseCodecs() {}, state() {},
       openVideo() { out.opened++; },
       streamOff(w, code, reason) { out.off = reason; },
     });
-    vm.runInContext(grab("function streamDowngrade(why, detail) {", "\n}\n") +
+    vm.runInContext(grab("function streamPace(why) {", "\n}\n") +
+      grab("function streamDowngrade(why, detail) {", "\n}\n") +
       "streamDowngrade(" + JSON.stringify(why) + ", " + JSON.stringify(detail || "") + ");", ctx);
     return { off: out.off, opened: out.opened, step: ctx.vidStep, ceil: ctx.vidCeil,
              bad: Array.from(ctx.vidBad).join(), note: ctx.vidNote };
@@ -327,7 +328,7 @@ ok("the bottom step still clears the host's floor of one frame and one megabit",
 {
   const timers = new Map();
   const instances = [];
-  let nextTimer = 0, saved = 0, painted = 0, downgraded = "", refuseHw = false;
+  let nextTimer = 0, saved = 0, painted = 0, downgraded = "", refuseHw = false, opened = 0;
   const ctx = vm.createContext({
     setTimeout(fn) { timers.set(++nextTimer, fn); return nextTimer; },
     clearTimeout(id) { timers.delete(id); },
@@ -347,14 +348,19 @@ ok("the bottom step still clears the host's floor of one frame and one megabit",
     vidCanvas: () => ({ width: 100, height: 100, getContext: () => ({ drawImage() { painted++; } }) }),
     $: () => ({}), pushStream() {}, state() {}, setRate() {}, ceilHz: () => 30,
     streamDowngrade(why) { downgraded = why; },
+    openVideo() { opened++; },
+    STREAM_STEPS, PROBATION_MS,
     streamFamily, CODEC_KEY: "cast.codec",
   });
   vm.runInContext(`let decoder = null, vidTimer = 0, vidReady = false;
     let vidFrames = 0, vidDelivered = 0, vidDrops = [], vidSlowSince = 0;
     let vidSince = 0, vidCalm = 0, vidCodecSince = 0, vidWaitKey = true, vidHz = 0, vidEncoder = '', vidCodec = '', vidNote = '';
     let streamWant = 30, vidSock = null, vidSoft = false;
+    let vidStep = 0, vidCeil = 0, vidUp = 0;
     const rfb = { pixels: true };`, ctx);
   vm.runInContext(grab("function videoConfig(codec) {", "\n}\n") +
+    grab("function streamPace(why) {", "\n}\n") +
+    grab("function streamRefused(detail) {", "\n}\n") +
     grab("function configureVideo(cfg) {", "\n}\n") +
     grab("function closeVideo() {", "\n}\n"), ctx);
   const configure = () => vm.runInContext('configureVideo({ codec: "avc1.64002a", fps: 60 })', ctx);
@@ -376,21 +382,31 @@ ok("the bottom step still clears the host's floor of one frame and one megabit",
   [...timers.values()][0]();
   ok("a decoder producing no pictures triggers fallback", downgraded === "not producing frames");
 
-  // A browser that refuses the hardware preference gets asked again without
-  // it, in the same decoder, rather than being called a decoder error.
+  // A browser that refuses the hardware preference is offered an easier
+  // stream before it is offered a slower decoder. Software 1080p60 on a
+  // machine that just refused 1080p60 is the worst of the options.
   refuseHw = true;
-  const was = instances.length;
+  opened = 0;
   configure();
+  ok("a refused configure asks for a slower pace, still in hardware",
+    vm.runInContext("vidStep", ctx) === 1 && vm.runInContext("vidSoft", ctx) === false &&
+    opened === 1, "step " + vm.runInContext("vidStep", ctx));
+  configure();
+  ok("and again at the next step down", vm.runInContext("vidStep", ctx) === 2 && opened === 2);
+  configure();
+  ok("only at the bottom of the ladder does it drop the hardware preference",
+    vm.runInContext("vidSoft", ctx) === true && vm.runInContext("vidStep", ctx) === 2 && opened === 3);
   const d = instances[instances.length - 1];
-  ok("a refused hardware preference is asked again without one",
-    instances.length === was + 1 && d.configs.length === 2 &&
-    d.configs[0].hardwareAcceleration === "prefer-hardware" &&
-    d.configs[1].hardwareAcceleration === "no-preference" && d.state === "configured",
-    JSON.stringify(d.configs.map((c) => c.hardwareAcceleration)));
-  ok("and the page stops asking for hardware for the rest of the session",
-    vm.runInContext("vidSoft", ctx) === true);
-  ok("nothing was downgraded over it", downgraded === "not producing frames");
+  ok("every attempt on the way down asked for hardware",
+    d.configs.length === 1 && d.configs[0].hardwareAcceleration === "prefer-hardware");
+  ok("nothing was called a decoder error while options remained",
+    downgraded === "not producing frames");
+  configure();
+  const soft = instances[instances.length - 1];
+  ok("the retry without the preference is the one that configures",
+    soft.configs[0].hardwareAcceleration === "no-preference" && soft.state === "configured");
   refuseHw = false;
+  vm.runInContext("vidStep = 0; vidSoft = false;", ctx);
   vm.runInContext("closeVideo()", ctx);
   ok("closing cancels the first-picture timeout", timers.size === 0);
 }

@@ -516,6 +516,7 @@ const ENCODERS = {
 export const codecOf = (encoder) => encoder === "libx264" ? "h264" : encoder.split("_")[0];
 const BACKLOG_LIMIT = 1024 * 1024;   // bytes queued on a viewer before it is skipped
 const GOP_SECONDS = 1;               // recover dropped frames within one second
+const AVERAGE_SHARE = 0.4;           // what NVENC aims to average, as a share of the ceiling
 const IDLE_MS = 3000;                // keep the encoder warm this long after the last viewer
 const STARTUP_MS = 2000;             // an exit sooner than this means "cannot start"
 const CRASH_WINDOW_MS = 10000;       // a second death this soon after a restart is final
@@ -526,7 +527,7 @@ const CRASH_WINDOW_MS = 10000;       // a second death this soon after a restart
 // QSV. NVENC repeats the parameter sets (or the AV1 sequence header) on every
 // IDR when no global header is asked for; the parsers put them back for any
 // encoder that does not. The raw muxer is the codec's own: h264, hevc, obu.
-function ffmpegArgs(encoder, s) {
+export function ffmpegArgs(encoder, s) {
   const idx = s.display === "primary" || s.display === "full" ? 0 : Number(s.display) - 1;
   // No cursor in the capture: the page keeps the browser's own pointer over
   // the canvas, which has no lag at all, and a captured one arrives a frame or
@@ -540,11 +541,29 @@ function ffmpegArgs(encoder, s) {
   // large keyframes to sharply lower quality, causing periodic quality pulses.
   // This is an encoder rate-control budget, not a playback buffer; frames are
   // still emitted immediately, without B-frames or decoder-side buffering.
-  const rate = ["-b:v", s.mbps + "M", "-maxrate", s.mbps + "M",
-    "-bufsize", Math.round(s.mbps * 250) + "k", "-g", String(s.fps * GOP_SECONDS), "-bf", "0"];
   const vendor = encoder.split("_")[1] || encoder;
+  // Constant bitrate spends the whole budget whatever is on screen, and a
+  // screen is mostly still: a menu, a paused game, a page of text all cost the
+  // full eight megabits in padding. NVENC's variable mode spends what the
+  // picture needs and keeps the same ceiling for the frames that need it, so
+  // nothing about a moving picture changes and the quiet stretches cost a
+  // fraction. The average below is an aim, not a cap. Motion still climbs to
+  // -maxrate, which is the number the viewer asked for.
+  //
+  // The other vendors keep constant bitrate: their low-latency modes are built
+  // around it, and this host encodes with NVENC.
+  const vbr = vendor === "nvenc";
+  const avg = vbr ? Math.max(1, Math.round(s.mbps * AVERAGE_SHARE * 10) / 10) : s.mbps;
+  const rate = ["-b:v", avg + "M", "-maxrate", s.mbps + "M",
+    "-bufsize", Math.round(s.mbps * 250) + "k", "-g", String(s.fps * GOP_SECONDS), "-bf", "0"];
+  // p4 over p1, and low latency over ultra low: p1 is the fastest preset there
+  // is and it shows in the bitrate, spending bits where a slightly less hurried
+  // search would not have needed them. On a card that encodes 1080p60 in a
+  // couple of milliseconds either way, the picture is the same and the file is
+  // smaller. Spatial AQ moves bits from flat regions to detailed ones, which
+  // is most of what a desktop is.
   const tune = {
-    nvenc: ["-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-rc", "cbr"],
+    nvenc: ["-preset", "p4", "-tune", "ll", "-zerolatency", "1", "-rc", "vbr", "-spatial-aq", "1"],
     amf: ["-usage", "ultralowlatency", "-rc", "cbr"],
     qsv: ["-preset", "veryfast", "-look_ahead", "0"],
     libx264: ["-preset", "ultrafast", "-tune", "zerolatency", "-x264-params", "repeat-headers=1"],
