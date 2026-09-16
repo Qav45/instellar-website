@@ -15451,23 +15451,24 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
     // cursor position this object keeps, rather than reading clientX/clientY,
     // which under pointer lock are frozen where the lock was taken.
     //
-    // That position is anchored, not free-running. A game that has grabbed the
-    // mouse - Minecraft, and every other one - warps the host cursor back to the
-    // middle of its window once a frame and measures the next move from there.
-    // A free-running position drifts away from that middle, so every frame the
-    // game reads the drift as one more flick of the wrist: the camera spins off
-    // on its own, and once the position has pinned itself against the edge of
-    // the screen the drift is all that is left and turning stops.
+    // That position free-runs, and it has to. A game that has grabbed the mouse
+    // - Minecraft, which is GLFW with the cursor disabled, and every other one
+    // - clips the cursor to its window, centres it once when the grab is taken,
+    // and from then on reads each movement as the difference between where the
+    // cursor is now and where it last saw it. With raw input on it does not read
+    // the position at all, only the relative deltas a host-side SetCursorPos
+    // generates, which are those same differences. Nothing on that end warps the
+    // cursor back to the middle on a timer.
     //
-    // So each position actually sent is the centre of the screen plus whatever
-    // movement has arrived since the last one, and _relPos returns to the centre
-    // the moment it is sent (see _sendMouse). The game's warp and ours agree,
-    // the delta it reads is the movement that happened, and there is no edge to
-    // run into - a single frame's worth of movement is never half a screen.
+    // So the only sequence of absolute positions that reaches such a game as the
+    // movement the user made is one whose consecutive differences are that
+    // movement: the last position plus what has arrived since. Re-anchoring
+    // between sends instead hands the game the difference between successive
+    // flicks, which changes sign whenever the hand changes speed - the camera
+    // spins off on its own and a steady drag can read as a turn the other way.
     //
-    // It assumes the thing on the other end is warping. A grabbed game is; a
-    // desktop is not, and on one of those the pointer will sit in the middle
-    // twitching. That is what the grab button is for - it is a game mode.
+    // What free-running cannot do is go on for ever; see _pointerPos for what
+    // happens at the edge of the framebuffer, which is the one cost left.
     key: "relativePointer",
     get: function get() {
       return this._relativePointer;
@@ -16363,19 +16364,27 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
   }, {
     // LOCAL CHANGE (instellar /cast): where an event puts the remote cursor.
     // Absolute normally; in relative mode the event's movement is added to the
-    // position this object is keeping, which is the centre plus everything that
-    // has arrived since the last send. Buttons and wheel carry no movement, so
-    // they land wherever the last move left it - the centre, if a send has been
-    // through since.
+    // position this object is keeping, which free-runs from wherever the last
+    // one left it. Buttons and wheel carry no movement, so they land where the
+    // last move left it and cost the game nothing - see relativePointer.
+    //
+    // The position only stops free-running when it runs out of framebuffer.
+    // Clamping there is what makes turning stop and never come back, so instead
+    // the axis that ran out goes back to the middle, which buys another half a
+    // screen. The game reads that jump as one flick nobody asked for; an
+    // absolute protocol has no way to move a cursor without it being read, and
+    // one flick per half a screen of turning is the whole price. Only the axis
+    // that ran out moves, so a long yaw never touches the pitch.
     key: "_pointerPos",
     value: function _pointerPos(ev) {
       if (!this._relativePointer || !this._relPos) {
         return (0, _element.clientToElement)(ev.clientX, ev.clientY, this._canvas);
       }
-      var maxX = Math.max(0, this._display.width - 1);
-      var maxY = Math.max(0, this._display.height - 1);
-      this._relPos.x = Math.min(maxX, Math.max(0, this._relPos.x + (ev.movementX || 0)));
-      this._relPos.y = Math.min(maxY, Math.max(0, this._relPos.y + (ev.movementY || 0)));
+      var centre = this._relCentre();
+      var x = this._relPos.x + (ev.movementX || 0);
+      var y = this._relPos.y + (ev.movementY || 0);
+      this._relPos.x = x < 0 || x > this._display.width - 1 ? centre.x : x;
+      this._relPos.y = y < 0 || y > this._display.height - 1 ? centre.y : y;
       return { 'x': Math.round(this._relPos.x), 'y': Math.round(this._relPos.y) };
     }
   }, {
@@ -16529,13 +16538,6 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
         RFB.messages.extendedPointerEvent(this._sock, absx, absy, mask);
       } else {
         RFB.messages.pointerEvent(this._sock, absx, absy, mask);
-      }
-
-      // Sent, so the host's cursor is at absx/absy and the grabbed game is about
-      // to warp it back to the middle. Go back with it: what accumulates from
-      // here is the movement the next send should carry, and nothing else.
-      if (this._relativePointer && this._relPos) {
-        this._relPos = this._relCentre();
       }
     }
   }, {
