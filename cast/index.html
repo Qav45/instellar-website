@@ -1555,12 +1555,12 @@ document.addEventListener("visibilitychange", () => {
       hiddenWant = -1;
     }
     pushStream();
-    // The same for the video socket: sixty encoded frames a second into a tab
-    // nobody is looking at is the tunnel and the GPU paid for nothing, and the
-    // decoder's queue would only grow against a throttled output. The RFB
-    // pixels stay off across the gap - the socket comes straight back.
-    if (document.hidden) closeVideo();
-    else openVideo();
+    // The video socket is left open: a person watching their own machine from
+    // another tab wants a live picture to come back to, not a frozen one. The
+    // decoder is not rAF-driven and the gate drops to the next keyframe when its
+    // queue grows, so a throttled tab costs frames, never the session. Only a
+    // socket that died while hidden is reopened here.
+    if (!document.hidden && !vidSock) openVideo();
   }
   if (document.hidden) return;
   // The browser drops a wake lock with the tab; take it again with the tab.
@@ -1748,6 +1748,7 @@ let vidDelivered = 0;    // AUs arriving since the last tick, decoded or not
 let vidDrops = [];       // when the lag control last fired, newest last
 let vidSlowSince = 0;    // when decoded output first fell short of the arrivals
 let vidSince = 0;        // when the current decoder was configured
+let vidDrained = false;  // this decoder has emptied its queue at least once
 let vidNote = "";        // what the state line says about the last downgrade
 let vidStep = 0;         // how far down STREAM_STEPS this session has had to go
 let vidCeil = 0;         // the most demanding step still worth trying this session
@@ -1938,10 +1939,21 @@ function openVideo() {
     vidDelivered++;
     const g = streamGate(vidWaitKey, f.key, decoder.decodeQueueSize);
     // The gate closing on an open stream is the lag control firing. Nothing
-    // before the first picture counts, and neither does the first second after
-    // a configure: that is the cached GOP arriving in one burst, which fills
-    // the queue whatever the decoder is.
-    if (g.waitKey && !vidWaitKey && vidReady && performance.now() - vidSince > STRAIN_GRACE_MS) {
+    // before the first picture counts, and neither does the cached GOP the
+    // host replays on join: up to a second of frames arrive at once, which
+    // puts the queue past LAG_QUEUE whatever the decoder is, and draining that
+    // many takes a second of decoding by definition - so a flat second of
+    // grace expired in the middle of it and called the backlog strain. Since
+    // every step down restarts the encoder and so replays a fresh cache, that
+    // counted as a rung failing and cost the next rung too, all the way down.
+    // The queue coming back to empty is the honest signal, and a decoder that
+    // never gets there is caught by the slow check in the tick instead.
+    // A hidden tab's drops are the browser throttling it, not the link or the
+    // decoder straining, and must not step the stream down for when it returns.
+    // Emptying the queue once is what proves the burst above is behind us.
+    if (!vidDrained && decoder.decodeQueueSize <= 1) vidDrained = true;
+    if (g.waitKey && !vidWaitKey && vidReady && !document.hidden && vidDrained &&
+        performance.now() - vidSince > STRAIN_GRACE_MS) {
       const now = performance.now();
       vidDrops = vidDrops.filter((t) => now - t <= STRAIN_DROP_MS).concat(now);
       vidCalm = now;
@@ -1978,6 +1990,15 @@ function configureVideo(cfg) {
   clearTimeout(vidTimer);
   if (decoder) { try { decoder.close(); } catch (_) {} decoder = null; }
   vidReady = false;
+  // Strain is evidence about the stream being configured, and none of it
+  // survives the configure. A drop recorded at sixty frames is not a fact
+  // about thirty: the pace changed, the encoder restarted and the decoder is
+  // new. Carrying the list over is what let one rough moment at the top walk
+  // the ladder to the bottom in fifteen seconds, each step inheriting the
+  // strikes of the step above it while the ten-second window still held them.
+  vidDrops = [];
+  vidSlowSince = 0;
+  vidDrained = false;
   if (rfb.pixels === false) { rfb.pixels = true; setRate(ceilHz()); }
   // Config alone does not prove a decoder can produce pictures. Bound the
   // wait even when the socket remains open but no usable frames arrive.
