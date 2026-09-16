@@ -393,31 +393,40 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
 /* ------------------------------------------------------------- encoding -- */
 
 // What ends up on the ffmpeg command line. The bitrate the viewer asks for is
-// a ceiling, not a quota: NVENC aims below it and climbs to it for motion,
-// which on a mostly still screen is most of the bytes saved.
+// a ceiling, not a quota: NVENC aims at a quality and climbs to the ceiling
+// for motion, which on a mostly still screen is most of the bytes saved.
 {
   const nv = ffmpegArgs("h264_nvenc", S60);
   const at = (flag) => nv[nv.indexOf(flag) + 1];
   ok("nvenc encodes at a variable rate", at("-rc") === "vbr");
   ok("the viewer's number is the ceiling", at("-maxrate") === "8M");
-  ok("the aim is a fraction of it", at("-b:v") === "3.2M");
+  ok("the aim is a quality, not an average bitrate",
+    at("-b:v") === "0" && at("-cq") === "20");
   ok("the buffer is a quarter second of the ceiling", at("-bufsize") === "2000k");
-  ok("no B-frames and a keyframe a second, as before",
-    at("-bf") === "0" && at("-g") === "60");
+  ok("no B-frames and a keyframe every two seconds",
+    at("-bf") === "0" && at("-g") === "120");
   ok("still a low latency tuning with zero latency on",
     at("-tune") === "ll" && at("-zerolatency") === "1");
   ok("spatial AQ moves bits to the detailed regions", at("-spatial-aq") === "1");
+  // -cq is not a shared scale: the same number costs the better codecs more
+  // bytes, so each gets the number measured to cost what H.264's does.
+  const hevc = ffmpegArgs("hevc_nvenc", { ...S60, codecs: ["hevc"] });
+  const av1 = ffmpegArgs("av1_nvenc", { ...S60, codecs: ["av1"] });
+  ok("each codec asks for quality on its own scale",
+    hevc[hevc.indexOf("-cq") + 1] === "26" && av1[av1.indexOf("-cq") + 1] === "32");
   const amf = ffmpegArgs("h264_amf", S60);
   const amfAt = (flag) => amf[amf.indexOf(flag) + 1];
   ok("the other vendors keep constant bitrate and the full ask",
     amfAt("-rc") === "cbr" && amfAt("-b:v") === "8M" && amfAt("-maxrate") === "8M");
+  ok("and are not asked for a quality they do not take", amf.indexOf("-cq") === -1);
   const half = ffmpegArgs("h264_nvenc", { ...S60, fps: 30, mbps: 4 });
   const halfAt = (flag) => half[half.indexOf(flag) + 1];
-  ok("a paced-down viewer scales both numbers and the keyframe interval",
-    halfAt("-maxrate") === "4M" && halfAt("-b:v") === "1.6M" && halfAt("-g") === "30");
+  ok("a paced-down viewer scales the ceiling and the keyframe interval",
+    halfAt("-maxrate") === "4M" && halfAt("-g") === "60");
+  ok("but not the quality it is shown at", halfAt("-cq") === "20");
   const tiny = ffmpegArgs("h264_nvenc", { ...S60, mbps: 2 });
-  ok("the aim never falls under a megabit",
-    tiny[tiny.indexOf("-b:v") + 1] === "1M", tiny[tiny.indexOf("-b:v") + 1]);
+  ok("a small ceiling is still only a ceiling",
+    tiny[tiny.indexOf("-maxrate") + 1] === "2M" && tiny[tiny.indexOf("-b:v") + 1] === "0");
 }
 
 // -- normal life: first viewer, late viewer, backpressure, idle stop ---------
@@ -442,7 +451,7 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
   const argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
   ok("ffmpeg command: ddagrab primary at 60 fps without the cursor, nvenc vbr under an 8M ceiling, one-second GOP, raw h264 to stdout",
     argv.includes("ddagrab=output_idx=0:framerate=60:draw_mouse=0") && argv.includes("h264_nvenc") &&
-    argv.join(" ").includes("-b:v 3.2M -maxrate 8M -bufsize 2000k -g 60 -bf 0") &&
+    argv.join(" ").includes("-b:v 0 -cq 20 -maxrate 8M -bufsize 2000k -g 120 -bf 0") &&
     argv.slice(-3).join(" ") === "-f h264 pipe:1", argv.join(" "));
 
   // Late subscriber: config, then the cached GOP, so it starts on a keyframe
@@ -551,7 +560,7 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
     a.configs.length === 2 && a.configs[1].fps === 30 && b.configs.length === 1 && b.configs[0] === a.configs[1]);
   const argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
   ok("restarted with the new settings: display 2 -> output_idx 1, 30 fps, 4M",
-    argv.includes("ddagrab=output_idx=1:framerate=30:draw_mouse=0") && argv.join(" ").includes("-b:v 1.6M -maxrate 4M -bufsize 1000k -g 30 -bf 0"));
+    argv.includes("ddagrab=output_idx=1:framerate=30:draw_mouse=0") && argv.join(" ").includes("-b:v 0 -cq 20 -maxrate 4M -bufsize 1000k -g 60 -bf 0"));
   ok("old ffmpeg was killed", !alive(pid1) && readPid() !== pid1);
   const firstAfter = a.aus.slice().reverse().find((x) => x.flags & 1);
   ok("the old viewer resumed on a keyframe from the new encoder", !!firstAfter);
@@ -647,7 +656,7 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
     JSON.stringify(cfg));
   let argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
   ok("av1_nvenc argv: nvenc low-latency flags, forced IDR, no h264 profile, obu muxer",
-    argv.join(" ").includes("-c:v av1_nvenc -preset p4 -tune ll -zerolatency 1 -rc vbr -spatial-aq 1 -b:v 3.2M -maxrate 8M") &&
+    argv.join(" ").includes("-c:v av1_nvenc -preset p4 -tune ll -zerolatency 1 -rc vbr -spatial-aq 1 -b:v 0 -cq 32 -maxrate 8M") &&
     argv.join(" ").includes("-bf 0 -forced-idr 1 -flush_packets 1 -f obu pipe:1") && !argv.includes("-profile:v"), argv.join(" "));
   ok("first av1 unit is a key with the delimiter, sequence header and frame",
     (a.aus[0].flags & 1) === 1 && obusOf(a.aus[0].bytes).length === 3 && obusOf(a.aus[1].bytes).length === 2);

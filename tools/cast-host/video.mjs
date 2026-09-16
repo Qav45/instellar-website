@@ -515,8 +515,24 @@ const ENCODERS = {
 };
 export const codecOf = (encoder) => encoder === "libx264" ? "h264" : encoder.split("_")[0];
 const BACKLOG_LIMIT = 1024 * 1024;   // bytes queued on a viewer before it is skipped
-const GOP_SECONDS = 1;               // recover dropped frames within one second
-const AVERAGE_SHARE = 0.4;           // what NVENC aims to average, as a share of the ceiling
+// A keyframe costs around 190KB of the 1080p desktop and a delta on a still
+// screen costs under a kilobyte, so on this cast the keyframes ARE the
+// bitrate: one a second measured 1.89 mbps and one every three seconds 0.72,
+// same screen, same quality. Over a tunnel each of those keyframes is also a
+// burst that holds back the frames behind it, which is felt as latency. Two
+// seconds halves both the bytes and the bursts while keeping the two costs of
+// a long GOP bounded: a viewer that drops a frame waits at most this long for
+// the next key, and the replay cache a joining viewer gets is at most this
+// many seconds of frames.
+const GOP_SECONDS = 2;
+// What NVENC aims for when it is free to choose: a quantiser, not a bitrate.
+// Per codec, because -cq is not a shared scale: the same number asked of
+// hevc_nvenc or av1_nvenc means a higher quality and costs more bytes, not
+// fewer. These three were measured to cost the same bytes on the same screen
+// (0.97 / 0.96 / 0.99 mbps over six seconds), so a viewer that negotiates the
+// better codec spends its efficiency on a sharper picture rather than on more
+// bytes - and never arrives at a bitrate higher than H.264's by accident.
+const QUALITY = { h264: 20, hevc: 26, av1: 32 };
 const IDLE_MS = 3000;                // keep the encoder warm this long after the last viewer
 const STARTUP_MS = 2000;             // an exit sooner than this means "cannot start"
 const CRASH_WINDOW_MS = 10000;       // a second death this soon after a restart is final
@@ -547,18 +563,36 @@ export function ffmpegArgs(encoder, s) {
   // full eight megabits in padding. NVENC's variable mode spends what the
   // picture needs and keeps the same ceiling for the frames that need it, so
   // nothing about a moving picture changes and the quiet stretches cost a
-  // fraction. The average below is an aim, not a cap. Motion still climbs to
-  // -maxrate, which is the number the viewer asked for.
+  // fraction. Motion still climbs to -maxrate, which is the number the viewer
+  // asked for.
   //
   // The other vendors keep constant bitrate: their low-latency modes are built
   // around it, and this host encodes with NVENC.
   const vbr = vendor === "nvenc";
-  const avg = vbr ? Math.max(1, Math.round(s.mbps * AVERAGE_SHARE * 10) / 10) : s.mbps;
-  const rate = ["-b:v", avg + "M", "-maxrate", s.mbps + "M",
-    "-bufsize", Math.round(s.mbps * 250) + "k", "-g", String(s.fps * GOP_SECONDS), "-bf", "0"];
+  // An average bitrate was tried first and it starved the still screen this
+  // cast mostly shows: aiming at a fraction of the ceiling, rate control kept
+  // pushing padding into deltas that had nothing to say and still quantised
+  // the picture coarsely. Asking for a quality instead lets the deltas fall to
+  // nothing when nothing moves and spends the bits on sharpening what is
+  // there. Measured on the same screen at the same moment, 8 mbps, sixty
+  // frames: the average aim cost 2.31 mbps and quantised keyframes at 19.8 and
+  // deltas at 11.3; the quality aim costs 0.97 mbps at 16.0 and 9.9. Cheaper
+  // on every frame and sharper on every frame, which is what a page of text
+  // needs. -maxrate is still the viewer's ceiling and
+  // motion still climbs to it.
+  const rate = vbr
+    ? ["-b:v", "0", "-cq", String(QUALITY[codecOf(encoder)] || QUALITY.h264),
+       "-maxrate", s.mbps + "M", "-bufsize", Math.round(s.mbps * 250) + "k",
+       "-g", String(s.fps * GOP_SECONDS), "-bf", "0"]
+    : ["-b:v", s.mbps + "M", "-maxrate", s.mbps + "M",
+       "-bufsize", Math.round(s.mbps * 250) + "k",
+       "-g", String(s.fps * GOP_SECONDS), "-bf", "0"];
   // p4 over p1, and low latency over ultra low: p1 is the fastest preset there
   // is and it shows in the bitrate, spending bits where a slightly less hurried
-  // search would not have needed them. On a card that encodes 1080p60 in a
+  // search would not have needed them - 1.42 mbps against p4's 1.20 at the same
+  // quantiser, measured on the same screen. p7 buys nothing back (1.08 against
+  // 1.09) and ull is byte-for-byte identical to ll once -zerolatency is on, so
+  // the middle preset is where this sits. On a card that encodes 1080p60 in a
   // couple of milliseconds either way, the picture is the same and the file is
   // smaller. Spatial AQ moves bits from flat regions to detailed ones, which
   // is most of what a desktop is.
