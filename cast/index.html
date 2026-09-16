@@ -1825,7 +1825,16 @@ $("video").addEventListener("click", () => {
 const STREAM_KEY = "cast.stream";
 const CODEC_KEY = "cast.codec";
 const STREAM_TITLE = $("stream").title;
-const LAG_QUEUE = 8;
+// How many frames the decoder may be behind before the page stops feeding it.
+// This is the ceiling on how stale the picture can get, and so on input delay:
+// eight frames at sixty is 133ms of already-decoded past sitting in a queue
+// between the hand and the screen, on top of the 50ms the tunnel costs. Three
+// caps it near 66ms. The trade is that a shallower tolerance reaches for the
+// next keyframe more often, which is why GOP_SECONDS went back to one - the
+// freeze that costs is bounded by the GOP, so the two numbers have to be chosen
+// together. Made safe by the drained-queue gate below: the host's replay burst
+// blows past any tolerance this small, and it no longer counts as strain.
+const LAG_QUEUE = 3;
 const STRAIN_DROPS = 2;        // lag drops within STRAIN_DROP_MS mean the decoder is behind
 const STRAIN_DROP_MS = 10000;
 const STRAIN_RATIO = 0.85;     // decoded under this share of what arrives, for STRAIN_SLOW_MS

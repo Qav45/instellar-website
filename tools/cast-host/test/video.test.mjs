@@ -403,8 +403,8 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
   ok("the aim is a quality, not an average bitrate",
     at("-b:v") === "0" && at("-cq") === "20");
   ok("the buffer is a quarter second of the ceiling", at("-bufsize") === "2000k");
-  ok("no B-frames and a keyframe every two seconds",
-    at("-bf") === "0" && at("-g") === "120");
+  ok("no B-frames and a keyframe every second",
+    at("-bf") === "0" && at("-g") === "60");
   ok("still a low latency tuning with zero latency on",
     at("-tune") === "ll" && at("-zerolatency") === "1");
   ok("spatial AQ moves bits to the detailed regions", at("-spatial-aq") === "1");
@@ -422,7 +422,7 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
   const half = ffmpegArgs("h264_nvenc", { ...S60, fps: 30, mbps: 4 });
   const halfAt = (flag) => half[half.indexOf(flag) + 1];
   ok("a paced-down viewer scales the ceiling and the keyframe interval",
-    halfAt("-maxrate") === "4M" && halfAt("-g") === "60");
+    halfAt("-maxrate") === "4M" && halfAt("-g") === "30");
   ok("but not the quality it is shown at", halfAt("-cq") === "20");
   const tiny = ffmpegArgs("h264_nvenc", { ...S60, mbps: 2 });
   ok("a small ceiling is still only a ceiling",
@@ -451,7 +451,7 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
   const argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
   ok("ffmpeg command: ddagrab primary at 60 fps without the cursor, nvenc vbr under an 8M ceiling, one-second GOP, raw h264 to stdout",
     argv.includes("ddagrab=output_idx=0:framerate=60:draw_mouse=0") && argv.includes("h264_nvenc") &&
-    argv.join(" ").includes("-b:v 0 -cq 20 -maxrate 8M -bufsize 2000k -g 120 -bf 0") &&
+    argv.join(" ").includes("-b:v 0 -cq 20 -maxrate 8M -bufsize 2000k -g 60 -bf 0") &&
     argv.slice(-3).join(" ") === "-f h264 pipe:1", argv.join(" "));
 
   // Late subscriber: config, then the cached GOP, so it starts on a keyframe
@@ -560,7 +560,7 @@ const S60 = { fps: 60, mbps: 8, display: "primary", codecs: ["h264"] };
     a.configs.length === 2 && a.configs[1].fps === 30 && b.configs.length === 1 && b.configs[0] === a.configs[1]);
   const argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
   ok("restarted with the new settings: display 2 -> output_idx 1, 30 fps, 4M",
-    argv.includes("ddagrab=output_idx=1:framerate=30:draw_mouse=0") && argv.join(" ").includes("-b:v 0 -cq 20 -maxrate 4M -bufsize 1000k -g 60 -bf 0"));
+    argv.includes("ddagrab=output_idx=1:framerate=30:draw_mouse=0") && argv.join(" ").includes("-b:v 0 -cq 20 -maxrate 4M -bufsize 1000k -g 30 -bf 0"));
   ok("old ffmpeg was killed", !alive(pid1) && readPid() !== pid1);
   const firstAfter = a.aus.slice().reverse().find((x) => x.flags & 1);
   ok("the old viewer resumed on a keyframe from the new encoder", !!firstAfter);

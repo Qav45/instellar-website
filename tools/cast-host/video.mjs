@@ -524,7 +524,7 @@ const BACKLOG_LIMIT = 1024 * 1024;   // bytes queued on a viewer before it is sk
 // a long GOP bounded: a viewer that drops a frame waits at most this long for
 // the next key, and the replay cache a joining viewer gets is at most this
 // many seconds of frames.
-const GOP_SECONDS = 2;
+const GOP_SECONDS = 1;               // recover dropped frames within one second
 // What NVENC aims for when it is free to choose: a quantiser, not a bitrate.
 // Per codec, because -cq is not a shared scale: the same number asked of
 // hevc_nvenc or av1_nvenc means a higher quality and costs more bytes, not

@@ -106,8 +106,12 @@ ok("no buffer at all is not a frame", parseVideoFrame(null) === null && parseVid
   ok("a key is decoded whatever the queue: it is the recovery point",
      g.decode === true && g.waitKey === false);
 }
-ok("the limit is eight frames, a bit over a tenth of a second at sixty",
-   LAG_QUEUE === 8, LAG_QUEUE);
+// The number is a latency budget, not a taste: a queue this deep is that many
+// frames of already-decoded past sitting between the hand and the screen, on top
+// of whatever the link costs. Asserted as the budget, since that is the thing
+// that would be wrong if someone raised it.
+ok("the limit is three frames, and so under 70ms of queue at sixty",
+   LAG_QUEUE === 3 && (LAG_QUEUE + 1) * (1000 / 60) < 70, LAG_QUEUE);
 
 /* -------------------------------------------------------------- reasons -- */
 
