@@ -164,7 +164,7 @@
 // modules would be 54 requests on every cold load. novnc.js is that whole tree
 // bundled into one same-origin file, which is one request and no third party in
 // the critical path.
-import RFB from "./novnc.js?v=20260909-stream";
+import RFB from "./novnc.js?v=20260916-mouselook";
 
 const $ = (id) => document.getElementById(id);
 const screenEl = $("screen");
@@ -1422,8 +1422,10 @@ for (const type of ["keydown", "keyup"]) {
 
 // What a game wants and a desktop does not: the pointer stays inside the remote
 // screen, there is no local cursor drifting onto another monitor mid-turn, and
-// movement is sent as movement - see relativePointer in novnc.js, which also
-// records what that cannot do at the edges of the remote screen.
+// movement is sent as movement - see relativePointer in novnc.js, which is
+// shaped for a game that has grabbed the mouse and warps it back to the middle
+// of its window every frame. On a desktop, which does not, the pointer sits in
+// the middle instead of travelling; that is the mode, not a fault.
 //
 // noVNC listens on the canvas, so the canvas is what gets locked; locking the
 // container would leave every mouse event landing on an element noVNC never

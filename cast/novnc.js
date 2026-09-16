@@ -15451,10 +15451,23 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
     // cursor position this object keeps, rather than reading clientX/clientY,
     // which under pointer lock are frozen where the lock was taken.
     //
-    // What it cannot do is follow the mouse past the edge of the remote screen:
-    // the position clamps there, and a game that keeps turning while the pointer
-    // pushes against that edge stops turning. Recentring is the host's to do and
-    // TightVNC has no way to be told about it.
+    // That position is anchored, not free-running. A game that has grabbed the
+    // mouse - Minecraft, and every other one - warps the host cursor back to the
+    // middle of its window once a frame and measures the next move from there.
+    // A free-running position drifts away from that middle, so every frame the
+    // game reads the drift as one more flick of the wrist: the camera spins off
+    // on its own, and once the position has pinned itself against the edge of
+    // the screen the drift is all that is left and turning stops.
+    //
+    // So each position actually sent is the centre of the screen plus whatever
+    // movement has arrived since the last one, and _relPos returns to the centre
+    // the moment it is sent (see _sendMouse). The game's warp and ours agree,
+    // the delta it reads is the movement that happened, and there is no edge to
+    // run into - a single frame's worth of movement is never half a screen.
+    //
+    // It assumes the thing on the other end is warping. A grabbed game is; a
+    // desktop is not, and on one of those the pointer will sit in the middle
+    // twitching. That is what the grab button is for - it is a game mode.
     key: "relativePointer",
     get: function get() {
       return this._relativePointer;
@@ -15465,10 +15478,11 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
       // on does not teleport it. Centre only when nothing has moved it yet.
       if (!enabled) {
         this._relPos = null;
-      } else if (this._mousePos && this._mousePos.x !== undefined) {
-        this._relPos = { 'x': this._mousePos.x, 'y': this._mousePos.y };
       } else {
-        this._relPos = { 'x': this._display.width / 2, 'y': this._display.height / 2 };
+        // The centre, wherever the host's cursor happens to be right now: the
+        // first move sent from here is what tells the game where "here" is, and
+        // a grabbed game has already put its own cursor in the middle anyway.
+        this._relPos = this._relCentre();
       }
     }
   }, {
@@ -16338,10 +16352,21 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
       this.sendKey(keysym, code, down);
     }
   }, {
+    // LOCAL CHANGE (instellar /cast): the middle of the remote framebuffer, in
+    // framebuffer pixels. Where relative mode counts from, and where it returns
+    // to after every send.
+    key: "_relCentre",
+    value: function _relCentre() {
+      return { 'x': Math.floor(this._display.width / 2),
+               'y': Math.floor(this._display.height / 2) };
+    }
+  }, {
     // LOCAL CHANGE (instellar /cast): where an event puts the remote cursor.
     // Absolute normally; in relative mode the event's movement is added to the
-    // position this object is keeping. Buttons and wheel carry no movement, so
-    // they land wherever the last move left it.
+    // position this object is keeping, which is the centre plus everything that
+    // has arrived since the last send. Buttons and wheel carry no movement, so
+    // they land wherever the last move left it - the centre, if a send has been
+    // through since.
     key: "_pointerPos",
     value: function _pointerPos(ev) {
       if (!this._relativePointer || !this._relPos) {
@@ -16493,10 +16518,24 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
         throw new Error("Illegal mouse button mask (mask: " + mask + ")");
       }
       var extendedMouseButtons = mask & 0x7f80;
+
+      // LOCAL CHANGE (instellar /cast): absX/absY turn element coordinates into
+      // framebuffer ones. A relative position is already a framebuffer one, and
+      // putting it through the viewport's scale would make mouselook faster in a
+      // small window than a large one.
+      var absx = this._relativePointer ? x : this._display.absX(x);
+      var absy = this._relativePointer ? y : this._display.absY(y);
       if (this._extendedPointerEventSupported && extendedMouseButtons) {
-        RFB.messages.extendedPointerEvent(this._sock, this._display.absX(x), this._display.absY(y), mask);
+        RFB.messages.extendedPointerEvent(this._sock, absx, absy, mask);
       } else {
-        RFB.messages.pointerEvent(this._sock, this._display.absX(x), this._display.absY(y), mask);
+        RFB.messages.pointerEvent(this._sock, absx, absy, mask);
+      }
+
+      // Sent, so the host's cursor is at absx/absy and the grabbed game is about
+      // to warp it back to the middle. Go back with it: what accumulates from
+      // here is the movement the next send should carry, and nothing else.
+      if (this._relativePointer && this._relPos) {
+        this._relPos = this._relCentre();
       }
     }
   }, {
