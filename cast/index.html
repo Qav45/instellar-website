@@ -37,20 +37,42 @@
          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
   /* ---- toolbar ---- */
-  #bar { display:flex; align-items:center; gap:8px; padding:6px 10px; flex:0 0 auto; flex-wrap:wrap;
-         background:var(--panel); border-bottom:1px solid var(--line); font-size:13px; }
-  #bar .spacer { flex:1; }
+  /* Nine buttons in one row wrapped onto two lines on a laptop and ate into the
+     picture. The four that get touched while watching stay out; the rest live
+     behind the overflow key, which keeps the bar one row at any width. */
+  #bar { display:flex; align-items:center; gap:6px; padding:7px 10px; flex:0 0 auto; flex-wrap:nowrap;
+         background:linear-gradient(180deg,#171c27,#12161f); border-bottom:1px solid var(--line);
+         font-size:13px; position:relative; z-index:6; }
+  #bar .spacer { flex:1; min-width:6px; }
+  #bar .grp { display:flex; align-items:center; gap:4px; padding-left:8px; margin-left:2px;
+         border-left:1px solid var(--line); }
   #bar button, #bar select { background:#1b2130; color:var(--fg); border:1px solid var(--line);
-         border-radius:8px; padding:5px 9px; font-size:12px; font-family:inherit; cursor:pointer; }
-  #bar button:hover, #bar select:hover { border-color:var(--accent); }
-  #bar button.on { border-color:var(--accent); color:var(--accent); }
+         border-radius:8px; padding:5px 9px; font-size:12px; font-family:inherit; cursor:pointer;
+         white-space:nowrap; transition:border-color .14s, color .14s, background .14s; }
+  #bar button:hover, #bar select:hover { border-color:var(--accent); background:#212a3c; }
+  #bar button.on { border-color:var(--accent); color:var(--accent); background:#1a2437; }
   /* Stream with no decoder here or no route there: the title says which. */
-  #bar button:disabled { opacity:.5; cursor:default; border-color:var(--line); }
+  #bar button:disabled { opacity:.5; cursor:default; border-color:var(--line); background:#1b2130; }
   /* Mouse lock armed but not currently holding the pointer - Escape hands it
      back and only a click can take it again, so the button must not go on
      claiming the pointer is captured. */
   #grab.on:not(.held) { border-style:dashed; }
-  #bar label { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:5px; }
+  #bar label { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:5px;
+         white-space:nowrap; }
+
+  /* ---- overflow menu ---- */
+  #more { position:relative; display:flex; }
+  #moreBtn { font-size:14px; line-height:1; padding:5px 10px; }
+  #moreMenu { position:absolute; right:0; top:calc(100% + 7px); background:var(--panel);
+         border:1px solid var(--line); border-radius:11px; padding:7px; min-width:196px; z-index:20;
+         display:flex; flex-direction:column; gap:5px; box-shadow:0 12px 34px rgba(0,0,0,.55); }
+  #moreMenu button { width:100%; text-align:left; padding:7px 10px; }
+  #moreMenu label { padding:1px 2px 3px; justify-content:space-between; }
+  #moreMenu select { flex:1; margin-left:8px; }
+  #moreMenu hr { border:0; border-top:1px solid var(--line); margin:2px 0; }
+  /* The picture is worth more than the readouts once the bar starts to crowd. */
+  @media (max-width:760px) { #hRate, #hFb { display:none; } }
+  @media (max-width:560px) { #state { display:none; } }
 
   #state { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px;
            min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -78,8 +100,11 @@
   /* The toolbar floats over the picture and fades once the mouse rests, so a
      letterboxed video gets the rows the bar was taking. It comes back on the
      first movement; a cursor parked on the bar keeps it. */
-  body.video #bar { position:absolute; top:0; left:0; right:0; z-index:5; transition:opacity .25s; }
-  body.video.idle #bar { opacity:0; pointer-events:none; }
+  /* Streaming earns the same treatment as Video: a game wants the rows the bar
+     was taking, and the bar is only ever a mouse-move away. */
+  body.video #bar, body.streaming #bar { position:absolute; top:0; left:0; right:0; z-index:6;
+         transition:opacity .25s; }
+  body.video.idle #bar, body.streaming.idle #bar { opacity:0; pointer-events:none; }
 
   /* ---- overlay cards (token / password / errors) ---- */
   #veil { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -97,26 +122,82 @@
   .card button + button { margin-top:8px; }
   .card button:disabled { opacity:.6; cursor:default; }
   .card .foot { color:var(--muted); font-size:12px; margin-top:14px; line-height:1.5; }
+
+  /* ---- the way in ---- */
+  /* Light, because every calculator is, and because a dark panel in front of a
+     dark page reads as part of the page rather than instead of it. */
+  #lock { position:fixed; inset:0; z-index:100; display:flex; align-items:center;
+          justify-content:center; background:#f6f7f9; padding:18px; overflow:auto; }
+  #calc { width:100%; max-width:392px; background:#fff; border:1px solid #dcdfe4;
+          border-radius:12px; overflow:hidden; box-shadow:0 10px 34px rgba(16,24,40,.10);
+          color:#1b1b1b; }
+  #calcHead { display:flex; align-items:center; justify-content:space-between;
+          padding:9px 13px; border-bottom:1px solid #e6e8ec; font-size:13px; color:#55595f; }
+  #calcDeg { border:1px solid #d3d7dd; background:#fff; color:#2d70b3; border-radius:6px;
+          padding:3px 9px; font-size:11.5px; font-family:inherit; cursor:pointer; font-weight:600; }
+  #calcDeg:hover { background:#f2f6fa; }
+  #calcOut { padding:14px 14px 16px; text-align:right; background:#fff; }
+  #calcPrev { color:#9aa0a6; font-size:13px; min-height:17px; font-variant-numeric:tabular-nums;
+          overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #calcNow { color:#101317; font-size:31px; line-height:1.15; font-variant-numeric:tabular-nums;
+          overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:3px; }
+  #calcPads { display:flex; gap:9px; padding:0 12px 13px; }
+  #calcFn { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; flex:3; }
+  #calcNum { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; flex:4; }
+  #calcPads button { height:44px; border:1px solid #dfe2e7; border-radius:8px; background:#fff;
+          color:#1b1b1b; font-size:16px; font-family:inherit; cursor:pointer; padding:0;
+          transition:background .12s, border-color .12s; }
+  #calcPads button:hover { background:#f2f4f7; border-color:#cdd2d9; }
+  #calcPads button:active { background:#e8ebef; }
+  #calcFn button { font-size:14px; color:#2d70b3; background:#fbfcfd; }
+  #calcNum .op { color:#2d70b3; font-size:18px; }
+  #calcNum .fn { color:#70757a; font-size:13px; }
+  #calcNum .eq { background:#2d70b3; border-color:#2d70b3; color:#fff; font-size:18px; }
+  #calcNum .eq:hover { background:#28629c; border-color:#28629c; }
+  #calcNum .wide { grid-column:span 2; }
+  #calcFoot { padding:0 14px 13px; color:#9aa0a6; font-size:11.5px; text-align:center; }
 </style>
 </head>
 <body>
 
+<div id="lock">
+  <div id="calc">
+    <div id="calcHead"><span>Scientific Calculator</span><button id="calcDeg" type="button">DEG</button></div>
+    <div id="calcOut"><div id="calcPrev"></div><div id="calcNow">0</div></div>
+    <div id="calcPads">
+      <div id="calcFn">
+        <button data-k="sq">x&sup2;</button><button data-k="pow">x&#8319;</button><button data-k="sqrt">&radic;</button>
+        <button data-k="ln">ln</button><button data-k="log">log</button><button data-k="abs">|x|</button>
+        <button data-k="sin">sin</button><button data-k="cos">cos</button><button data-k="tan">tan</button>
+        <button data-k="pi">&pi;</button><button data-k="e">e</button><button data-k="fact">n!</button>
+        <button data-k="(">(</button><button data-k=")">)</button><button data-k="neg">(&minus;)</button>
+      </div>
+      <div id="calcNum">
+        <button class="fn" data-k="ac">AC</button><button class="fn" data-k="del">&#9003;</button>
+        <button class="op" data-k="%">%</button><button class="op" data-k="/">&divide;</button>
+        <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+        <button class="op" data-k="*">&times;</button>
+        <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+        <button class="op" data-k="-">&minus;</button>
+        <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+        <button class="op" data-k="+">+</button>
+        <button class="wide" data-k="0">0</button><button data-k=".">.</button>
+        <button class="eq" data-k="=">=</button>
+      </div>
+    </div>
+    <div id="calcFoot">Enter a value and press =</div>
+  </div>
+</div>
+
 <div id="bar">
-  <div id="state"><span class="dot"></span><span id="stateText">Starting…</span></div>
+  <div id="state"><span class="dot"></span><span id="stateText">Starting&hellip;</span></div>
   <div id="hud">
-    <span id="hRtt">ping <b>–</b></span>
-    <span id="hRate">link <b>–</b></span>
-    <span id="hFb">screen <b>–</b></span>
-    <span id="hFps">fps <b>–</b></span>
+    <span id="hRtt">ping <b>&ndash;</b></span>
+    <span id="hRate">link <b>&ndash;</b></span>
+    <span id="hFb">screen <b>&ndash;</b></span>
+    <span id="hFps">fps <b>&ndash;</b></span>
   </div>
   <div class="spacer"></div>
-  <label>Show
-    <select id="share" title="Fewer pixels is the single biggest speed win">
-      <option value="primary" selected>Main screen</option>
-      <option value="2">Second screen</option>
-      <option value="full">Both</option>
-    </select>
-  </label>
   <label>Quality
     <select id="quality" title="Auto watches the link and picks for you">
       <option value="auto" selected>Auto</option>
@@ -125,15 +206,30 @@
       <option value="3,7">Fast</option>
     </select>
   </label>
-  <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
-  <button id="video" title="For watching a video playing on the host: a quality pair chosen for moving pictures, the rate as the only thing that gives, the toolbar out of the way and the screen kept awake.">Video</button>
-  <button id="stream" title="Hardware video for games and video: the host's GPU encodes the screen (AV1, HEVC or H.264, whichever this browser decodes in hardware) and this browser decodes it, sixty frames a second. Text goes a little soft, which is why it is a toggle and not the default.">Stream</button>
-  <button id="look" title="Ignore my mouse and keyboard">Watch only</button>
-  <button id="grab" title="Keep the pointer in the remote screen and send movement rather than position - what a game needs. Turn Fullscreen on too and Escape reaches the game; hold it to let go.">Mouse lock</button>
-  <button id="cad" title="Send Ctrl+Alt+Delete to the remote machine">Ctrl+Alt+Del</button>
-  <button id="full" title="Fullscreen">Fullscreen</button>
-  <button id="again" title="Reconnect">Reconnect</button>
-  <button id="stop" title="Ask the host machine to stop casting">Stop cast</button>
+  <div class="grp">
+    <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
+    <button id="stream" title="Hardware video for games and video: the host's GPU encodes the screen (AV1, HEVC or H.264, whichever this browser decodes in hardware) and this browser decodes it, sixty frames a second. Text goes a little soft, which is why it is a toggle and not the default.">Stream</button>
+    <button id="grab" title="Keep the pointer in the remote screen and send movement rather than position - what a game needs. Turn Fullscreen on too and Escape reaches the game; hold it to let go.">Mouse lock</button>
+    <button id="full" title="Fullscreen">Fullscreen</button>
+  </div>
+  <div id="more">
+    <button id="moreBtn" title="More controls" aria-haspopup="true" aria-expanded="false">&hellip;</button>
+    <div id="moreMenu" hidden>
+      <label>Show
+        <select id="share" title="Fewer pixels is the single biggest speed win">
+          <option value="primary" selected>Main screen</option>
+          <option value="2">Second screen</option>
+          <option value="full">Both</option>
+        </select>
+      </label>
+      <button id="video" title="For watching a video playing on the host: a quality pair chosen for moving pictures, the rate as the only thing that gives, the toolbar out of the way and the screen kept awake.">Video</button>
+      <button id="look" title="Ignore my mouse and keyboard">Watch only</button>
+      <button id="cad" title="Send Ctrl+Alt+Delete to the remote machine">Ctrl+Alt+Del</button>
+      <hr>
+      <button id="again" title="Reconnect">Reconnect</button>
+      <button id="stop" title="Ask the host machine to stop casting">Stop cast</button>
+    </div>
+  </div>
 </div>
 
 <div id="screen">
@@ -479,6 +575,16 @@ function tick() {
   const vidFps = decoder && dt > 0 ? vidFrames / dt : 0;
   const vidIn = decoder && dt > 0 ? vidDelivered / dt : 0;
   vidFrames = vidDelivered = 0;
+  // Streaming floats the toolbar over the picture and lets it fade, the same as
+  // Video does: a game wants the rows the bar was taking. Derived here rather
+  // than set at every place a decoder starts or dies, which is how the class and
+  // the decoder would drift apart.
+  const barOver = !!decoder && vidReady;
+  if (barOver !== document.body.classList.contains("streaming")) {
+    document.body.classList.toggle("streaming", barOver);
+    if (barOver) stir();
+    else { clearTimeout(idleTimer); document.body.classList.remove("idle"); }
+  }
   // A decoder putting out well under what arrives is one that cannot keep up
   // - a Chromebook decoding AV1 in software, typically. Two seconds of it and
   // the codec is swapped for the next one, below.
@@ -1669,11 +1775,11 @@ async function holdAwake(on) {
 }
 
 function stir() {
-  if (!video) return;
+  if (!video && !document.body.classList.contains("streaming")) return;
   document.body.classList.remove("idle");
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    if ($("bar").matches(":hover")) { stir(); return; }
+    if ($("bar").matches(":hover") || !$("moreMenu").hidden) { stir(); return; }
     document.body.classList.add("idle");
   }, 2500);
 }
@@ -2280,8 +2386,207 @@ $("gateInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("gateGo").click();
 });
 
-if (DIRECT || token) start();
-else { state("wait", "Waiting for a key"); $("gateInput").focus(); }
+/* --------------------------------------------------------- overflow menu -- */
+
+// The controls nobody reaches for mid-game live behind one key, which is what
+// keeps the bar a single row at a laptop width. It closes on any click outside
+// itself and on Escape; left open it would sit over the picture, and the idle
+// fade deliberately will not take the bar while it is showing.
+const moreMenu = $("moreMenu"), moreBtn = $("moreBtn");
+
+function closeMore() {
+  moreMenu.hidden = true;
+  moreBtn.setAttribute("aria-expanded", "false");
+  moreBtn.classList.remove("on");
+}
+
+moreBtn.addEventListener("click", () => {
+  const open = moreMenu.hidden;
+  moreMenu.hidden = !open;
+  moreBtn.setAttribute("aria-expanded", String(open));
+  moreBtn.classList.toggle("on", open);
+  if (open) stir();
+});
+document.addEventListener("click", (e) => {
+  if (!moreMenu.hidden && !e.target.closest("#more")) closeMore();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !moreMenu.hidden) closeMore();
+});
+
+/* ------------------------------------------------------------- the way in -- */
+
+// A calculator with a door in it. None of this is security, and it should not be
+// mistaken for any: the access key in the watch link is what stands between a
+// stranger and this machine, and by the time a line of this runs that key has
+// already been read out of the hash. What it buys is that a screen somebody
+// glances over reads as a calculator rather than as a way into a desktop. So the
+// keys genuinely work - a prop whose buttons do nothing is a prop anyone spots -
+// and the code is never written down anywhere, so every load asks again.
+const ENTRY = "1234";
+
+const CALC_FN = {
+  "sin(": (x) => Math.sin(calcAngle(x)),
+  "cos(": (x) => Math.cos(calcAngle(x)),
+  "tan(": (x) => Math.tan(calcAngle(x)),
+  "ln(": Math.log, "log(": Math.log10, "sqrt(": Math.sqrt, "abs(": Math.abs,
+};
+
+// What each key writes into the expression. A multi-character token is one entry
+// in the list, which is what makes backspace land on the whole of "sin(" rather
+// than halfway through it.
+const CALC_KEYS = {
+  sq: "\u00b2", pow: "^", sqrt: "\u221a(", ln: "ln(", log: "log(", abs: "abs(",
+  sin: "sin(", cos: "cos(", tan: "tan(", pi: "\u03c0", e: "e", fact: "!",
+  "(": "(", ")": ")", neg: "\u2212", "%": "%", "/": "\u00f7", "*": "\u00d7",
+  "-": "\u2212", "+": "+", ".": ".",
+};
+
+// Typed keys that mean a pad key. Enter is =, Escape clears, and x is the
+// multiplication sign every calculator has let people type.
+const CALC_TYPED = {
+  Enter: "=", "=": "=", Escape: "ac", Backspace: "del", Delete: "ac",
+  x: "*", X: "*", "\u00d7": "*", "\u00f7": "/", ",": ".",
+};
+
+let calcDeg = true;   // degrees or radians, as the header key says
+let calcToks = [];    // the expression being typed, one key per entry
+let calcLast = "";    // the line above: the sum just worked out
+let calcFresh = true; // the next digit starts over rather than appending
+
+const calcAngle = (x) => calcDeg ? x * Math.PI / 180 : x;
+
+function calcFact(n) {
+  if (n < 0 || n > 170 || Math.floor(n) !== n) return NaN;
+  let r = 1;
+  for (let i = 2; i <= n; i++) r *= i;
+  return r;
+}
+
+// Twelve significant figures, which is where a double stops being able to back
+// up the digits it would print, and exponent form only where the plain one
+// would run off the display.
+function calcFmt(n) {
+  if (typeof n !== "number" || !isFinite(n)) return "Error";
+  if (Object.is(n, -0)) n = 0;
+  const a = Math.abs(n);
+  if (a !== 0 && (a >= 1e12 || a < 1e-9)) return n.toExponential(6);
+  return String(Number(n.toPrecision(12)));
+}
+
+// A real recursive-descent pass over the expression: precedence, right
+// associative powers, unary minus, the functions above, parentheses. Cheaper to
+// write than to explain why the calculator cannot add.
+function calcEval(text) {
+  const norm = text.replace(/\u00d7/g, "*").replace(/\u00f7/g, "/")
+    .replace(/\u2212/g, "-").replace(/\u00b2/g, "^2")
+    .replace(/\u221a\(/g, "sqrt(").replace(/\u03c0/g, "PI");
+  const ts = norm.match(
+    /\d+\.?\d*|\.\d+|sqrt\(|sin\(|cos\(|tan\(|ln\(|log\(|abs\(|PI|e|[+\-*/^()!%]/g) || [];
+  let i = 0;
+  const peek = () => ts[i];
+  const eat = (t) => ts[i] === t ? (i++, true) : false;
+  function expr() {
+    let v = term();
+    for (;;) { if (eat("+")) v += term(); else if (eat("-")) v -= term(); else return v; }
+  }
+  function term() {
+    let v = unary();
+    for (;;) {
+      if (eat("*")) v *= unary();
+      else if (eat("/")) { const d = unary(); v = d === 0 ? NaN : v / d; }
+      else return v;
+    }
+  }
+  function unary() { return eat("-") ? -unary() : power(); }
+  function power() { const b = postfix(); return eat("^") ? Math.pow(b, unary()) : b; }
+  function postfix() {
+    let v = primary();
+    for (;;) { if (eat("!")) v = calcFact(v); else if (eat("%")) v /= 100; else return v; }
+  }
+  function primary() {
+    const t = peek();
+    if (t === undefined) throw new Error("ran out");
+    if (t === "(") { i++; const v = expr(); if (!eat(")")) throw new Error("paren"); return v; }
+    if (CALC_FN[t]) { i++; const v = expr(); if (!eat(")")) throw new Error("paren"); return CALC_FN[t](v); }
+    if (t === "PI") { i++; return Math.PI; }
+    if (t === "e") { i++; return Math.E; }
+    if (/^[\d.]/.test(t)) { i++; return Number(t); }
+    throw new Error("token");
+  }
+  const v = expr();
+  if (i !== ts.length) throw new Error("trailing");
+  return v;
+}
+
+// Brackets a function key opened and nobody closed are closed here rather than
+// answered with an error, which is what every calculator does.
+function calcSolve() {
+  const text = calcToks.join("");
+  let open = 0;
+  for (const c of text) { if (c === "(") open++; else if (c === ")") open--; }
+  try { return calcFmt(calcEval(text + ")".repeat(Math.max(0, open)))); } catch (_) { return "Error"; }
+}
+
+function calcShow() {
+  $("calcPrev").textContent = calcLast;
+  $("calcNow").textContent = calcToks.length ? calcToks.join("") : "0";
+}
+
+function calcPress(k) {
+  if (k === "ac") { calcToks = []; calcLast = ""; calcFresh = true; }
+  else if (k === "del") { calcToks.pop(); calcFresh = calcToks.length === 0; }
+  else if (k === "deg") {
+    calcDeg = !calcDeg;
+    $("calcDeg").textContent = calcDeg ? "DEG" : "RAD";
+  } else if (k === "=") {
+    // The door. The code typed on its own and nothing else in the expression is
+    // the way through; a sum that merely happens to land on the same number is
+    // not, which is the difference between a code and an answer.
+    if (calcToks.join("") === ENTRY) { enter(); return; }
+    if (!calcToks.length) return;
+    const was = calcToks.join("");
+    const got = calcSolve();
+    calcLast = was + " =" + (got === "Error" ? " Error" : "");
+    calcToks = got === "Error" ? [] : [got];
+    calcFresh = true;
+  } else {
+    const digit = /^[0-9]$/.test(k);
+    const t = digit ? k : CALC_KEYS[k];
+    if (t === undefined) return;
+    if (calcFresh && (digit || k === ".")) calcToks = [];
+    calcFresh = false;
+    if (calcToks.join("").length < 40) calcToks.push(t);
+  }
+  calcShow();
+}
+
+function calcKey(e) {
+  if (!$("lock") || e.ctrlKey || e.altKey || e.metaKey) return;
+  const k = CALC_TYPED[e.key] || e.key;
+  if (!/^[0-9]$/.test(k) && k !== "=" && k !== "ac" && k !== "del" &&
+      !Object.prototype.hasOwnProperty.call(CALC_KEYS, k)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  calcPress(k);
+}
+
+// Past the calculator is where the page it was covering actually starts.
+function enter() {
+  document.removeEventListener("keydown", calcKey, true);
+  const lock = $("lock");
+  if (lock) lock.remove();
+  if (DIRECT || token) start();
+  else { state("wait", "Waiting for a key"); $("gateInput").focus(); }
+}
+
+$("calcPads").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b && b.dataset.k) calcPress(b.dataset.k);
+});
+$("calcDeg").addEventListener("click", () => calcPress("deg"));
+document.addEventListener("keydown", calcKey, true);
+calcShow();
 </script>
 </body>
 </html>
