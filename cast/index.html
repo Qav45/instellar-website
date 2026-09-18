@@ -103,55 +103,68 @@
   /* ---- toolbar ---- */
   /* Nine buttons in one row wrapped onto two lines on a laptop and ate into the
      picture. The four that get touched while watching stay out; the rest live
-     behind the overflow key, which keeps the bar one row at any width. */
-  #bar { display:flex; align-items:center; gap:6px; padding:7px 10px; flex:0 0 auto; flex-wrap:nowrap;
-         background:linear-gradient(180deg,#171c27,#12161f); border-bottom:1px solid var(--line);
-         font-size:13px; position:relative; z-index:6; }
+     behind the overflow key, which keeps the bar one row at any width.
+     Warm near-black, ivory type, hairlines and pills rather than boxes. No
+     backdrop-filter: the bar floats over the decoded video, and a blur there
+     is re-run on every frame by the same GPU the decoder is short of. */
+  #bar { --ink:#faf9f5; --ink2:#c2c0b6; --ink3:#8b897f; --hair:rgba(250,249,245,.09);
+         --wash:rgba(250,249,245,.055); --clay:#d97757;
+         display:flex; align-items:center; gap:10px; padding:8px 14px; flex:0 0 auto; flex-wrap:nowrap;
+         background:rgba(21,21,19,.94); border-bottom:1px solid var(--hair); color:var(--ink);
+         font-size:13px; letter-spacing:-.005em; position:relative; z-index:6; }
   #bar .spacer { flex:1; min-width:6px; }
-  #bar .grp { display:flex; align-items:center; gap:4px; padding-left:8px; margin-left:2px;
-         border-left:1px solid var(--line); }
-  #bar button, #bar select { background:#1b2130; color:var(--fg); border:1px solid var(--line);
-         border-radius:8px; padding:5px 9px; font-size:12px; font-family:inherit; cursor:pointer;
-         white-space:nowrap; transition:border-color .14s, color .14s, background .14s; }
-  #bar button:hover, #bar select:hover { border-color:var(--accent); background:#212a3c; }
-  #bar button.on { border-color:var(--accent); color:var(--accent); background:#1a2437; }
+  #bar .grp { display:flex; align-items:center; gap:2px; padding:3px; border-radius:999px;
+         background:var(--wash); border:1px solid var(--hair); }
+  #bar button, #bar select { background:transparent; color:var(--ink2); border:1px solid transparent;
+         border-radius:999px; padding:5px 12px; font-size:12.5px; font-weight:500; font-family:inherit;
+         letter-spacing:inherit; cursor:pointer; white-space:nowrap;
+         transition:background .15s, color .15s, border-color .15s; }
+  #bar button:hover, #bar select:hover { background:rgba(250,249,245,.08); color:var(--ink); }
+  #bar button:focus-visible, #bar select:focus-visible { outline:2px solid var(--clay); outline-offset:1px; }
+  #bar button.on { background:var(--ink); color:#141413; }
+  #bar button.on:hover { background:#fff; }
+  #bar select { -webkit-appearance:none; appearance:none; border-color:var(--hair); padding-right:26px;
+         background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23c2c0b6' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center; }
+  #bar select option { background:#1f1e1c; color:var(--ink); }
   /* Stream with no decoder here or no route there: the title says which. */
-  #bar button:disabled { opacity:.5; cursor:default; border-color:var(--line); background:#1b2130; }
+  #bar button:disabled, #bar select:disabled { opacity:.4; cursor:default; background-color:transparent; color:var(--ink2); }
   /* Mouse lock armed but not currently holding the pointer - Escape hands it
      back and only a click can take it again, so the button must not go on
      claiming the pointer is captured. */
-  #grab.on:not(.held) { border-style:dashed; }
-  #bar label { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:5px;
+  #grab.on:not(.held) { background:transparent; color:var(--ink); border:1px dashed var(--ink3); }
+  #bar label { color:var(--ink3); font-size:12px; display:flex; align-items:center; gap:7px;
          white-space:nowrap; }
 
   /* ---- overflow menu ---- */
   #more { position:relative; display:flex; }
-  #moreBtn { font-size:14px; line-height:1; padding:5px 10px; }
-  #moreMenu { position:absolute; right:0; top:calc(100% + 7px); background:var(--panel);
-         border:1px solid var(--line); border-radius:11px; padding:7px; min-width:196px; z-index:20;
-         display:flex; flex-direction:column; gap:5px; box-shadow:0 12px 34px rgba(0,0,0,.55); }
-  #moreMenu button { width:100%; text-align:left; padding:7px 10px; }
-  #moreMenu label { padding:1px 2px 3px; justify-content:space-between; }
+  #moreBtn { font-size:15px; line-height:1; padding:5px 11px; border-color:var(--hair) !important; }
+  #moreMenu { position:absolute; right:0; top:calc(100% + 9px); background:#1f1e1c;
+         border:1px solid var(--hair); border-radius:14px; padding:6px; min-width:210px; z-index:20;
+         display:flex; flex-direction:column; gap:2px; box-shadow:0 18px 44px rgba(0,0,0,.5); }
+  #moreMenu button { width:100%; text-align:left; padding:8px 12px; border-radius:9px; }
+  #moreMenu button.on { background:rgba(217,119,87,.16); color:#eca184; }
+  #moreMenu #stop { color:#e8866a; }
+  #moreMenu label { padding:4px 4px 6px 12px; justify-content:space-between; }
   #moreMenu select { flex:1; margin-left:8px; }
-  #moreMenu hr { border:0; border-top:1px solid var(--line); margin:2px 0; }
+  #moreMenu hr { border:0; border-top:1px solid var(--hair); margin:4px 6px; }
   /* The picture is worth more than the readouts once the bar starts to crowd. */
   @media (max-width:760px) { #hRate, #hFb { display:none; } }
   @media (max-width:560px) { #state { display:none; } }
 
-  #state { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px;
+  #state { display:flex; align-items:center; gap:8px; color:var(--ink2); font-size:12.5px; font-weight:500;
            min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  #state .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
-  #state.live .dot { background:#3ddc84; box-shadow:0 0 8px #3ddc84; }
-  #state.wait .dot { background:#ffb020; box-shadow:0 0 8px #ffb020; animation:pulse 1.2s infinite; }
-  #state.bad  .dot { background:#ff5c5c; box-shadow:0 0 8px #ff5c5c; }
-  @keyframes pulse { 50% { opacity:.25; } }
+  #state .dot { width:7px; height:7px; border-radius:50%; background:var(--ink3); flex:0 0 auto; }
+  #state.live .dot { background:#7fb77e; box-shadow:0 0 0 3px rgba(127,183,126,.16); }
+  #state.wait .dot { background:#e0a84a; box-shadow:0 0 0 3px rgba(224,168,74,.16); animation:pulse 1.2s infinite; }
+  #state.bad  .dot { background:#e5705a; box-shadow:0 0 0 3px rgba(229,112,90,.18); }
+  @keyframes pulse { 50% { opacity:.3; } }
 
   /* ---- stats readout ---- */
-  #hud { display:flex; gap:12px; font-size:11.5px; color:var(--muted);
-         font-variant-numeric:tabular-nums; white-space:nowrap; }
-  #hud b { color:var(--fg); font-weight:600; }
-  #hud .warn b { color:#ffb020; }
-  #hud .bad b { color:#ff5c5c; }
+  #hud { display:flex; gap:14px; font-size:11.5px; color:var(--ink3); padding-left:12px;
+         border-left:1px solid var(--hair); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #hud b { color:var(--ink); font-weight:500; margin-left:2px; }
+  #hud .warn b { color:#e0a84a; }
+  #hud .bad b { color:#e5705a; }
   /* The fps field keeps its frame diagnostics - duty, backlog, requested rate -
      in a tooltip, because they do not deserve toolbar width. Nothing says a
      tooltip is there unless the cursor does. */
@@ -164,11 +177,12 @@
   /* The toolbar floats over the picture and fades once the mouse rests, so a
      letterboxed video gets the rows the bar was taking. It comes back on the
      first movement; a cursor parked on the bar keeps it. */
-  /* Streaming earns the same treatment as Video: a game wants the rows the bar
-     was taking, and the bar is only ever a mouse-move away. */
-  body.video #bar, body.streaming #bar { position:absolute; top:0; left:0; right:0; z-index:6;
+  /* Not while DECODER+ runs: floating the bar hands its rows to the picture,
+     and with Fit on that rescales the whole screen the moment the decoder
+     takes over - which reads as the picture zooming in. */
+  body.video #bar { position:absolute; top:0; left:0; right:0; z-index:6;
          transition:opacity .25s; }
-  body.video.idle #bar, body.streaming.idle #bar { opacity:0; pointer-events:none; }
+  body.video.idle #bar { opacity:0; pointer-events:none; }
 
   /* ---- overlay cards (token / password / errors) ---- */
   #veil { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -696,16 +710,6 @@ function tick() {
   const vidIn = decoder && dt > 0 ? vidDelivered / dt : 0;
   const vidOut = decoder && dt > 0 ? vidPainted / dt : 0;
   vidFrames = vidDelivered = vidPainted = 0;
-  // Streaming floats the toolbar over the picture and lets it fade, the same as
-  // Video does: a game wants the rows the bar was taking. Derived here rather
-  // than set at every place a decoder starts or dies, which is how the class and
-  // the decoder would drift apart.
-  const barOver = !!decoder && vidReady;
-  if (barOver !== document.body.classList.contains("streaming")) {
-    document.body.classList.toggle("streaming", barOver);
-    if (barOver) stir();
-    else { clearTimeout(idleTimer); document.body.classList.remove("idle"); }
-  }
   // A decoder putting out well under what arrives is one that cannot keep up
   // - a Chromebook decoding AV1 in software, typically. Two seconds of it and
   // the codec is swapped for the next one, below.
@@ -1927,7 +1931,7 @@ async function holdAwake(on) {
 }
 
 function stir() {
-  if (!video && !document.body.classList.contains("streaming")) return;
+  if (!video) return;
   document.body.classList.remove("idle");
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
