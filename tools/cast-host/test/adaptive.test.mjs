@@ -590,13 +590,17 @@ const vnc = net.createServer((sock) => {
 });
 await new Promise((r) => vnc.listen(VNC_PORT, "127.0.0.1", r));
 
-// --lan because the session key is only ever inlined into the page, and the page is
-// only served under --lan. --share nope so no tvnserver is touched on the machine
-// running the tests.
+// --lan because the session key is only ever inlined into the page. The page is
+// served on the --lan listener alone now, so the key is pinned through the host's
+// CAST_SESSION_KEY test hook rather than read back off a loopback request - which
+// is the request the bridge refuses. --share nope so no tvnserver is touched on
+// the machine running the tests.
+const KEY = "adaptive-test-" + process.pid;
 const host = spawn(process.execPath, [
   HOST_SCRIPT, "--tunnel", "none", "--lan", "--port", String(PORT),
   "--vnc", "127.0.0.1:" + VNC_PORT, "--share", "nope",
-], { cwd: REPO, windowsHide: true });
+], { cwd: REPO, windowsHide: true,
+     env: Object.assign({}, process.env, { CAST_SESSION_KEY: KEY }) });
 
 let out = "";
 await new Promise((resolve, reject) => {
@@ -610,13 +614,7 @@ await new Promise((resolve, reject) => {
   host.on("exit", (code) => { clearTimeout(t); reject(new Error("exited " + code + ":\n" + out)); });
 });
 
-const key = await new Promise((resolve) => {
-  http.get({ host: "127.0.0.1", port: PORT, path: "/" }, (r) => {
-    let b = "";
-    r.on("data", (c) => (b += c));
-    r.on("end", () => resolve((b.match(/CAST_DIRECT="([\w-]+)"/) || [])[1] || ""));
-  });
-});
+const key = KEY;
 
 const ctl = (query) => new Promise((resolve) => {
   http.get({ host: "127.0.0.1", port: PORT, path: "/ctl?" + query }, (r) => {

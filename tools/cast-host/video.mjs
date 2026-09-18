@@ -481,6 +481,32 @@ export function av1SeqInfo(obu) {
 
 export const CODECS = ["av1", "hevc", "h264"];
 
+// How tall the encoded picture may be. The host's desktop is whatever it is -
+// 1440p and 4K are ordinary now - and the viewer is the end that has to decode
+// it. A built-in decoder on a light machine is bounded both by the picture it
+// will take and by the level the bitstream declares, and the host is the only
+// end that can choose either, so it chooses them here.
+//
+// 720 by default, because the viewer this cast is for is a Chromebook and its
+// own comment at the configure site records the shape of the problem: 1080p60
+// H.264 needs level 4.2, several rungs above what many built-in decoders carry,
+// and such a decoder refuses the configure outright rather than falling back.
+// 720p60 is level 3.2, which is inside what those decoders carry - a smaller
+// picture that plays against a larger one that does not. A strong desktop asks
+// for more with ?maxh=; nothing about this number is fixed.
+//
+// It is worth being clear that today this is not a default so much as the only
+// value: the page sends no maxh at all, so every viewer gets 720 whatever it
+// could decode. Two things could fix that and only one of them is right. The
+// wrong one is to stop capping unless asked - that hands the Chromebook the
+// 1080p60 the cap exists to prevent, and it is not justified by cost, because
+// the scale was measured on this host and comes to about 1.2ms of one core per
+// frame with no frames lost. The right one is for the page to ask: send
+// ?maxh= from the viewer's own screen, so a 1440p monitor gets 1440 and the
+// Chromebook gets 720, and the host keeps 720 for a page too old to ask.
+// That change is in cast/index.html, not here.
+const DEFAULT_MAX_HEIGHT = 720;
+
 // Everything here ends up on an ffmpeg command line, so nothing passes through
 // unchanged: numbers are clamped, the display is matched against the same
 // vocabulary the share dropdown uses, and the codec list keeps only the names
@@ -490,15 +516,21 @@ export const CODECS = ["av1", "hevc", "h264"];
 export function validateVideoSettings(q) {
   const fpsRaw = q.get("fps");
   const mbpsRaw = q.get("mbps");
+  const maxhRaw = q.get("maxh");
   const display = q.get("display") || "primary";
   const fps = fpsRaw == null || fpsRaw === "" ? 60 : Math.round(Number(fpsRaw));
   const mbps = mbpsRaw == null || mbpsRaw === "" ? 8 : Number(mbpsRaw);
-  if (!Number.isFinite(fps) || !Number.isFinite(mbps)) return null;
+  const maxh = maxhRaw == null || maxhRaw === "" ? DEFAULT_MAX_HEIGHT : Math.round(Number(maxhRaw));
+  if (!Number.isFinite(fps) || !Number.isFinite(mbps) || !Number.isFinite(maxh)) return null;
   if (display !== "primary" && display !== "full" && !/^[1-9][0-9]?$/.test(display)) return null;
   const codecs = (q.get("codecs") || "").split(",").filter((c, i, all) => CODECS.includes(c) && all.indexOf(c) === i);
+  // Kept even: every codec here subsamples chroma by two, and an odd dimension
+  // is a picture half the encoders refuse and the rest quietly round.
+  const capped = Math.min(2160, Math.max(240, maxh));
   return {
     fps: Math.min(120, Math.max(1, fps)),
     mbps: Math.min(50, Math.max(1, Math.round(mbps * 10) / 10)),
+    maxh: capped - (capped % 2),
     display,
     codecs: codecs.length ? codecs : ["h264"],
   };
@@ -536,6 +568,80 @@ const QUALITY = { h264: 20, hevc: 26, av1: 32 };
 const IDLE_MS = 3000;                // keep the encoder warm this long after the last viewer
 const STARTUP_MS = 2000;             // an exit sooner than this means "cannot start"
 const CRASH_WINDOW_MS = 10000;       // a second death this soon after a restart is final
+// How far the counted cadence may drift from the wall clock before it is pulled
+// back. See stamp() - a quarter second is long enough that no single slow
+// keyframe moves it and short enough that real lost frames do not accumulate.
+const CADENCE_SLIP_MS = 250;
+
+/* ------------------------------------------------- profile and level cap -- */
+
+// A level is a promise about how much work the bitstream asks of a decoder, and
+// a decoder that does not carry the level refuses the stream whatever else is
+// true of it. Every level bounds the same three things: the frame (H.264 in
+// macroblocks, HEVC and AV1 in luma samples), that number times the frame rate,
+// and the bitrate. Asking for the lowest level the picture actually needs is
+// the difference between a light decoder taking the stream and refusing it.
+//
+// Entries are [name, max size * rate, max size, max kbit/s], lowest first,
+// starting at 3.0 because nothing below it can hold a desktop. From H.264
+// Annex A table A-1, with MaxBR scaled by High profile's 1.25 cpbBrVclFactor;
+// HEVC A.4.1 at Main tier; AV1 A.3 at tier 0. Nothing here was measured - they
+// are the standards' own numbers.
+const LEVELS = {
+  h264: [
+    ["3.0", 40500, 1620, 12500], ["3.1", 108000, 3600, 17500],
+    ["3.2", 216000, 5120, 25000], ["4.0", 245760, 8192, 25000],
+    ["4.1", 245760, 8192, 62500], ["4.2", 522240, 8704, 62500],
+    ["5.0", 589824, 22080, 168750], ["5.1", 983040, 36864, 300000],
+    ["5.2", 2073600, 36864, 300000], ["6.0", 4177920, 139264, 300000],
+    ["6.1", 8355840, 139264, 600000], ["6.2", 16711680, 139264, 1000000],
+  ],
+  hevc: [
+    ["3.0", 16588800, 552960, 6000], ["3.1", 33177600, 983040, 10000],
+    ["4.0", 66846720, 2228224, 12000], ["4.1", 133693440, 2228224, 20000],
+    ["5.0", 267386880, 8912896, 25000], ["5.1", 534773760, 8912896, 40000],
+    ["5.2", 1069547520, 8912896, 60000], ["6.0", 1069547520, 35651584, 60000],
+    ["6.1", 2139095040, 35651584, 120000], ["6.2", 4278190080, 35651584, 240000],
+  ],
+  av1: [
+    ["3.0", 19975680, 665856, 6000], ["3.1", 31950720, 1065024, 10000],
+    ["4.0", 70778880, 2359296, 12000], ["4.1", 141557760, 2359296, 20000],
+    ["5.0", 267386880, 8912896, 30000], ["5.1", 534773760, 8912896, 40000],
+    ["5.2", 1069547520, 8912896, 60000], ["6.0", 1069547520, 35651584, 60000],
+    ["6.1", 2139095040, 35651584, 100000], ["6.2", 4278190080, 35651584, 160000],
+  ],
+};
+export const levelFor = (codec, w, h, fps, mbps) => {
+  const table = LEVELS[codec] || LEVELS.h264;
+  const size = codec === "h264" ? Math.ceil(w / 16) * Math.ceil(h / 16) : w * h;
+  const fit = table.find(([, rate, max, kbps]) =>
+    size <= max && size * fps <= rate && mbps * 1000 <= kbps);
+  return (fit || table[table.length - 1])[0];
+};
+
+// Profile per encoder, because the option's vocabulary differs per encoder and
+// an option this build does not have is a start failure rather than a warning.
+// What is listed was read out of `ffmpeg -h encoder=...` on this host, ffmpeg
+// 9.0.1: av1_nvenc has no -profile at all (Main is the only profile NVENC's
+// AV1 encoder produces), and QSV has no -level in its help, so QSV gets a
+// profile and nothing more.
+//
+// High is the right H.264 profile for a weak decoder, not a concession it
+// cannot afford. Every hardware H.264 decoder in service implements High - it
+// is what broadcast and every streaming service send - while Main and Baseline
+// only take away CABAC and the 8x8 transform, which is where a page of text
+// gets most of its compression. What a built-in decoder runs out of is level,
+// not profile, so the pin that was already here stays and the level joins it.
+// Main is likewise the 8-bit 4:2:0 profile for HEVC and AV1; naming it stops a
+// build whose default is main10 from handing a decoder ten-bit it will refuse.
+const PROFILES = {
+  h264_nvenc: "high", h264_amf: "high", h264_qsv: "high", libx264: "high",
+  hevc_nvenc: "main", hevc_amf: "main", hevc_qsv: "main",
+  av1_amf: "main", av1_qsv: "main",
+};
+const TAKES_LEVEL = new Set([
+  "h264_nvenc", "hevc_nvenc", "av1_nvenc", "h264_amf", "hevc_amf", "av1_amf", "libx264",
+]);
 
 // The low-latency flags are per vendor, not per codec: ffmpeg 9's hevc_nvenc
 // and av1_nvenc take the same preset/tune/zerolatency/rc/forced-idr options
@@ -543,16 +649,130 @@ const CRASH_WINDOW_MS = 10000;       // a second death this soon after a restart
 // QSV. NVENC repeats the parameter sets (or the AV1 sequence header) on every
 // IDR when no global header is asked for; the parsers put them back for any
 // encoder that does not. The raw muxer is the codec's own: h264, hevc, obu.
-export function ffmpegArgs(encoder, s) {
-  const idx = s.display === "primary" || s.display === "full" ? 0 : Number(s.display) - 1;
+// Which DXGI output ddagrab is pointed at, for a share value that was picked
+// to describe a VNC framebuffer. The two are not the same vocabulary and
+// nothing makes them agree.
+//
+// tvnserver takes -shareprimary, -sharedisplay N and -sharefull: Windows
+// display designations - the monitor marked primary in Display Settings, and
+// the monitors in the order Windows enumerates them. ddagrab takes one
+// output_idx, which is IDXGIAdapter::EnumOutputs order on one adapter - the
+// order the outputs hang off the card. Neither API promises the two orders
+// match, so both of the single-screen cases below are an assumption:
+//
+//  - "primary" is output 0, assuming the primary monitor is the first output
+//    of the first adapter. That is the usual arrangement; it is NOT VERIFIED
+//    here, because checking it needs a second monitor and a real capture. When
+//    it is wrong the viewer is shown the wrong screen rather than a stretched
+//    one, and two monitors of the same shape make that indistinguishable from
+//    the right one at this end.
+//  - "2" is output 1, the same assumption one step along.
+//  - "full" is the one this cannot honour at all, and is why it is now written
+//    out separately instead of sharing a branch with "primary" as if the two
+//    were the same request. -sharefull is the whole virtual desktop, every
+//    monitor in one framebuffer. ddagrab has exactly one output_idx and no
+//    virtual-desktop mode (ffmpeg 9.0.1, `ffmpeg -h filter=ddagrab`: output_idx,
+//    offset_x/y, video_size, and nothing that spans outputs), and this build
+//    carries no stack filter that takes D3D11 frames - `ffmpeg -filters` lists
+//    xstack, xstack_qsv and xstack_vaapi, and scale_d3d11 is the only d3d11
+//    filter in it. One ddagrab per output would therefore mean hwdownload of
+//    every desktop every frame into a CPU xstack and hwupload back, which is
+//    the read-back this file already refuses to do for a single scale.
+//
+// So "full" is served output 0: one monitor's picture for a framebuffer that
+// describes several. Nothing at this end can fix that, and the viewer is the
+// end that can see it - the config message carries the encoded width and
+// height, and the page compares their shape against the framebuffer it is
+// measuring the mouse against before it draws anything.
+export function captureIndex(display) {
+  if (display === "primary" || display === "full") return 0;
+  return Number(display) - 1;
+}
+
+export function ffmpegArgs(encoder, s, scale = true) {
+  const idx = captureIndex(s.display);
   // No cursor in the capture: the page keeps the browser's own pointer over
   // the canvas, which has no lag at all, and a captured one arrives a frame or
   // more later as a second cursor trailing the first. A game under pointer
   // lock draws its own cursor into the frame anyway.
+  //
+  // framerate is a cadence and not a ceiling: desktop duplication only hands
+  // ffmpeg a surface when the desktop changes, but ddagrab's dup_frames option
+  // defaults to on (ffmpeg 9.0.1, `ffmpeg -h filter=ddagrab`), so a still
+  // screen still produces a frame every period. That is what makes counting
+  // access units a usable clock in stamp(); it is also why dup_frames is not
+  // written out here - it is already the default, and an option an older
+  // ffmpeg does not know is a start failure rather than a warning.
   let filter = "ddagrab=output_idx=" + idx + ":framerate=" + s.fps + ":draw_mouse=0";
-  // libx264 runs on the CPU and cannot read D3D11 textures; the others take the
-  // captured frame straight from the GPU.
-  if (encoder === "libx264") filter += ",hwdownload,format=nv12";
+  // The picture cap. The scale runs on the CPU, after reading the captured frame back off the
+  // GPU. That is not the shape this wanted. It is the shape that works here,
+  // and it was arrived at by trying the GPU ones on the real host and watching
+  // each fail:
+  //
+  //  - scale_d3d11 is the only scaler in this build that takes a D3D11 frame,
+  //    and it cannot allocate its own output. Every variant fails the same
+  //    way, in AVHWFramesContext before a frame is ever pulled: "Could not
+  //    create the texture (80070057)", E_INVALIDARG. That is with ddagrab's
+  //    device, with an explicit adapter (d3d11va=d3d:0), with a device derived
+  //    through hwmap, with format=bgra and with nv12 - and, decisively, with
+  //    no ddagrab in the graph at all: `-f lavfi -i testsrc,format=bgra,
+  //    hwupload,scale_d3d11=width=1280:height=720:format=bgra` fails
+  //    identically. So it is not ddagrab's texture pool that scale_d3d11
+  //    cannot cope with, as was first suspected; the filter cannot make an
+  //    output pool on this build and driver at all. (Its options are also
+  //    width/height, not w/h - written w=/h= it never reaches the texture and
+  //    fails earlier still with "Option not found", which is the form that
+  //    shipped first and the reason the cap had never once applied.)
+  //  - scale_cuda would suit this card, and getting a frame to it does not
+  //    work: hwmap=derive_device=cuda off ddagrab's device fails with
+  //    "Failed to created derived device context: -40" (ENOSYS). Reaching it
+  //    the long way round - hwdownload, hwupload_cuda, scale_cuda - was not
+  //    run, because it reads the frame back anyway and then pushes the
+  //    full-size picture up a second time: more traffic than scaling it on the
+  //    way past, by arithmetic rather than by measurement.
+  //
+  // So the choice on this host is not GPU scale against CPU scale. It is CPU
+  // scale against no cap at all, and measured on this machine the CPU scale is
+  // cheap enough that it is not a real contest. Eight seconds of the 1920x1080
+  // desktop at sixty frames into h264_nvenc through exactly the command line
+  // this function builds, -f null, nothing written to disk, twice each:
+  // uncapped encoded 443 and 465 frames for 0.09s and 0.08s of process CPU;
+  // capped to 1280x720 it encoded 458 and 464 frames for 0.55s and 0.70s. The
+  // readback costs no frames - both held the rate, and the spread between runs
+  // is larger than the difference between them - and it costs roughly 1.2ms of
+  // one core per frame, under 8% of a core at sixty. That is the whole price
+  // of the cap, against a Chromebook being handed 1080p60 H.264 at level 4.2.
+  // The measurement is a 1080p desktop; a 4K one reads back four times the
+  // bytes and scales four times the pixels, and that was NOT measured here.
+  //
+  // format=bgra is what hwdownload can take from ddagrab's pool, and the
+  // format=nv12 on the end is what the encoders want; swscale folds the
+  // conversion into the same pass as the scale rather than making two.
+  //
+  // The box itself is 16:9 at the asked-for height rather than a height on its
+  // own: a height alone leaves the width free, and an ultrawide desktop cut to 720
+  // rows still carries half again the macroblocks of 1280x720 - a different
+  // level, and possibly a level too far. The picture is fitted inside the box
+  // with its aspect ratio kept and is never enlarged, so a desktop already
+  // inside the box is encoded exactly as it is. Both dimensions are truncated
+  // to even for the chroma planes. The sizes are expressions because the
+  // desktop's size is not known until ddagrab has opened; scale evaluates them
+  // once at init (eval defaults to init), not per frame.
+  const capH = s.maxh || DEFAULT_MAX_HEIGHT;
+  const capW = Math.round(capH * 16 / 9) - (Math.round(capH * 16 / 9) % 2);
+  const fit = "min(1\\,min(" + capW + "/iw\\," + capH + "/ih))";
+  // One hwdownload, not two. The capped chain already ends on the CPU in nv12,
+  // which is what libx264 needs, so the libx264 branch below only has to fire
+  // when the cap is off - a second hwdownload on a frame that is already in
+  // system memory is an error, not a no-op.
+  if (scale) {
+    filter += ",hwdownload,format=bgra,scale=w=trunc(iw*" + fit + "/2)*2:h=trunc(ih*" +
+      fit + "/2)*2,format=nv12";
+  } else if (encoder === "libx264") {
+    // libx264 runs on the CPU and cannot read D3D11 textures; the others take
+    // the captured frame straight from the GPU.
+    filter += ",hwdownload,format=nv12";
+  }
   // Give rate control a quarter-second budget: the old two-frame VBV forced
   // large keyframes to sharply lower quality, causing periodic quality pulses.
   // This is an encoder rate-control budget, not a playback buffer; frames are
@@ -580,6 +800,34 @@ export function ffmpegArgs(encoder, s) {
   // on every frame and sharper on every frame, which is what a page of text
   // needs. -maxrate is still the viewer's ceiling and
   // motion still climbs to it.
+  //
+  // What none of these numbers flattens is the keyframe itself. A keyframe
+  // against a delta on a still screen is two orders of magnitude of bytes, and
+  // that burst arrives late and holds back the frames behind it, which is felt
+  // as uneven motion however even the encoder's own output cadence is. Three
+  // levers were weighed and two were left alone:
+  //
+  // - Intra refresh is the textbook answer - it spreads a keyframe's cost over
+  //   a whole refresh cycle - and it is ruled out here, not deferred. It works
+  //   by not coding IDRs, and three things in this file are built on IDRs
+  //   arriving: the config message is not sent until the first keyframe gives
+  //   up an SPS, the replay cache a joining viewer gets is reset by a keyframe
+  //   and would otherwise grow without bound, and a viewer whose socket fell a
+  //   megabyte behind is held on waitKey until the next keyframe. With no IDR
+  //   after the first, a viewer who joins late or drops a frame never recovers.
+  //   Handling a recovery point the way a keyframe is handled would be a
+  //   different change in a different place.
+  // - A bigger VBV only permits a bigger burst; a smaller one is what the
+  //   two-frame budget above already was, and the comment records what it did
+  //   to keyframe quality. Neither moves without a measurement, and none was
+  //   taken here.
+  // - A longer GOP is the lever that works, and it is the one already spent:
+  //   GOP_SECONDS is held at one second because it is also how long a viewer
+  //   that drops a frame waits to see a picture again.
+  //
+  // What does flatten the burst in this change is the picture cap above: a
+  // keyframe costs what its pixels cost, and a capped picture is a smaller
+  // keyframe by the same ratio. That is arithmetic, not a measurement.
   const rate = vbr
     ? ["-b:v", "0", "-cq", String(QUALITY[codecOf(encoder)] || QUALITY.h264),
        "-maxrate", s.mbps + "M", "-bufsize", Math.round(s.mbps * 250) + "k",
@@ -602,7 +850,18 @@ export function ffmpegArgs(encoder, s) {
     qsv: ["-preset", "veryfast", "-look_ahead", "0"],
     libx264: ["-preset", "ultrafast", "-tune", "zerolatency", "-x264-params", "repeat-headers=1"],
   }[vendor] || [];
-  const after = vendor === "nvenc" ? ["-forced-idr", "1"].concat(encoder === "h264_nvenc" ? ["-profile:v", "high"] : []) : [];
+  // The level is worked out from the cap, not from the desktop, because the
+  // desktop's size is not known until ddagrab has opened. The cap is an upper
+  // bound on what is encoded, so the level asked for is never lower than the
+  // picture needs - at worst a rung high on a desktop smaller than the box.
+  // With the cap off there is no upper bound at all, so no level is named and
+  // the encoder picks its own.
+  const bound = [];
+  if (PROFILES[encoder]) bound.push("-profile:v", PROFILES[encoder]);
+  if (scale && TAKES_LEVEL.has(encoder)) {
+    bound.push("-level", levelFor(codecOf(encoder), capW, capH, s.fps, s.mbps));
+  }
+  const after = (vendor === "nvenc" ? ["-forced-idr", "1"] : []).concat(bound);
   const mux = { av1: "obu", hevc: "hevc", h264: "h264" }[codecOf(encoder)];
   return ["-hide_banner", "-loglevel", "error", "-nostdin", "-fflags", "nobuffer",
     "-flags", "low_delay", "-init_hw_device", "d3d11va", "-filter_complex", filter,
@@ -613,9 +872,14 @@ export function ffmpegArgs(encoder, s) {
 // the codec it is producing is one the viewer can decode - not only when the
 // lists are identical, or two browsers with different decoders would restart
 // the encoder at each other for ever.
+//
+// The cap joins fps and mbps in that test rather than being waved through:
+// two viewers that disagree about the size of the picture disagree about the
+// picture, and serving the second one whatever the first asked for is how a
+// light client silently gets handed the stream it cannot decode.
 const canJoin = (a, b, encoder) =>
   a && b && a.fps === b.fps && a.mbps === b.mbps && a.display === b.display &&
-  b.codecs.includes(codecOf(encoder));
+  a.maxh === b.maxh && b.codecs.includes(codecOf(encoder));
 
 // What the config message needs from the first keyframe: the WebCodecs codec
 // string and the picture size, each read from the codec's own header.
@@ -624,6 +888,52 @@ const describe = {
   hevc: (au) => hevcSpsInfo(au.sps),
   av1: (au) => av1SeqInfo(au.seq),
 };
+
+// What to call the codec when its own header cannot be read. The family is
+// known from the encoder name whatever the bitstream says, and these are the
+// exact strings the page probes each family with before it asks for one - so a
+// viewer that negotiated the family has already had its decoder say yes to the
+// string it would get back here. It is a name, not a measurement: a picture
+// size cannot be guessed, so that is left out of the config instead.
+const FAMILY_CODEC = {
+  h264: "avc1.64002a", hevc: "hvc1.1.6.L120.90", av1: "av01.0.08M.08",
+};
+
+// The one line out of a failed ffmpeg run that is worth showing a person.
+//
+// ffmpeg says how it ended after it says why it ended. The last line of a
+// failed run is nearly always a generic trailer - the muxer noticing the write
+// failed, then "Conversion failed!" - while the line that names the cause
+// (ddagrab losing the desktop duplication, a driver refusing to open the
+// encoder) is one or more lines above it. Taking the last line therefore
+// reports the symptom reliably and hides the reason every time, which is most
+// of why a person watching this console cannot say what they saw.
+const TRAILERS = [
+  /^Conversion failed!/,
+  /^av_interleaved_write_frame\(\)/,
+  /^Error writing trailer/,
+  /^Error muxing a packet/,
+  /^Error closing file/,
+  /^Error while filtering/,
+  /^Task finished with error code/,
+  /^Terminating thread with return code/,
+  /^Exiting normally, received signal/,
+];
+export function ffmpegReason(tail) {
+  const lines = String(tail || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  // ffmpeg prefixes its own lines with the component that wrote them
+  // ("[out#0/h264 @ 000001f0...] Error muxing a packet"). The prefix carries a
+  // pointer, so it is stripped before matching rather than written into the
+  // patterns - but it is kept in what is returned, because on the line that
+  // does name the cause it says which filter or encoder that cause is about.
+  const bare = (l) => l.replace(/^\[[^\]]*\]\s*/, "");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!TRAILERS.some((t) => t.test(bare(lines[i])))) return lines[i];
+  }
+  // Every line was a trailer. ffmpeg never said why, so say how: the last line
+  // is still the truest thing available, and an empty reason is not printed.
+  return lines.length ? lines[lines.length - 1] : "";
+}
 
 export function createVideoSource(opts) {
   const log = opts.log || (() => {});
@@ -639,8 +949,12 @@ export function createVideoSource(opts) {
   let child = null;
   let chain = [];                  // encoders for the requested codecs, in order
   let encoderIdx = 0;
+  let scaled = true;               // the picture cap is in the filter chain
   let encoder = "";
   let startedAt = 0;
+  let frames = 0;                  // access units since the cadence was anchored
+  let origin = 0;                  // the timestamp that anchor carries
+  let lastTs = 0;                  // the timestamp the last unit carried
   let proven = false;              // this encoder has produced a picture
   let lastCrashAt = 0;
   let config = null;
@@ -678,32 +992,143 @@ export function createVideoSource(opts) {
     e.sink.au(au.flags, au.ts, au.bytes);
   };
 
+  // A capture clock, not an arrival clock. Date.now() at the moment an access
+  // unit falls out of the pipe carries everything that happened to it on the
+  // way there: the encoder spending longer on a keyframe than on a delta, the
+  // pipe filling, this process being scheduled late. A viewer that presents on
+  // those timestamps presents the host's jitter as motion, which is the whole
+  // thing a presentation clock at the other end exists to stop.
+  //
+  // ddagrab produces a frame every period whether or not the desktop changed,
+  // so counting access units from an anchor and multiplying by the period is
+  // the cadence the screen was actually sampled at - even, by construction.
+  // The wall clock stays as the anchor of last resort: if the count drifts
+  // further than CADENCE_SLIP_MS from it, the encoder is not keeping up and
+  // the count would otherwise fall behind real time for ever, so the anchor is
+  // moved to now and the count starts again from there. That costs exactly one
+  // irregular step, and never a backwards one, because a viewer ordering
+  // frames by these would have to throw away any frame that went back.
+  const stamp = () => {
+    const wall = Date.now() - startedAt;
+    let ts = origin + Math.round(frames * 1000 / current.fps);
+    if (Math.abs(ts - wall) > CADENCE_SLIP_MS) {
+      ts = Math.max(wall, lastTs);
+      origin = ts;
+      frames = 0;
+    }
+    frames++;
+    lastTs = ts;
+    return ts;
+  };
+
   const onAu = (parsed) => {
     if (!proven) {
       proven = true;
-      log("video    " + codecOf(encoder) + " via " + encoder);
+      retryOnce = false;
+      log("DECODER+ " + codecOf(encoder) + " via " + encoder);
     }
     if (!config) {
       if (!parsed.key) return;                       // nothing to decode from yet
-      const info = describe[codecOf(encoder)](parsed);
+      // Reading the picture size means running an exp-Golomb reader over a
+      // parameter set this build has never seen: an encoder that writes one
+      // differently, or a keyframe that carries none at all, walks the reader
+      // off the end of the buffer and throws. This runs inside the encoder's
+      // stdout handler, where nothing above it is listening - so the host has
+      // been ending for every viewer, over a picture size.
+      //
+      // Both dimensions are optional on the wire and the page treats them as
+      // optional, so a header that cannot be read costs the config those two
+      // fields. The codec string cannot be left out the same way - the page
+      // has nothing to configure a decoder with - so the family's own name
+      // stands in for it; see FAMILY_CODEC.
+      const family = codecOf(encoder);
+      let info = null;
+      try {
+        info = describe[family](parsed);
+      } catch (e) {
+        log("DECODER+ could not read the " + family + " header (" + e.message +
+          ") - sending the config without a picture size");
+      }
       config = {
-        type: "config", codec: info.codec, width: info.width, height: info.height,
+        type: "config", codec: (info && info.codec) || FAMILY_CODEC[family],
+        width: info ? info.width : undefined, height: info ? info.height : undefined,
         fps: current.fps, encoder, display: current.display, mbps: current.mbps,
       };
-      for (const e of sinks) e.sink.config(config);
+      for (const e of sinks) { try { e.sink.config(config); } catch (_) {} }
     }
-    const au = { flags: parsed.key ? 1 : 0, ts: Date.now() - startedAt, bytes: parsed.bytes };
+    const au = { flags: parsed.key ? 1 : 0, ts: stamp(), bytes: parsed.bytes };
     // The cache is one GOP whatever its length - up to fps * GOP_SECONDS AUs.
     if (parsed.key) { gop = [au]; gopBytes = 0; } else gop.push(au);
     gopBytes += au.bytes.length;
-    for (const e of sinks) deliver(e, au);
+    // One viewer per iteration, and a throw from one of them is that viewer's
+    // problem and nobody else's. The sink lives in cast-host.mjs and guards
+    // itself today, but this loop is where every other viewer's next frame
+    // comes from and it is a long way from that guard: a throw here ends the
+    // fan-out part way through the set, and - being inside the encoder's
+    // stdout handler - takes the host with it. A sink that threw may have put
+    // half a frame on the wire, so it resumes on the next keyframe.
+    for (const e of sinks) {
+      try { deliver(e, au); } catch (_) { e.waitKey = true; }
+    }
   };
+
+  // Killing the encoder and starting its replacement are one decision, but
+  // they cannot be one tick. On Windows kill() is TerminateProcess, and ffmpeg
+  // holds the D3D11 desktop duplication until the process itself is gone - so
+  // a replacement spawned in the same tick can find the desktop still taken
+  // and fail to start. That failure is indistinguishable from "this encoder is
+  // not available on this machine", which is what the exit handler concludes:
+  // encoderIdx walks nvenc, amf, qsv, libx264, every one of them racing the
+  // same dying process, and the run ends at closeAll(1011, "no encoder") - one
+  // viewer changing its frame rate killing the stream for everybody, with a
+  // reason that is not true.
+  //
+  // So the start waits, and it waits on the old process's own exit rather than
+  // on a clock: a start with nothing to wait for is not delayed at all, and
+  // the timeout below is a bound rather than a delay - it matters only if the
+  // exit never arrives at all.
+  //
+  // That removes the cause. retryOnce bounds the damage, and it is a second
+  // fix rather than the same one, because a start can still lose the screen
+  // for a reason no exit event can be waited on: an ffmpeg that an *earlier*
+  // run of this host orphaned is still on the duplication, and this process
+  // never had its exit to wait for. Either way the first start after a restart
+  // this host asked for is evidence about the screen and not about the
+  // encoder, so it gets that encoder a second time before the chain moves on.
+  // One extra spawn, once; every other failure walks the chain as before.
+  const KILL_SETTLE_MS = 2000;
+  let dying = null;                // killed, not yet seen to let go of the screen
+  let queued = null;               // the start that is waiting for it
+  let retryOnce = false;           // this start follows a kill; do not judge the encoder by it
 
   const kill = () => {
     if (!child) return;
     const c = child;
     child = null;
+    dying = c;
+    const settle = () => {
+      if (dying !== c) return;
+      dying = null;
+      const next = queued;
+      queued = null;
+      if (next && !stopped) next();
+    };
+    const t = setTimeout(settle, KILL_SETTLE_MS);
+    t.unref();
+    // A spawn that never got as far as a process emits 'error' and may never
+    // emit 'exit'; both mean the same thing here.
+    c.once("exit", () => { clearTimeout(t); settle(); });
+    c.once("error", () => { clearTimeout(t); settle(); });
     c.kill();
+  };
+
+  // Start, but not before whatever we just killed has let go of the screen.
+  // Only ever one start is waiting: a second viewer restarting during the
+  // settle replaces the first one's settings rather than queueing behind them,
+  // which is the same last-writer-wins the immediate path already had.
+  const startWhenFree = (settings) => {
+    if (!dying) { start(settings); return; }
+    queued = () => start(settings);
   };
 
   const start = (settings) => {
@@ -712,13 +1137,28 @@ export function createVideoSource(opts) {
     gop = [];
     gopBytes = 0;
     proven = false;
+    frames = 0;
+    origin = 0;
+    lastTs = 0;
     for (const e of sinks) e.waitKey = true;
     // The first requested codec's encoders, then the next codec's: a host
     // without an AV1 encoder still serves HEVC or H.264.
     chain = settings.codecs.flatMap((c) => ENCODERS[c]);
     encoder = chain[encoderIdx];
     if (!encoder) {
-      log("video    no encoder could start (tried " + chain.join(", ") + ")");
+      // Nothing started. If the picture cap was in the filter chain it is the
+      // first thing to suspect, because it is the one part of the command line
+      // that is the same for every encoder and could therefore fail for all of
+      // them at once - and a host that cannot scale on its GPU should still
+      // stream at its native size, as it did before there was a cap at all.
+      if (scaled) {
+        scaled = false;
+        encoderIdx = 0;
+        log("DECODER+ nothing started with the picture cap - retrying without it");
+        start(settings);
+        return;
+      }
+      log("DECODER+ no encoder could start (tried " + chain.join(", ") + ")");
       current = null;
       closeAll(1011, "no encoder");
       return;
@@ -726,7 +1166,7 @@ export function createVideoSource(opts) {
     const codec = codecOf(encoder);
     const parser = codec === "av1" ? parseObu() : parseAnnexB(codec);
     let errTail = "";
-    const proc = spawn(bin, binArgs.concat(ffmpegArgs(encoder, settings)),
+    const proc = spawn(bin, binArgs.concat(ffmpegArgs(encoder, settings, scaled)),
       { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     child = proc;
     startedAt = Date.now();
@@ -743,29 +1183,35 @@ export function createVideoSource(opts) {
       child = null;
       for (const au of parser.flush()) onAu(au);
       const lived = Date.now() - startedAt;
-      const why = errTail.trim().split(/\r?\n/).filter(Boolean).pop() || "";
+      const why = ffmpegReason(errTail);
       if (!proven || lived < STARTUP_MS) {
         // Never produced a picture: this encoder is not available on this
         // machine (no such GPU, driver too old). Try the next one.
-        log("video    " + encoder + " failed (exit " + code + ")" + (why ? ": " + why : ""));
+        log("DECODER+ " + encoder + " failed (exit " + code + ")" + (why ? ": " + why : ""));
+        if (retryOnce) {
+          retryOnce = false;
+          start(settings);                           // the same encoder, once
+          return;
+        }
         encoderIdx++;
         start(settings);
         return;
       }
       if (Date.now() - lastCrashAt < CRASH_WINDOW_MS) {
-        log("video    " + encoder + " died again (exit " + code + ")" + (why ? ": " + why : ""));
+        log("DECODER+ " + encoder + " died again (exit " + code + ")" + (why ? ": " + why : ""));
         current = null;
         closeAll(1011, "encoder died");
         return;
       }
       lastCrashAt = Date.now();
-      log("video    " + encoder + " exited (" + code + ")" + (why ? ": " + why : "") + " - restarting");
+      log("DECODER+ " + encoder + " exited (" + code + ")" + (why ? ": " + why : "") + " - restarting");
       start(settings);
     });
   };
 
   const stopEncoder = () => {
     kill();
+    queued = null;                 // a deliberate stop outranks a waiting start
     current = null;
     config = null;
     gop = [];
@@ -793,17 +1239,23 @@ export function createVideoSource(opts) {
       // The first viewer picks the settings; a later one who wants something
       // else restarts the encoder for everyone. Start over at the top of the
       // chain: the failure may have been about the old settings.
-      if (child) log("video    restarting for " + settings.fps + " fps / " + settings.mbps + " mbps / " + settings.display + " / " + settings.codecs.join(","));
+      if (child) log("DECODER+ restarting for " + settings.fps + " fps / " + settings.mbps + " mbps / " + settings.maxh + "p / " + settings.display + " / " + settings.codecs.join(","));
+      const deliberate = !!child || !!dying;
       kill();
       encoderIdx = 0;
-      start(settings);
+      scaled = true;
+      retryOnce = deliberate;
+      startWhenFree(settings);
     }
     return () => {
       if (!sinks.delete(entry)) return;
       if (sinks.size || !child) return;
       // Keep the encoder warm across a viewer's reconnect; stop it if nobody
       // comes back so an idle host is not burning GPU on nothing.
+      // unref'd: keeping an idle encoder warm is worth three seconds of GPU,
+      // not three seconds of a host that is otherwise finished and waiting.
       idleTimer = setTimeout(() => { idleTimer = null; if (!sinks.size) stopEncoder(); }, IDLE_MS);
+      idleTimer.unref();
     };
   };
 

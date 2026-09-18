@@ -19,8 +19,13 @@
 // not enough - and the TightVNC password is still the last gate.
 //
 // That second gate only holds because the viewer page, which carries the session
-// key inlined, is served only under --lan. The tunnel reverse-proxies every path,
-// so serving it unconditionally handed the key to anyone who learned the hostname.
+// key inlined, is never served to the tunnel. --lan used to be the whole of that
+// promise, and a flag cannot keep it: a flag records what was intended, not where
+// a request came from, and the tunnel reverse-proxies every path into this same
+// process. So --lan alongside the default --tunnel auto served the key to anyone
+// who learned the tunnel hostname. What keeps it now is which socket accepted the
+// request - under --lan the page lives on a second listener bound to the LAN
+// address alone, and the tunnel is only ever pointed at loopback.
 //
 // Publishing uses a different key from watching. The view key travels in the watch
 // link; the publish key never leaves this machine. See README, "The two keys".
@@ -34,6 +39,7 @@ import path from "node:path";
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { createVideoSource, validateVideoSettings, CODECS } from "./video.mjs";
+import { selectServer, shareArgv, pushesUpdates, defaultPort } from "./vnc-server.mjs";
 
 /* ---------------------------------------------------------------- config -- */
 
@@ -51,6 +57,9 @@ const NGROK_DOMAIN = arg("ngrok-domain", process.env.NGROK_DOMAIN || "");
 const FIXED_URL = arg("url", "");                  // skip the tunnel, publish this
 const SHARE = arg("share", "primary");             // primary | full | <display number>
 const LAN = argv.includes("--lan");                // also listen on the local network
+// The one address --lan listens on, resolved in main() before anything binds.
+// Empty means no route out was found, and then --lan serves no page at all.
+let LAN_IP = "";
 const ADMIN_TOKEN = process.env.CAST_TOKEN || "";  // only if the site sets CAST_TOKEN
 const STOP_FILE = process.env.CAST_STOP_FILE || ""; // cooperative stop for cast-agent
 // Stream mode: ffmpeg encodes the screen on the GPU and /video fans the H.264
@@ -67,8 +76,40 @@ if (CODEC && !CODECS.includes(CODEC)) {
   process.exit(2);
 }
 
-const [VNC_HOST, VNC_PORT] = String(arg("vnc", "127.0.0.1:5900")).split(":");
-const SESSION_KEY = crypto.randomBytes(9).toString("base64url");
+// Which VNC+ server this bridge is driving, and what it can do. The table, the
+// binary paths and the share argv all live in vnc-server.mjs; nothing here knows
+// a path or a command line any more. With no --vnc-server the order of that
+// table decides, and TightVNC is first in it - so on this machine, which has
+// TightVNC installed and is streaming through it right now, this resolves to
+// exactly what was hardcoded here before.
+//
+// Naming a server that is not installed is an error rather than a silent fall
+// back to a different one: a host that quietly kept using the incumbent after
+// being told to use something else would make an A/B measurement meaningless.
+const VNC_PREFER = arg("vnc-server", process.env.CAST_VNC_SERVER || "");
+const VNC_SERVER = selectServer({ prefer: VNC_PREFER });
+if (VNC_PREFER && !VNC_SERVER) {
+  console.error("\n  No " + VNC_PREFER + " on this machine, and --vnc-server is not a" +
+    "\n  suggestion: carrying on with a different server would make any" +
+    "\n  measurement taken against it meaningless.\n");
+  process.exit(2);
+}
+// True when the server pushes framebuffer updates on its own (ContinuousUpdates,
+// pseudo-encoding -313). Only TigerVNC has it on Windows; see vnc-plus.md. An
+// unknown server reads as false, which keeps the injector - see arm() in
+// bridge() for why that is the safe direction.
+const VNC_PUSHES = pushesUpdates(VNC_SERVER);
+// The port still comes from --vnc when it is given. Without it the selected
+// server names its own: 5900 for the incumbent, and 5901 for the two that are
+// only ever worth running beside it. defaultPort(null) is 5900, so a machine
+// with no known server installed probes exactly where it always did.
+const [VNC_HOST, VNC_PORT] = String(arg("vnc", "127.0.0.1:" + defaultPort(VNC_SERVER))).split(":");
+// The env form is the test hook, like CAST_TUNNEL_BIN and CAST_FFMPEG_BIN. The
+// only place this key is ever published is the viewer page, and that is served
+// on the --lan listener alone now, so a suite cannot read it back off loopback.
+// Pinning it grants nothing: whoever sets this process's environment spawned the
+// process and could read the key straight out of it.
+const SESSION_KEY = process.env.CAST_SESSION_KEY || crypto.randomBytes(9).toString("base64url");
 // Two independent secrets. TOKEN goes in the watch link and is meant to be
 // shared; PUBLISH_KEY never leaves this machine. They used to be one key, which
 // meant anyone invited to watch could also repoint the registry at a machine of
@@ -79,8 +120,11 @@ const PUBLISH_KEY = process.env.CAST_PUBLISH_KEY || loadSecret("publish-key", 24
 // and publishing a loopback URL shipped this run's session key to the registry
 // for an endpoint no viewer could ever open.
 const TUNNELLESS = TUNNEL === "none" && !FIXED_URL;
-// TightVNC's polling interval is the hard ceiling on frames per second, and it
-// lives under an HKLM key this process may not even read. tune-host.cmd is
+// TightVNC's polling interval is the ceiling on frames per second on the capture
+// path it falls back to, and nothing at all while desktop duplication is running
+// - see the VNC+ section of the README, and the tightvnc record in
+// vnc-server.mjs, which carries the file and line the claim comes from. It lives
+// under an HKLM key this process may not even read. tune-host.cmd is
 // elevated when it writes that key, so it leaves the number here on its way out.
 // A readout, never a lever: 0 means nobody has run the tuner on this machine.
 const POLL_MS = readPollMs();
@@ -99,7 +143,10 @@ const PUBLISH_MS = Number(process.env.CAST_PUBLISH_MS || 30000);
 const PUBLISH_RETRY_MS = Number(process.env.CAST_PUBLISH_RETRY_MS || 3000);
 let live = 0;
 
-const server = http.createServer((req, res) => {
+// pageListener says this request arrived on the --lan listener - the one bound to
+// LAN_IP alone. The loopback listener, which is the only thing the tunnel can
+// reach, passes false and so never serves the page.
+function httpRequest(req, res, pageListener) {
   const url = new URL(req.url, "http://localhost");
 
   // Lets the viewer switch which monitor is shared without touching this machine.
@@ -131,6 +178,14 @@ const server = http.createServer((req, res) => {
       res.writeHead(applied ? 200 : 400, { "content-type": "application/json" });
       res.end(JSON.stringify(applied ? { ok: true, share: mode, pollMs: POLL_MS }
                                      : { error: "bad share mode" }));
+    }).catch(() => {
+      // Starting tvnserver and reaching the service takes a few hundred ms, and
+      // the viewer can close the tab inside them - then there is no response
+      // left to write and writeHead/end throw. Without this that is a rejected
+      // promise nobody owns, which this process reports as "internal promise
+      // error" while the stream carries on perfectly: a random error in the
+      // console for a viewer changing their mind about a menu.
+      try { res.destroy(); } catch (_) {}
     });
   }
 
@@ -139,12 +194,26 @@ const server = http.createServer((req, res) => {
   // through the site would force the traffic out to Cloudflare and back - 50ms of
   // round trip to reach a machine in the same room. Same origin, same page, ~1ms.
   //
-  // Only under --lan, though. This page carries the session key inlined, and the
-  // tunnel reverse-proxies every path - so serving it unconditionally handed that
-  // key to anyone who learned the tunnel hostname, and the key is the only thing
-  // between them and a socket onto TightVNC. Without --lan there is nobody this
-  // route is for: viewers through the tunnel load the page from the site.
-  if (LAN && (url.pathname === "/" || url.pathname === "/index.html")) {
+  // This page carries the session key inlined, and that key is the only thing
+  // between a stranger and a socket onto TightVNC. So the question asked here is
+  // never "was --lan passed": that is an intention, and the tunnel proxies every
+  // path into this process regardless of it. Both gates below are about the
+  // request itself, and a request has to clear both:
+  //
+  //   pageListener - which socket accepted it. Under --lan the page lives on a
+  //     second listener bound to LAN_IP alone. The tunnel is spawned as
+  //     `cloudflared tunnel --url http://127.0.0.1:<port>`, so everything it
+  //     proxies lands on the loopback listener, and that listener serves no page
+  //     on any run. This is the gate that is a guarantee rather than a guess: it
+  //     is a property of which socket the kernel accepted on, not of anything a
+  //     peer is free to write.
+  //   fromLan - what the request says. Belt to that brace, for the one case a
+  //     bind cannot cover: --url lets someone front this host with a reverse
+  //     proxy of their own and point it at LAN_IP.
+  //
+  // Without --lan no page listener is ever created, so nothing reaches this.
+  if (pageListener && fromLan(req) &&
+      (url.pathname === "/" || url.pathname === "/index.html")) {
     const page = viewerPage();
     if (page) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
@@ -155,7 +224,7 @@ const server = http.createServer((req, res) => {
   // The page imports the bundle by relative path, so LAN mode has to serve it too
   // or the viewer loads and then cannot start. Only these two names are ever read
   // from disk - the path never comes from the request.
-  if (LAN && url.pathname === "/novnc.js") {
+  if (pageListener && fromLan(req) && url.pathname === "/novnc.js") {
     const js = viewerAsset("novnc.js");
     if (js) {
       res.writeHead(200, {
@@ -170,7 +239,46 @@ const server = http.createServer((req, res) => {
   // visit see something other than a hang.
   res.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" });
   res.end("cast bridge up\n");
-});
+}
+
+// The loopback listener. The tunnel's origin is 127.0.0.1:PORT, so this is the
+// one it knocks on, and it is created with pageListener false for that reason.
+const server = http.createServer((req, res) => httpRequest(req, res, false));
+// The --lan listener, bound to LAN_IP alone rather than 0.0.0.0, because 0.0.0.0
+// includes loopback and loopback is exactly where the tunnel arrives. Null until
+// main() binds it, and null forever without --lan.
+//
+// Do not collapse this back into one listener on the strength of fromLan() below.
+// This split IS the guarantee: cloudflared is spawned as
+// `tunnel --url http://127.0.0.1:<port>`, so loopback is the only socket it can
+// ever reach, and the loopback listener serves no page on any run. fromLan() is
+// defence in depth stacked on top of that - it reads a peer address and a header,
+// and a header is written by whoever is calling. If this split goes, the header
+// check does not cover for it, and the key is back on the tunnel.
+let lanServer = null;
+
+// Did this request come from a browser on the local network, rather than through
+// something proxying on its behalf? Two things are true of the first and not the
+// second:
+//
+//   - The peer is not loopback. Everything a tunnel proxies in comes from
+//     127.0.0.1, because 127.0.0.1 is the origin address it was handed.
+//   - The request is addressed to the LAN address this process bound and printed
+//     in its banner. A proxy passes on the hostname it was reached by, which is
+//     the public one; a browser following the printed link sends that bare IP.
+//
+// What this does not guarantee, stated plainly: the Host header is written by
+// the peer. A reverse proxy that sits on the LAN and rewrites Host to LAN_IP
+// would satisfy both tests, and nothing readable from one request separates that
+// from a real browser. That is why the listener split above is the gate that
+// carries the weight and this is the second lock on the same door. Anything this
+// cannot answer is answered no: with no LAN_IP there is no page.
+function fromLan(req) {
+  if (!LAN_IP) return false;
+  const ip = String(req.socket.remoteAddress || "").replace(/^::ffff:/, "");
+  if (!ip || ip === "::1" || ip.startsWith("127.")) return false;
+  return String(req.headers.host || "").split(":")[0] === LAN_IP;
+}
 
 // The viewer normally learns the endpoint from /api/cast, which needs the access
 // key. Served from here there is nothing to look up, so the session key is handed
@@ -203,7 +311,11 @@ server.on("error", (e) => {
   process.exit(1);
 });
 
-server.on("upgrade", (req, socket, head) => {
+server.on("upgrade", onUpgrade);
+
+// Shared by both listeners: the bridge itself is not page-gated, and a viewer
+// that loaded the page over the LAN opens its socket to that same listener.
+function onUpgrade(req, socket, head) {
   // Once HTTP hands an upgraded socket to us it no longer owns the error path.
   // Install this before even writing a rejection: a peer that resets during the
   // handshake must not become an unhandled `error` event for the whole process.
@@ -236,7 +348,7 @@ server.on("upgrade", (req, socket, head) => {
   // credential - the key above is - just an identifier, and an absent one means
   // an older page and the old whole-host behaviour.
   else bridge(socket, head, url.searchParams.get("v") || "");
-});
+}
 
 // Completes the RFC 6455 handshake. Returns false if this was not a WebSocket
 // request at all, in which case the caller answers with plain HTTP.
@@ -344,6 +456,23 @@ function pingProbe(ws, head) {
 // upgrade handler and /ctl read to say the route is not here.
 let video = null;
 
+// How a socket ordinarily ends, in words. A viewer shutting a laptop lid,
+// walking out of wifi range or losing the tunnel mid-frame hands us a Node
+// error code, and ECONNRESET printed into a console whose only other content is
+// errors reads as a fault in this program rather than as somebody closing a
+// tab. None of these are faults and none of them are actionable, so say what
+// happened instead of what the kernel called it - and keep the raw text for
+// anything not on this list, because that is where a real bug would show up.
+const SOCKET_ENDINGS = {
+  ECONNRESET: "the connection was reset",
+  ECONNABORTED: "the connection was dropped",
+  EPIPE: "the viewer went away mid-frame",
+  ETIMEDOUT: "the connection timed out",
+  ERR_STREAM_WRITE_AFTER_END: "the viewer went away mid-frame",
+  ERR_STREAM_DESTROYED: "the viewer went away mid-frame",
+};
+const plainly = (e) => (e && SOCKET_ENDINGS[e.code]) || (e && e.message) || String(e);
+
 // A /video viewer. Server-to-client only: the client never sends anything but
 // pongs and a close, so wsReader is here for those and its data callback drops
 // whatever else arrives. Everything about the encoder - starting it, the GOP
@@ -361,7 +490,7 @@ function videoRoute(ws, head, url) {
     done = true;
     clearInterval(keepalive);
     unsubscribe();
-    log("video viewer gone" + (why ? ": " + why : "") +
+    log("DECODER+ viewer gone" + (why ? ": " + why : "") +
         " after " + Math.round((Date.now() - since) / 1000) + "s");
     // A close from the source carries a code the page acts on - 1011 "no
     // encoder" is what turns the Stream toggle back off with a reason. The
@@ -380,37 +509,71 @@ function videoRoute(ws, head, url) {
   }, KEEPALIVE_MS);
 
   const feed = wsReader(ws, () => {}, shut, () => { missedPongs = 0; });
-  ws.on("error", (e) => shut("socket: " + e.message));
+  ws.on("error", (e) => shut(plainly(e)));
   ws.on("close", () => shut());
   ws.on("end", () => shut("viewer hung up"));
   ws.on("data", feed);
   if (head && head.length) feed(head);
 
   if (!settings) return shut("bad settings", 1008);
+  // This viewer can already be gone. `head` is whatever arrived behind the
+  // upgrade request, and through a tunnel that can include the viewer's own
+  // close frame, so shut() may have run several lines above. Subscribing now
+  // would start the encoder for nobody and leave a sink in video.mjs that
+  // nothing ever removes: shut() has already set `done`, so every later socket
+  // event returns early and the unsubscribe assigned below is never called. The
+  // encoder would then never reach its three-second idle stop - the sink set
+  // never empties - and would go on handing an access unit to a destroyed
+  // socket sixty times a second for as long as the host ran.
+  if (done) return;
   if (CODEC) settings.codecs = [CODEC];
-  log("video viewer connected (" + settings.fps + " fps, " + settings.mbps +
+  log("DECODER+ viewer connected (" + settings.fps + " fps, " + settings.mbps +
       " mbps, " + settings.display + ", " + settings.codecs.join(",") + ")");
+
+  // video.mjs fans one access unit out to every sink in a single loop, and that
+  // loop runs inside the encoder's stdout handler. A throw from this viewer -
+  // a write onto a socket the kernel has already torn down, a Buffer that will
+  // not allocate - would end that loop, so every viewer after this one in the
+  // set silently loses the frame; and it would come out of a stream handler
+  // with no 'error' listener above it, which is an uncaught exception and the
+  // end of the host for everybody. One viewer misbehaving has to cost that
+  // viewer and nobody else, so nothing handed to subscribe() may throw. The
+  // `done` check is the other half: between a peer's reset and the 'error'
+  // event that reports it there is a window in which this socket is destroyed
+  // and still subscribed, and a write in that window is pure waste.
+  const sink = (what, fn) => (...a) => {
+    if (done) return;
+    try { return fn(...a); } catch (e) { shut(what + ": " + plainly(e)); }
+  };
 
   unsubscribe = video.subscribe(settings, {
     // Text, so the page can JSON.parse it without first asking what it is.
-    config(cfg) {
+    config: sink("config", (cfg) => {
       frame(ws, 0x1, Buffer.from(JSON.stringify(cfg)));
-    },
+    }),
     // Five bytes ahead of the access unit: flags, then a u32 timestamp. One copy
     // of the AU per viewer, which at 8 mbps is ~15KB sixty times a second - the
     // concat that frame() avoids for the pixel stream is cheap here, and the same
     // Buffer is handed to every viewer so it cannot be prepended to in place.
-    au(flags, tsMs, bytes) {
+    au: sink("frame", (flags, tsMs, bytes) => {
       const h = Buffer.allocUnsafe(5);
       h[0] = flags;
       h.writeUInt32BE(tsMs >>> 0, 1);
       frame(ws, 0x2, Buffer.concat([h, bytes]));
-    },
+    }),
     // What the source's backpressure reads: bytes we have accepted for this
-    // socket that the kernel has not taken yet.
-    buffered: () => ws.writableLength,
+    // socket that the kernel has not taken yet. A destroyed socket reports 0,
+    // which would read as a viewer perfectly keeping up - au() above is what
+    // stops us writing to it, not this.
+    buffered: () => (done ? 0 : ws.writableLength),
     close: (code, reason) => shut(reason, code),
   });
+  // subscribe() can close this viewer from inside the call: a host with no
+  // encoder that will start answers 1011 synchronously. shut() then ran while
+  // `unsubscribe` was still the no-op above, so nothing would ever release the
+  // subscription. Harmless today because that path clears the whole sink set,
+  // but it is the kind of thing that stops being harmless quietly.
+  if (done) unsubscribe();
 }
 
 // Close frame payload: the status code, then the reason as UTF-8.
@@ -603,11 +766,30 @@ function bridge(ws, head, viewerId) {
   //                  threshold, onto a still screen, leaves no update to answer
   //                  and so nothing more to send. Without a deadline the feature
   //                  would switch itself off for the session there.
+  //
+  //   VNC_PUSHES     the server negotiated ContinuousUpdates with the viewer, so
+  //                  it is already sending updates without being asked and this
+  //                  whole mechanism is not just redundant but harmful. noVNC
+  //                  stops sending FramebufferUpdateRequests the moment
+  //                  continuous updates are enabled (cast/novnc.js:17893 and
+  //                  :17981), which takes away the one thing that made injecting
+  //                  safe: until now every request this bridge wrote was a
+  //                  duplicate of ten bytes the viewer itself was sending on the
+  //                  same rhythm, so a server that got two saw nothing it was not
+  //                  already being asked for. On a pushing server the viewer has
+  //                  gone quiet and these ten bytes are a foreign message in a
+  //                  stream nobody else is writing to - and streamSeen, which
+  //                  proves the rectangle by watching the viewer ask for it, can
+  //                  never become true there either. Only TigerVNC has the
+  //                  extension on Windows (vnc-plus.md); with TightVNC, which is
+  //                  what this host runs, this is false and every line below
+  //                  behaves exactly as it did before the branch existed.
   let streamTimer = null;
   let armedHz = 0;
   const arm = () => {
-    // No w/h means no request to send, so that is the same as no rate at all.
-    const want = streamReq && !done ? streamHz : 0;
+    // No w/h means no request to send, so that is the same as no rate at all -
+    // and neither does a server that is already pushing them.
+    const want = streamReq && !done && !VNC_PUSHES ? streamHz : 0;
     if (want === armedHz) return;      // same rate: keep the phase we are already on
     armedHz = want;
     clearTimeout(streamTimer);
@@ -721,7 +903,7 @@ function bridge(ws, head, viewerId) {
   vnc.on("error", (e) => shut("vnc: " + e.message));
   vnc.on("end", () => shut("vnc hung up"));
   vnc.on("close", () => shut());
-  ws.on("error", (e) => shut("socket: " + e.message));
+  ws.on("error", (e) => shut(plainly(e)));
   ws.on("close", () => shut());
   // http.Server hands out sockets with allowHalfOpen, so a viewer that vanishes
   // with a bare FIN and no close frame - a tunnel dropping it, a laptop lid -
@@ -777,23 +959,18 @@ function frame(sock, op, payload) {
 // for the viewer to decode. Two 1080p monitors is a 3840x1080 framebuffer, twice
 // what anyone needs to read code on. TightVNC can share a single display instead,
 // which cuts all three costs in half, so that is the default.
-const TVN = [
-  "C:\\Program Files\\TightVNC\\tvnserver.exe",
-  "C:\\Program Files (x86)\\TightVNC\\tvnserver.exe",
-];
-
 let shareChanged = false;
 
-// Resolves a share mode to the tvnserver argv, or null if it is not one we allow.
-// Keeping the whitelist here is what makes the /ctl query parameter safe to pass
-// through: nothing from the request ever reaches the command line unmatched.
+// Resolves a share mode to the server's argv, or null if it is not one we allow.
+// The whitelist moved into vnc-server.mjs along with the binary paths, and it is
+// still what makes the /ctl query parameter safe to pass through: nothing from
+// the request ever reaches a command line unmatched, and the display number is
+// still matched against /^[1-9][0-9]?$/ and nothing else. A server with no share
+// CLI - which is both of the alternatives - answers null for every mode
+// including "full", so applyShare reports that it could not crop rather than
+// pretending it did.
 function shareCommand(mode) {
-  const bin = TVN.find((p) => fs.existsSync(p));
-  if (!bin) return null;
-  if (mode === "primary") return [bin, ["-controlservice", "-shareprimary"]];
-  if (mode === "full") return [bin, ["-controlservice", "-sharefull"]];
-  if (/^[1-9][0-9]?$/.test(mode)) return [bin, ["-controlservice", "-sharedisplay", mode]];
-  return null;
+  return shareArgv(VNC_SERVER, mode);
 }
 
 // Async twin of applyShare, for /ctl. spawnSync there stalled the event loop for
@@ -943,6 +1120,16 @@ function spawnTunnel(spec, restarted) {
 
     child.stdout && child.stdout.on("data", scan);
     child.stderr && child.stderr.on("data", scan);
+    // A pipe being read with no 'error' listener on it is a process-level throw
+    // waiting for the right moment, and on Windows that moment is ordinary:
+    // kill() here is TerminateProcess rather than a signal, so the read side can
+    // see the handle go and report EPIPE/ECONNRESET on the stream instead of a
+    // clean end. That would be an uncaught exception, which takes the bridge,
+    // every viewer and the encoder with it - to say that cloudflared, which we
+    // had just deliberately killed, had stopped writing. There is nothing to
+    // say: the 'exit' handler below decides what happens next either way. This
+    // is only somewhere for it to land.
+    for (const pipe of [child.stdout, child.stderr]) if (pipe) pipe.on("error", () => {});
     child.on("error", (e) => fail(new Error("could not run " + kind + ": " + e.message)));
     child.on("exit", (code) => {
       if (tunnelProc !== child) return;
@@ -1016,6 +1203,7 @@ function giveUpTunnel(kind) {
   log(kind + " could not be restarted after " + MAX_TUNNEL_RESTARTS +
       " attempts - the link is dead, shutting down");
   stopPublishLoop();
+  if (video) video.stop();
   unpublish().then(() => {
     restoreShare();
     process.exit(1);
@@ -1030,6 +1218,11 @@ function giveUpTunnel(kind) {
 // events are in.
 let troubleBuf = "";
 let lastTrouble = "";
+let lastTroubleAt = 0;
+// How long the same line stays suppressed. Long enough that an outage is one
+// line rather than one a second; short enough that a fault still happening an
+// hour later says so again instead of looking like it stopped.
+const TROUBLE_REPEAT_MS = 60000;
 
 function tunnelTrouble(chunk) {
   troubleBuf += chunk;
@@ -1040,11 +1233,31 @@ function tunnelTrouble(chunk) {
     const text = line.trim();
     if (!text) continue;
     // cloudflared tags levels WRN/ERR/FTL; ngrok's JSON carries "lvl":"warn"|"eror".
-    if (!/\b(WRN|ERR|FTL)\b|"lvl":"(warn|eror|crit)"|unregister|reconnect/i.test(text)) continue;
+    const loud = /\b(WRN|ERR|FTL)\b|"lvl":"(warn|eror|crit)"/.test(text);
+    // The two words that say the edge connection went away and came back. They
+    // are the reason a viewer just dropped, so they are worth printing - but
+    // only when the tunnel is not saying them as routine bookkeeping. "Warnings
+    // and errors only" was the intent from the first version and this is where
+    // it leaked: cloudflared rotates its four edge connections on a schedule of
+    // its own, and every rotation prints `INF Unregistered tunnel connection
+    // connIndex=N` at information level. Four cheerful lines about a tunnel
+    // doing exactly what it should, in a console whose only other content is
+    // errors, are read as errors - which is most of what "random errors while
+    // the stream is running" turns out to be.
+    const churn = /unregister|reconnect/i.test(text);
+    const chatter = /\b(INF|DBG|TRC)\b|"lvl":"(info|debug|trace)"/.test(text);
+    if (!loud && !(churn && !chatter)) continue;
     // The same failure repeats every retry, and a tunnel that is down repeats it
-    // for as long as it is down. Say it once.
-    if (text === lastTrouble) continue;
-    lastTrouble = text;
+    // for as long as it is down. Say it once - which comparing the raw line
+    // never actually did, because every repeat carries its own timestamp and its
+    // own connIndex and so differed from the one before it. Compare what is left
+    // with those taken out: the four connections failing the same way become one
+    // line, and a genuinely different message still gets through.
+    const key = text.replace(/^\S*\d{2}:\d{2}:\d{2}\S*\s*/, "").replace(/\d+/g, "#");
+    const now = Date.now();
+    if (key === lastTrouble && now - lastTroubleAt < TROUBLE_REPEAT_MS) continue;
+    lastTrouble = key;
+    lastTroubleAt = now;
     log("tunnel: " + text.slice(0, 200));
   }
 }
@@ -1155,18 +1368,39 @@ function startPublishLoop(getUrl) {
   const later = (ms) => {
     if (current()) publishTimer = setTimeout(beat, ms);
   };
+  // The failure this loop has already reported, and how many beats it has
+  // swallowed since. A site that is down for a minute is one fact, and the old
+  // code stated it eighteen times: three attempts a beat, a beat every ten
+  // seconds, a line for each. All of them true, none of them new, and the whole
+  // window of them lands in the console of somebody who is watching a stream
+  // that never faltered - the registry record is how a viewer *finds* this host,
+  // not how a connected one stays connected.
+  let saying = "";
+  let quiet = 0;
   const beat = async () => {
     for (let attempt = 1; attempt <= 3 && current(); attempt++) {
       try {
         await publish(getUrl());
+        // Recovery is the news. The thirty ordinary beats after it are not.
+        if (saying) {
+          log("heartbeat recovered after " + quiet + " failed " +
+              (quiet === 1 ? "beat" : "beats"));
+          saying = "";
+          quiet = 0;
+        }
         return later(PUBLISH_MS);
       } catch (e) {
-        log("heartbeat" + (attempt > 1 ? " retry " + attempt : "") + ": " + e.message);
+        if (e.message !== saying) {
+          log("heartbeat: " + e.message +
+              " - the site may have dropped this cast; retrying until it comes back");
+          saying = e.message;
+          quiet = 0;
+        }
         if (attempt < 3) await new Promise((r) => setTimeout(r, PUBLISH_RETRY_MS * attempt));
       }
     }
     if (current()) {
-      log("  ^ the site may have dropped this cast; retrying every 10s until it recovers");
+      quiet++;
       later(Math.min(10000, PUBLISH_MS));
     }
   };
@@ -1276,8 +1510,10 @@ async function main() {
 
   if (!(await checkVnc())) {
     if (tunnelProc) tunnelProc.kill();     // started above; do not orphan it
-    console.error("\n  No VNC server answering on " + VNC_HOST + ":" + VNC_PORT + ".");
-    console.error("  Start TightVNC Server (it installs as the tvnserver service) and");
+    console.error("\n  No VNC+ server answering on " + VNC_HOST + ":" + VNC_PORT + ".");
+    console.error(VNC_SERVER
+      ? "  Start " + VNC_SERVER.name + " (it installs as the " + VNC_SERVER.serviceName + " service) and"
+      : "  Start TightVNC Server (it installs as the tvnserver service) and");
     console.error("  make sure it has a password set, then run this again.\n");
     process.exit(1);
   }
@@ -1286,27 +1522,67 @@ async function main() {
   // reach the service is spent reading the tunnel's output rather than blocking on
   // it. restoreShare still uses the sync one: exit paths have nothing to overlap.
   if (!(await applyShareAsync(SHARE))) {
-    log("could not set share mode \"" + SHARE + "\" - carrying on with whatever\n           TightVNC is already sharing");
+    log("could not set share mode \"" + SHARE + "\" - carrying on with whatever\n           the VNC+ server is already sharing");
   }
 
   // Find ffmpeg now, so a missing one is a startup line and not the first
   // viewer's mystery. Only found: it is not spawned until a viewer asks, since
   // an idle encoder is a GPU and a monitor capture nobody is watching.
   if (!VIDEO) {
-    log("video    off (--video off)");
+    log("DECODER+ off (--video off)");
   } else {
     const ffmpeg = FFMPEG || findBin("ffmpeg");
     if (ffmpeg) video = createVideoSource({ ffmpeg, log });
-    else log("video    off (ffmpeg not found on PATH - install it to offer Stream)");
+    else log("DECODER+ off (ffmpeg not found on PATH - install it to offer DECODER+)");
   }
 
-  await new Promise((r) => server.listen(PORT, LAN ? "0.0.0.0" : "127.0.0.1", r));
-  log("bridge on " + (LAN ? "0.0.0.0" : "127.0.0.1") + ":" + PORT +
-      " -> " + VNC_HOST + ":" + VNC_PORT);
-  // The ceiling on frames per second, and the one number nothing in the browser can
-  // argue with. Saying nothing when it is unknown is what let a host sit at 1 FPS
-  // with a healthy-looking ping and everyone blaming the network.
-  log(POLL_MS ? "polling interval " + POLL_MS + " ms (~" + Math.round(1000 / POLL_MS) + " fps)"
+  // Resolved before anything binds, because under --lan it decides what the
+  // second listener binds to. A machine with no route out has no LAN address to
+  // bind, and then --lan serves no page rather than falling back to something
+  // broader: if the code cannot say where a request came from, it must not hand
+  // out the key.
+  if (LAN) LAN_IP = (await lanAddress()) || "";
+
+  await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
+  log("VNC+ bridge on 127.0.0.1:" + PORT + " -> " + VNC_HOST + ":" + VNC_PORT +
+      (VNC_SERVER ? " (" + VNC_SERVER.brand + ")" : ""));
+  // Which half of the capability branch this run is on, printed once, because
+  // "is the request injector running" is otherwise invisible from the console,
+  // and it is the first thing to look at if the pacing ever seems wrong.
+  if (VNC_PUSHES) log("VNC+ server pushes updates - request injector off");
+
+  if (LAN && LAN_IP) {
+    lanServer = http.createServer((req, res) => httpRequest(req, res, true));
+    lanServer.on("upgrade", onUpgrade);
+    // A second bind that fails must not take a working cast down with it - the
+    // loopback listener is up by here and the tunnel is already scraping a URL.
+    // So this one logs where the other one exits.
+    lanServer.on("error", (e) =>
+      log("--lan: could not listen on " + LAN_IP + ":" + PORT + " - " + e.message +
+          "; carrying on without the local page"));
+    await new Promise((r) => {
+      lanServer.once("error", () => r());
+      lanServer.listen(PORT, LAN_IP, r);
+    });
+    if (lanServer.listening) {
+      log("VNC+ bridge on " + LAN_IP + ":" + PORT + " (--lan; the only listener that serves the page)");
+    } else {
+      lanServer = null;
+    }
+  } else if (LAN) {
+    log("--lan: no local network address found, so the viewer page is not served");
+  }
+  // Saying nothing when it is unknown is what let a host sit at 1 FPS with a
+  // healthy-looking ping and everyone blaming the network. But this line used to
+  // call the number the ceiling on frames per second full stop, and it is not:
+  // PollingInterval is a member of TightVNC's Win32ScreenDriver, the driver the
+  // factory falls back to. While UseD3D is on and desktop duplication is running
+  // - which is the default and is what this host is believed to be doing - the
+  // interval governs nothing at all. It is still worth printing, because it is
+  // the ceiling the moment duplication cannot start, and nothing here can see
+  // which of the two happened: TightVNC logs that, at a log level it ships off.
+  log(POLL_MS ? "polling interval " + POLL_MS + " ms (~" + Math.round(1000 / POLL_MS) +
+                " fps) - the ceiling only if desktop duplication is not running"
               : "polling interval unknown - run tools\\cast-host\\tune-host.cmd once on this machine");
 
   const base = await tunnelUp;
@@ -1337,17 +1613,28 @@ async function main() {
     console.log("    No tunnel (--tunnel none), so this cast is local only.");
   }
   console.log("");
-  if (LAN) {
-    const ip = await lanAddress();
-    if (ip) console.log("    On this network  http://" + ip + ":" + PORT + "/   (much faster)");
+  if (LAN && lanServer) {
+    console.log("    On this network  http://" + LAN_IP + ":" + PORT + "/   (much faster)");
+    console.log("");
+    console.log("    That page has this run's session key written into it, so --lan puts");
+    console.log("    the key on your local network. It is served on " + LAN_IP + " and");
+    console.log("    nowhere else - the tunnel reaches this host on loopback, where there");
+    console.log("    is no page to read it out of.");
+  } else if (LAN) {
+    console.log("    --lan found no local network address, so no page is being served here.");
   } else {
-    console.log("    Watching from this same network? --lan skips the tunnel entirely,");
-    console.log("    which is worth about 50ms of round trip.");
+    // Do not sell --lan as "skips the tunnel". It does not turn the tunnel off,
+    // and a user who read it that way and passed --lan on its own was the whole
+    // of the hole this listener split closed.
+    console.log("    Watching from this same network? --lan serves the page from here,");
+    console.log("    which is worth about 50ms of round trip. It does not turn the tunnel");
+    console.log("    off; it writes this run's session key into a page on your local");
+    console.log("    network - fine at home, think twice on a network you do not control.");
   }
   console.log("");
   if (!TUNNELLESS) {
     console.log("  That link carries the view key, so treat it like a password -");
-    console.log("  anyone holding it reaches this machine's TightVNC password prompt.");
+    console.log("  anyone holding it reaches this machine's VNC+ password prompt.");
     console.log("  It does not let them move the cast: that needs the publish key,");
     console.log("  which stays in ~/.instellar-cast and is never printed.\n");
   }
@@ -1431,3 +1718,15 @@ main().catch((e) => {
   if (tunnelProc) tunnelProc.kill();
   process.exit(1);
 });
+
+// The last line of defence against an orphaned encoder. Windows does not kill a
+// child when its parent goes, and the bridge is listening before main() has
+// finished - server.listen comes before the await on the tunnel and before the
+// slot is claimed - so a viewer can have ffmpeg running by the time one of those
+// fails and exits. ffmpeg holds the D3D11 desktop duplication for as long as it
+// lives, so one left behind is not merely a stray process: it is the reason the
+// next run's encoder cannot acquire the screen, on a machine where nothing looks
+// wrong. Every deliberate exit path calls video.stop() itself; this catches the
+// ones that are not deliberate. stop() is synchronous, which is the only kind of
+// work an 'exit' handler can do.
+process.on("exit", () => { if (video) video.stop(); });

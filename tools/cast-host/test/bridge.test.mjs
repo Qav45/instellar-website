@@ -54,8 +54,12 @@ function boot(extraArgs) {
   });
 }
 
-const req = (path) => new Promise((resolve) => {
-  http.get({ host: "127.0.0.1", port: PORT, path }, (res) => {
+// host is the address dialled - which listener answers; headers.Host is what the
+// request claims to be addressed to. The bridge now cares about both, so tests
+// have to be able to set them apart.
+const req = (path, opts = {}) => new Promise((resolve) => {
+  http.get({ host: opts.host || "127.0.0.1", port: PORT, path,
+             headers: opts.headers || {} }, (res) => {
     let b = ""; res.on("data", (c) => (b += c));
     res.on("end", () => resolve({ status: res.statusCode, body: b }));
   }).on("error", (e) => resolve({ status: 0, body: String(e.message) }));
@@ -79,7 +83,7 @@ const WSH = { Upgrade: "websocket", Connection: "Upgrade",
 
 /* ---- 1. Without --lan the page (and the session key in it) must not be served -- */
 {
-  const { proc } = await boot([]);
+  const { proc, out } = await boot([]);
 
   const root = await req("/");
   ok("tunnel mode: / does not serve the viewer page",
@@ -112,87 +116,140 @@ const WSH = { Upgrade: "websocket", Connection: "Upgrade",
   ok("a non-WebSocket upgrade gets a plain answer, not a bare 403",
      /^HTTP\/1\.1 400/.test(notWs) && /cast bridge up/.test(notWs), notWs.split("\r\n")[0]);
 
+  // The banner used to offer --lan as something that "skips the tunnel entirely".
+  // It does not turn the tunnel off, and a user who read it that way and passed
+  // --lan on its own published this run's session key through the tunnel.
+  ok("the --lan advice no longer claims it skips the tunnel",
+     /Watching from this same network\? --lan/.test(out) &&
+     !/skips the tunnel entirely/.test(out) &&
+     /does not turn the tunnel/.test(out));
+
   proc.kill();
   await new Promise((r) => proc.on("exit", r));
 }
 
-/* ---- 2. With --lan the page is served, because that is what --lan is for ---- */
+/* ---- 2. --lan serves the page to a LAN request and to nothing else -------- */
 {
-  const { proc } = await boot(["--lan"]);
-  const root = await req("/");
-  ok("--lan: / serves the viewer page with the session key inlined",
-     root.status === 200 && /CAST_DIRECT/.test(root.body));
-  const js = await req("/novnc.js");
-  ok("--lan: /novnc.js is served so the page can start", js.status === 200 && js.body.length > 10000);
+  const { proc, out } = await boot(["--lan"]);
 
-  const key = (root.body.match(/CAST_DIRECT="([\w-]+)"/) || [])[1] || "";
-  ok("--lan: the page carries a usable session key", key.length > 0);
-  // The correct key must still work, all the way through to the VNC server.
-  const good = await new Promise((resolve) => {
-    const sock = net.connect(PORT, "127.0.0.1", () => {
-      sock.write("GET /ws?k=" + key + " HTTP/1.1\r\nHost: x\r\n" +
-        "Upgrade: websocket\r\nConnection: Upgrade\r\n" +
-        "Sec-WebSocket-Key: " + WSKEY + "\r\nSec-WebSocket-Version: 13\r\n" +
-        "Sec-WebSocket-Protocol: binary\r\n\r\n");
-    });
-    let b = Buffer.alloc(0);
-    sock.on("data", (c) => {
-      b = Buffer.concat([b, c]);
-      // 101 headers, then an unmasked server frame carrying the RFB greeting.
-      if (b.includes("RFB 003.008")) { sock.destroy(); resolve(b.toString("latin1")); }
-    });
-    sock.on("error", () => resolve(b.toString("latin1")));
-    setTimeout(() => { sock.destroy(); resolve(b.toString("latin1")); }, 3000);
-  });
-  ok("correct key upgrades and reaches VNC",
-     /^HTTP\/1\.1 101/.test(good) && good.includes("RFB 003.008"), good.split("\r\n")[0]);
-  ok("binary subprotocol is echoed back", /Sec-WebSocket-Protocol: binary/i.test(good));
+  ok("--lan: the loopback listener binds 127.0.0.1, not 0.0.0.0",
+     /bridge on 127\.0\.0\.1:/.test(out) && !/bridge on 0\.0\.0\.0/.test(out));
 
-  // A viewer that sends a bare FIN - no close frame - must still take its VNC
-  // connection down with it, or TightVNC keeps encoding for a dead socket.
-  const before = vncClosed.length;
-  await new Promise((resolve) => {
-    const sock = net.connect(PORT, "127.0.0.1", () => {
-      sock.write("GET /ws?k=" + key + " HTTP/1.1\r\nHost: x\r\n" +
-        "Upgrade: websocket\r\nConnection: Upgrade\r\n" +
-        "Sec-WebSocket-Key: " + WSKEY + "\r\nSec-WebSocket-Version: 13\r\n\r\n");
-    });
-    sock.on("data", (c) => { if (String(c).includes("RFB")) sock.end(); });   // half-close only
-    sock.on("close", resolve);
-    sock.on("error", resolve);
-    setTimeout(resolve, 3000);
-  });
-  const released = await Promise.race([
-    (vncClosed[before] || Promise.resolve(false)).then(() => true),
-    new Promise((r) => setTimeout(() => r(false), 3000)),
-  ]);
-  ok("a half-closed viewer socket releases its VNC connection", released);
+  // The shape a tunnelled request has. cloudflared is spawned as
+  // `tunnel --url http://127.0.0.1:<port>`, so it dials loopback and passes the
+  // public hostname through in Host. This is the request that used to be handed
+  // the session key, and it is the whole reason this section exists.
+  const TUNNEL_HOST = "some-quick-tunnel.trycloudflare.com";
+  const tunnelled = await req("/", { headers: { Host: TUNNEL_HOST } });
+  ok("--lan: a tunnel-shaped request to / gets no viewer page",
+     !/CAST_DIRECT/.test(tunnelled.body) && /cast bridge up/.test(tunnelled.body),
+     "body=" + JSON.stringify(tunnelled.body.slice(0, 40)));
+  const tunnelledJs = await req("/novnc.js", { headers: { Host: TUNNEL_HOST } });
+  ok("--lan: a tunnel-shaped request to /novnc.js gets no bundle either",
+     !/noVNC/.test(tunnelledJs.body));
 
-  // A VNC reset races its final data/error/close events against any viewer
-  // writes. Every path must converge on one shutdown without killing the host.
-  const resetClosed = await new Promise((resolve) => {
-    const sock = net.connect(PORT, "127.0.0.1", () => {
-      sock.write("GET /ws?k=" + key + " HTTP/1.1\r\nHost: x\r\n" +
-        "Upgrade: websocket\r\nConnection: Upgrade\r\n" +
-        "Sec-WebSocket-Key: " + WSKEY + "\r\nSec-WebSocket-Version: 13\r\n\r\n");
-    });
-    let sent = false;
-    sock.on("data", (c) => {
-      if (sent || !String(c).includes("RFB")) return;
-      sent = true;
-      const mask = Buffer.from([1, 2, 3, 4]);
-      const payload = Buffer.from("DROP");
-      const body = Buffer.from(payload.map((b, i) => b ^ mask[i & 3]));
-      sock.write(Buffer.concat([Buffer.from([0x82, 0x80 | payload.length]), mask, body]));
-    });
-    sock.on("close", () => resolve(true));
-    sock.on("error", () => resolve(true));
-    setTimeout(() => { sock.destroy(); resolve(false); }, 3000);
-  });
-  ok("a VNC-side reset closes only that viewer", resetClosed);
-  const afterReset = await req("/");
-  ok("the bridge survives a VNC-side reset", afterReset.status === 200);
+  // The address the host bound the page to and printed. Absent on a machine with
+  // no route out, and then --lan deliberately serves nothing.
+  const lanIp = (out.match(/On this network\s+http:\/\/(\d+\.\d+\.\d+\.\d+):/) || [])[1] || "";
 
+  let key = "";
+  if (!lanIp) {
+    ok("--lan: with no LAN address the host says so and serves no page",
+       /no local network address found/.test(out) && !/CAST_DIRECT/.test(tunnelled.body));
+    console.log("SKIP  no LAN address on this machine, so the page listener, the key it " +
+                "serves, and the socket tests that need that key are NOT VERIFIED here");
+  } else {
+    // A loopback peer claiming the LAN address in Host: the shape a proxy would
+    // send if it rewrote the header. The listener split refuses this one, not the
+    // header check - which is the point of having the split.
+    const spoofed = await req("/", { headers: { Host: lanIp + ":" + PORT } });
+    ok("--lan: a loopback peer claiming the LAN Host still gets no page",
+       !/CAST_DIRECT/.test(spoofed.body));
+
+    const lanRoot = await req("/", { host: lanIp, headers: { Host: lanIp + ":" + PORT } });
+    ok("--lan: a genuine LAN request gets the page with the session key inlined",
+       lanRoot.status === 200 && /CAST_DIRECT/.test(lanRoot.body));
+    const lanJs = await req("/novnc.js", { host: lanIp, headers: { Host: lanIp + ":" + PORT } });
+    ok("--lan: /novnc.js is served on the LAN listener so the page can start",
+       lanJs.status === 200 && lanJs.body.length > 10000);
+
+    // Same socket, a proxied Host. This is the second lock: --url lets someone
+    // front this host with a reverse proxy of their own aimed at the LAN address.
+    const proxied = await req("/", { host: lanIp, headers: { Host: TUNNEL_HOST } });
+    ok("--lan: a proxied Host on the LAN listener gets no page",
+       !/CAST_DIRECT/.test(proxied.body));
+
+    key = (lanRoot.body.match(/CAST_DIRECT="([\w-]+)"/) || [])[1] || "";
+    ok("--lan: the page carries a usable session key", key.length > 0);
+  }
+
+  if (key) {
+    // The correct key must still work, all the way through to the VNC server.
+    const good = await new Promise((resolve) => {
+      const sock = net.connect(PORT, "127.0.0.1", () => {
+        sock.write("GET /ws?k=" + key + " HTTP/1.1\r\nHost: x\r\n" +
+          "Upgrade: websocket\r\nConnection: Upgrade\r\n" +
+          "Sec-WebSocket-Key: " + WSKEY + "\r\nSec-WebSocket-Version: 13\r\n" +
+          "Sec-WebSocket-Protocol: binary\r\n\r\n");
+      });
+      let b = Buffer.alloc(0);
+      sock.on("data", (c) => {
+        b = Buffer.concat([b, c]);
+        // 101 headers, then an unmasked server frame carrying the RFB greeting.
+        if (b.includes("RFB 003.008")) { sock.destroy(); resolve(b.toString("latin1")); }
+      });
+      sock.on("error", () => resolve(b.toString("latin1")));
+      setTimeout(() => { sock.destroy(); resolve(b.toString("latin1")); }, 3000);
+    });
+    ok("correct key upgrades and reaches VNC",
+       /^HTTP\/1\.1 101/.test(good) && good.includes("RFB 003.008"), good.split("\r\n")[0]);
+    ok("binary subprotocol is echoed back", /Sec-WebSocket-Protocol: binary/i.test(good));
+
+    // A viewer that sends a bare FIN - no close frame - must still take its VNC
+    // connection down with it, or TightVNC keeps encoding for a dead socket.
+    const before = vncClosed.length;
+    await new Promise((resolve) => {
+      const sock = net.connect(PORT, "127.0.0.1", () => {
+        sock.write("GET /ws?k=" + key + " HTTP/1.1\r\nHost: x\r\n" +
+          "Upgrade: websocket\r\nConnection: Upgrade\r\n" +
+          "Sec-WebSocket-Key: " + WSKEY + "\r\nSec-WebSocket-Version: 13\r\n\r\n");
+      });
+      sock.on("data", (c) => { if (String(c).includes("RFB")) sock.end(); });   // half-close only
+      sock.on("close", resolve);
+      sock.on("error", resolve);
+      setTimeout(resolve, 3000);
+    });
+    const released = await Promise.race([
+      (vncClosed[before] || Promise.resolve(false)).then(() => true),
+      new Promise((r) => setTimeout(() => r(false), 3000)),
+    ]);
+    ok("a half-closed viewer socket releases its VNC connection", released);
+
+    // A VNC reset races its final data/error/close events against any viewer
+    // writes. Every path must converge on one shutdown without killing the host.
+    const resetClosed = await new Promise((resolve) => {
+      const sock = net.connect(PORT, "127.0.0.1", () => {
+        sock.write("GET /ws?k=" + key + " HTTP/1.1\r\nHost: x\r\n" +
+          "Upgrade: websocket\r\nConnection: Upgrade\r\n" +
+          "Sec-WebSocket-Key: " + WSKEY + "\r\nSec-WebSocket-Version: 13\r\n\r\n");
+      });
+      let sent = false;
+      sock.on("data", (c) => {
+        if (sent || !String(c).includes("RFB")) return;
+        sent = true;
+        const mask = Buffer.from([1, 2, 3, 4]);
+        const payload = Buffer.from("DROP");
+        const body = Buffer.from(payload.map((b, i) => b ^ mask[i & 3]));
+        sock.write(Buffer.concat([Buffer.from([0x82, 0x80 | payload.length]), mask, body]));
+      });
+      sock.on("close", () => resolve(true));
+      sock.on("error", () => resolve(true));
+      setTimeout(() => { sock.destroy(); resolve(false); }, 3000);
+    });
+    ok("a VNC-side reset closes only that viewer", resetClosed);
+    const afterReset = await req("/");
+    ok("the bridge survives a VNC-side reset", afterReset.status === 200);
+  }
 
   proc.kill();
   await new Promise((r) => proc.on("exit", r));

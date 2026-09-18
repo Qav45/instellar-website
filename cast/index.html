@@ -2,6 +2,70 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- This page holds two secrets in sessionStorage - the access key that opens
+     this machine, and the VNC screen password - and it also runs four megabytes
+     of somebody else's JavaScript in the same document, where any script can
+     read both of them. The integrity= hash on the Desmos tag says that bundle is
+     the one that was pinned. This says that even if it were not, there is
+     nowhere for it to send what it read.
+
+     connect-src is the directive doing that work: fetch, XMLHttpRequest,
+     sendBeacon and WebSocket all answer to it, and the only origins named are
+     this site and the tunnel hostnames the host script can actually publish.
+     img-src is the other easy way out, because an img whose src is
+     https://somewhere/?key=... is a POST in all but name; the page loads no
+     images of its own at all, so it is shut to everything but the data: URIs
+     Desmos inlines its own sprites and fonts as. form-action and frame-src close
+     the last two beacons, and default-src 'none' means a directive nobody
+     thought of defaults to refusing rather than to allowing.
+
+     Run the host behind ngrok on a reserved domain, or publish a tunnel with
+     --url, and that hostname has to be added to connect-src or the stream will
+     not connect. That is the cost of the list being a list.
+
+     'unsafe-eval' is not optional here: the Desmos bundle eval()s its own chunk
+     table the moment it loads and compiles every graphed expression with new
+     Function, so without it the calculator does not run at all. 'unsafe-inline'
+     is not optional either - this page's own script is inline, and a static host
+     has no way to mint a nonce. Neither gives away the part that matters:
+     script-src still says a script may come only from here or from desmos.com,
+     so a hostile bundle cannot pull a second stage down, and connect-src still
+     says that what it read does not leave.
+
+     Delivered as a meta tag rather than as a real header on purpose. The same
+     file is served three ways - Vercel at go.instellar.net, GitHub Pages, and
+     the bridge itself under --lan - and a headers block in vercel.json would
+     cover exactly one of those three. What the meta form costs is
+     frame-ancestors and report-uri, which a policy in a meta tag is not allowed
+     to carry: this cannot stop the page being framed, and it cannot tell anyone
+     when it trips. A vercel.json headers entry carrying frame-ancestors 'none'
+     beside this one is worth adding. That is another worker's file, so it is
+     written down here rather than done.
+
+     What none of this closes: CSP has no say over navigation. A hostile bundle
+     that sets location.href to an attacker URL with the key in the query string
+     walks straight out, and no directive in the list below stops it - the
+     navigate-to directive that would have was dropped from the spec and shipped
+     nowhere. The only thing that stops that one is not keeping the secrets
+     somewhere the bundle can reach at all. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.desmos.com;
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: blob:;
+  font-src 'self' data:;
+  worker-src blob:;
+  connect-src 'self'
+    https://*.trycloudflare.com wss://*.trycloudflare.com
+    https://*.ngrok-free.app wss://*.ngrok-free.app
+    https://*.ngrok.app wss://*.ngrok.app
+    https://*.ngrok.io wss://*.ngrok.io;
+  base-uri 'none';
+  form-action 'none';
+  frame-src 'none';
+  object-src 'none';
+  webrtc 'block';
+">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Cast</title>
 <meta name="robots" content="noindex">
@@ -156,12 +220,32 @@
   #calcNum .eq:hover { background:#28629c; border-color:#28629c; }
   #calcNum .wide { grid-column:span 2; }
   #calcFoot { padding:0 14px 13px; color:#9aa0a6; font-size:11.5px; text-align:center; }
+  /* The graphing calculator wants room to be one; the keypad behind it does not,
+     which is why the two cards are sized apart rather than sharing a width. The
+     plot needs a height in pixels - Desmos measures its container and a flex
+     child with no height measures zero, which renders a calculator one pixel
+     tall and no error anywhere. */
+  #graph { width:100%; max-width:920px; background:#fff; border:1px solid #dcdfe4;
+          border-radius:12px; overflow:hidden; box-shadow:0 10px 34px rgba(16,24,40,.10);
+          color:#1b1b1b; }
+  #graphHead { display:flex; align-items:center; justify-content:space-between;
+          padding:9px 13px; border-bottom:1px solid #e6e8ec; font-size:13px; color:#55595f; }
+  #graphBasic { border:1px solid #d3d7dd; background:#fff; color:#2d70b3; border-radius:6px;
+          padding:3px 9px; font-size:11.5px; font-family:inherit; cursor:pointer; font-weight:600; }
+  #graphBasic:hover { background:#f2f6fa; }
+  #graphBox { height:min(72vh, 600px); min-height:360px; position:relative; }
+  #graphWait { position:absolute; inset:0; display:flex; align-items:center;
+          justify-content:center; color:#9aa0a6; font-size:13px; }
 </style>
 </head>
 <body>
 
 <div id="lock">
-  <div id="calc">
+  <div id="graph">
+    <div id="graphHead"><span>Graphing Calculator</span><button id="graphBasic" type="button">Basic</button></div>
+    <div id="graphBox"><div id="graphWait">Loading&hellip;</div></div>
+  </div>
+  <div id="calc" hidden>
     <div id="calcHead"><span>Scientific Calculator</span><button id="calcDeg" type="button">DEG</button></div>
     <div id="calcOut"><div id="calcPrev"></div><div id="calcNow">0</div></div>
     <div id="calcPads">
@@ -208,7 +292,7 @@
   </label>
   <div class="grp">
     <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
-    <button id="stream" title="Hardware video for games and video: the host's GPU encodes the screen (AV1, HEVC or H.264, whichever this browser decodes in hardware) and this browser decodes it, sixty frames a second. Text goes a little soft, which is why it is a toggle and not the default.">Stream</button>
+    <button id="stream" title="Hardware video for games and video: the host's GPU encodes the screen (AV1, HEVC or H.264, whichever this browser decodes in hardware) and this browser decodes it, sixty frames a second. Text goes a little soft, which is why it is a toggle and not the default.">DECODER+</button>
     <button id="grab" title="Keep the pointer in the remote screen and send movement rather than position - what a game needs. Turn Fullscreen on too and Escape reaches the game; hold it to let go.">Mouse lock</button>
     <button id="full" title="Fullscreen">Fullscreen</button>
   </div>
@@ -288,7 +372,35 @@ const store = {
   drop: (k) => { try { sessionStorage.removeItem(k); } catch (_) {} },
 };
 
-let token = hashToken() || store.get("castToken");
+// The code that takes the cover down. It lives up here rather than beside the
+// calculator that asks for it, because the hash is read on the line below and a
+// const declared further down the file is not yet in scope when that runs.
+const ENTRY = "1234";
+
+// #1234 is the door and, when the key is 1234, the key as well. That is
+// deliberate, and it is a reversal: for a while this line read the entry code as
+// "skip the cover" and refused to let it be an access key too. It broke the only
+// watch link that matters. https://go.instellar.net/cast#1234 has to do both
+// things in one go - hand the host a key it accepts and land past the calculator
+// on the screen-password prompt - and refusing the key half meant the cover came
+// down and the page then asked for a key it had just been handed. So the hash is
+// the access key again, the way it was before, and SKIP_COVER governs the cover
+// and nothing else.
+//
+// If the key is ever something other than 1234, then #1234 hands over a token of
+// "1234", the host refuses it, and the access-key card comes up on a page whose
+// cover is already down. That is the old behaviour and it is fine; there is no
+// special case for it.
+//
+// Say the cost of that out loud rather than leaving it to be discovered: with
+// the key set to 1234 the access key is four guessable digits, and the access
+// key is the whole of what stands between a stranger and this machine's screen
+// password prompt. The calculator is a disguise, not security - the "the way in"
+// section below says so at more length - so it adds nothing here. The person
+// whose machine this is was told that plainly and chose it anyway.
+const hash = hashToken();
+const SKIP_COVER = hash === ENTRY;
+let token = hash || store.get("castToken");
 let password = store.get("castPass");
 // Served by the bridge itself on the LAN: the endpoint is this very host, and the
 // session key was injected into the page, so there is nothing to look up.
@@ -572,9 +684,18 @@ function tick() {
   //
   // While Stream is on the picture is the decoder's, not the RFB loop's, so the
   // readout counts its outputs against the rate the encoder was configured for.
+  // Three rates, and the three of them diverging is the diagnostic, not a
+  // fault. `vidIn` is what arrived off the socket, `vidFps` is what the decoder
+  // got through - those two are what the strain rule weighs, and they still
+  // mean what they meant - and `vidOut` is what actually went on the screen.
+  // The readout shows the last of them: the complaint is about what the person
+  // can see, so what they can see is what the number has to be. A presentation
+  // clock deliberately letting go of a frame the display had no refresh for
+  // shows up here and nowhere else, which is exactly where it belongs.
   const vidFps = decoder && dt > 0 ? vidFrames / dt : 0;
   const vidIn = decoder && dt > 0 ? vidDelivered / dt : 0;
-  vidFrames = vidDelivered = 0;
+  const vidOut = decoder && dt > 0 ? vidPainted / dt : 0;
+  vidFrames = vidDelivered = vidPainted = 0;
   // Streaming floats the toolbar over the picture and lets it fade, the same as
   // Video does: a game wants the rows the bar was taking. Derived here rather
   // than set at every place a decoder starts or dies, which is how the class and
@@ -601,9 +722,33 @@ function tick() {
     if (vidSlowSince || vidDrops.length) vidCalm = now;
     if (why) streamDowngrade(why);
     else if (vidStep > vidCeil && now - vidCalm >= STEP_UP_MS) streamRecover();
+    else if (now - vidCalm >= STREAM_PROVE_MS) {
+      // This codec has carried the picture for an unbroken stretch, which is
+      // the evidence isConfigSupported could not give. Remember it as the one
+      // to start on next visit - written here rather than at the first decoded
+      // picture, where it used to be written, because one picture is precisely
+      // what a Chromebook decoding AV1 in software also produces.
+      if (!vidSaved) {
+        vidSaved = true;
+        try { localStorage.setItem(CODEC_KEY, streamFamily(vidCodec)); } catch (_) {}
+      }
+      // The same evidence about the size of the picture, which is a claim
+      // about this decoder rather than about this window - so it is only ever
+      // written taller, and an afternoon spent in a small window does not make
+      // the machine forget what it proved it could take.
+      if (vidMaxh > vidMaxhOk) {
+        vidMaxhOk = vidMaxh;
+        vidMaxhWant = 0;
+        try { localStorage.setItem(HEIGHT_KEY, String(vidMaxh)); } catch (_) {}
+      }
+      const up = vidUpgraded || vidStep > 0 ? ""
+        : streamBetter(vidSupported || [], Array.from(vidBad), streamFamily(vidCodec));
+      if (up) streamUpgrade(up);
+      else if (!vidStep) streamGrow();
+    }
   }
   const want = decoder ? vidHz : metrics.streamHz;
-  const fps = decoder ? vidFps : metrics.fps;
+  const fps = decoder ? vidOut : metrics.fps;
   hud.fps.textContent = fps || want
     ? Math.round(fps) + (want ? " / " + Math.round(want) : "")
     : "–";
@@ -617,6 +762,8 @@ function tick() {
   // not worth a DOM write a second, in a file whose own comments complain about
   // per-second DOM work.
   const title = (vidEncoder ? vidCodec + " via " + vidEncoder + " · " : "") +
+    (decoder ? "decoded " + Math.round(vidFps) + " · delivered " + Math.round(vidIn) +
+               " · buffer " + Math.round(vidDelay) + " ms · " : "") +
     "decode duty " + Math.round(metrics.duty * 100) + "%" +
     " · backlog " + Math.round(metrics.backlogBytes / 1024) + " KB" +
     " · stream " + (want ? Math.round(want) + " Hz" : "not set") +
@@ -1375,7 +1522,7 @@ function connect() {
   me.addEventListener("connect", () => {
     if (!current()) return;
     hideVeil();
-    state("live", "Connected");
+    state("live", "VNC+");
     backoff = 4000;          // this link works; the next blip starts patient again
     attempts = 0;
     me.focus();
@@ -1667,6 +1814,10 @@ document.addEventListener("visibilitychange", () => {
     // decoder is not rAF-driven and the gate drops to the next keyframe when its
     // queue grows, so a throttled tab costs frames, never the session. Only a
     // socket that died while hidden is reopened here.
+    // Frames already decoded and waiting for a slot are let go of on the way
+    // out: rAF will not run to paint them, and a held VideoFrame is a buffer
+    // the decoder cannot have back.
+    if (document.hidden) streamFlush();
     if (!document.hidden && !vidSock) openVideo();
   }
   if (document.hidden) return;
@@ -1848,6 +1999,78 @@ const STREAM_STEPS = [{ fps: 60, mbps: 1 }, { fps: 30, mbps: 0.5 }, { fps: 20, m
 const STEP_UP_MS = 30000;      // this long without strain and the pace is asked for back
 const PROBATION_MS = 60000;    // strain this soon after a step up puts that step out of reach
 const STRIKE_MS = 30000;       // a codec that ran this long before straining is not the problem
+// How long a codec has to carry the picture cleanly before it is believed:
+// before it is written to localStorage as the one to start on next time, and
+// before the session spends an encoder restart asking whether a richer one
+// would work here. One decoded picture is not evidence - isConfigSupported
+// already said yes and was wrong.
+const STREAM_PROVE_MS = 15000;
+
+// --- how many rows to ask the host for ---
+//
+// video.mjs caps the picture it encodes at ?maxh= rows, and defaults to 720
+// when the page sends nothing - which until now the page never did. So every
+// viewer got 720 whatever its screen was: right for the Chromebook this cast
+// is watched from, and an unasked-for downgrade for the same person sitting at
+// a 1440p desktop. This is the page asking.
+//
+// Three rungs, because a rung is what an encoder restart is worth. They are
+// the three sizes screens actually come in, and the step between any two of
+// them is a third of the picture or more, which is visible; a difference
+// inside one of them is not, and every change to the cap costs everyone on
+// that encoder a restart and a fresh keyframe, since the host joins viewers on
+// the cap as well as on the pace. 1440 is the top on purpose. The host clamps
+// at 2160 and would encode it, but the ask is 8-12 mbps through a tunnel, and
+// at that budget the bitrate is what limits the picture long before the rows
+// are - 2160 rows of it would be a softer picture, not a sharper one.
+const STREAM_HEIGHTS = [720, 1080, 1440];
+// What a viewer asks for before it has decoded anything here, and the floor:
+// below 720 the bytes saved are small and the text stops being readable.
+//
+// It is the start rather than the answer because a panel says what can be
+// shown, not what can be decoded. The cap exists because a built-in decoder
+// refused the host's native desktop outright - 1080p60 H.264 is level 4.2,
+// several rungs above what many of them carry, as the comment at the configure
+// site records - and a Chromebook with a 1080p panel asking for 1080 on the
+// strength of its panel walks straight back into that refusal. So a taller
+// picture is an upgrade that has to be earned on decoded frames, in exactly
+// the way the richer codecs are earned above.
+const STREAM_BASE_HEIGHT = 720;
+const HEIGHT_KEY = "cast.maxh";
+const HEIGHT_SLACK = 0.05;      // a running rung is kept until the screen falls this far short of it
+const HEIGHT_SETTLE_MS = 1500;  // a window being dragged is one size change, not fifty
+
+// --- the presentation clock ---
+//
+// The decoder's output callback used to paint the instant a frame came out of
+// it, so the screen showed the arrival pattern of the tunnel rather than the
+// timing of the host. Every millisecond of jitter through Cloudflare, every
+// burst out of the encoder, and the 190 KB keyframe against the 1 KB delta all
+// landed directly on the picture as uneven motion - the encoder can be putting
+// out a perfect sixty and it will still judder. The 5-byte wire header has
+// carried a millisecond host timestamp per access unit all along and nothing
+// read it for timing; this reads it. Decoded frames wait in a short queue and
+// go up on slots derived from the host's own clock, not from whenever the
+// bytes happened to land.
+//
+// The delay that buys is the entire cost of it, so it is kept small and it
+// moves. It starts at one frame period - the least a clock can hold and still
+// be a clock - grows only on evidence the link needs more, and comes back down
+// after a calm stretch. The cap is deliberately in the tens of milliseconds:
+// this is a machine someone plays games through, and the commit before this
+// one took a queue out from between the hand and the screen for that exact
+// reason. A buffer that cures judder by adding a fifth of a second of lag has
+// cured nothing.
+const PACE_CAP_MS = 80;      // the most delay the clock will ever hold
+const PACE_FLOOR_MS = 8;     // and the least, whatever the frame period says
+const PACE_BAND_MS = 6;      // dead band: inside this the buffer does not move
+const PACE_SHRINK_MS = 4;    // how much one step back down gives away
+const PACE_CALM = 4;         // clean decisions in a row before it shrinks
+const PACE_LATE = 2;         // late pictures in one decision that mean grow now
+const PACE_WINDOW_MS = 2000; // how much arrival history the jitter estimate sees
+const PACE_STEP_MS = 1000;   // how often the buffer is resized
+const PACE_RESET_MS = 1000;  // an offset jump this big is a new encoder, not jitter
+const PACE_QUEUE_MAX = 6;    // hard ceiling on held VideoFrames, whatever the clock says
 let stream = false;      // the toggle, as the person left it
 let hostVideo = true;    // false once /ctl said this host has no video route
 let vidSock = null;
@@ -1872,31 +2095,76 @@ let vidCalm = 0;         // when the current step last saw strain, or started
 let vidUp = 0;           // when the pace was last asked for back
 let vidCodecSince = 0;   // when the current codec family started decoding here
 let vidSoft = false;     // the hardware preference was refused here; stop asking for it
+let vidPaint = [];       // decoded frames waiting for their slot on the screen
+let vidClock = [];       // recent arrivals: when each landed, and how late the host said
+let vidBase = 0;         // local milliseconds that host timestamp zero maps to
+let vidDelay = 0;        // how far behind the host clock the paint runs, in ms
+let vidRaf = 0;          // the paint loop's handle, 0 when it is not running
+let vidLate = 0;         // pictures that went up after their slot, this decision
+let vidDecided = 0;      // when the buffer was last resized
+let vidSteady = 0;       // decisions in a row with nothing late
+let vidPainted = 0;      // pictures actually put on the canvas since the last tick
+let vidCtxEl = null;     // the canvas the context below belongs to
+let vidCtx = null;       // and the context itself, looked up once instead of per frame
+let vidSaved = false;    // this codec has been believed long enough to be remembered
+let vidUpgraded = false; // one attempt per session at something better than the safe codec
+let vidWant = "";        // a codec this session is asking for over the remembered one
+let vidMaxh = 0;         // the picture cap being asked for, in rows; 0 before the first ask
+let vidMaxhOk = 0;       // the tallest cap this machine has been shown to decode
+let vidMaxhWant = 0;     // a taller cap this session is trying over the remembered one
+let vidMaxhBad = 0;      // a cap refused here; nothing this tall is asked for again
+let vidMaxhTimer = 0;    // the resize settle timer
 
-// Which codecs this browser decodes in hardware, in the order worth having
-// them: bytes are what the tunnel is short of, and AV1 buys the most picture
-// per byte, then HEVC. The host takes the list as a preference and answers
-// with whichever of them it can encode. These strings are probes, one
-// plausible 1080p profile per codec; the host's own arrives in the config
-// message. Nothing supported still asks for H.264, since a browser without
-// WebCodecs H.264 has no Stream at all and the host will say so.
+// Which codecs this browser decodes, richest first: bytes are what the tunnel
+// is short of, and AV1 buys the most picture per byte, then HEVC. The host
+// takes the list as a preference and answers with whichever of them it can
+// encode. These strings are probes, one plausible 1080p profile per codec; the
+// host's own arrives in the config message. Nothing supported still asks for
+// H.264, since a browser without WebCodecs H.264 has no Stream at all and the
+// host will say so.
+//
+// Richest first is the order of value, not the order to ask in. The viewer
+// this page is watched from is a Chromebook, and the comment on streamCodecs
+// below records what happened there: isConfigSupported answered yes to AV1 and
+// the machine then decoded it in software at half rate. Leading the ask with
+// the codec most likely to be absent from the hardware decoder costs a failed
+// rung and a visible fallback every single session, so the ask leads with
+// STREAM_SAFE instead - H.264 is the one format a built-in decoder is least
+// likely to be missing - and the richer codecs become an upgrade that has to
+// prove itself on real decoded frames rather than a default that has to fail
+// first.
 const STREAM_CODECS = [["av1", "av01.0.08M.08"], ["hevc", "hvc1.1.6.L120.90"], ["h264", "avc1.64002a"]];
+const STREAM_SAFE = "h264";
 let vidSupported = null; // the probe's answers, one boolean per STREAM_CODECS entry
 let vidCodecs = null;    // "av1,hevc,h264" once the probe below has answered
 const vidBad = new Set(); // codecs downgraded away from this session; not retried until reload
 
 // The probe says what decodes at all; it does not say what decodes fast.
 // isConfigSupported answered yes to AV1 on a Chromebook that then decoded it
-// in software at half rate, so the list also leaves out what this session has
-// already given up on, and starts at the codec that worked last visit rather
-// than learning the same lesson every time. A remembered codec the probe no
-// longer supports is ignored.
-function streamCodecs(supported, bad = [], first = "") {
-  let list = STREAM_CODECS.filter((c, i) => supported[i]).map((c) => c[0])
+// in software at half rate, so the probe cannot be trusted to choose. What
+// this returns, in order: whatever `first` names, if the probe still supports
+// it and the session has not struck it - that is the codec remembered from a
+// visit where it carried the picture cleanly for STREAM_PROVE_MS, or the one
+// this session is deliberately trying as an upgrade. Failing that, the safe
+// codec. Failing that - a browser with no H.264 at all, or a session that has
+// struck it - whatever is left, richest first.
+//
+// The better codecs stay on the list behind the lead rather than being cut
+// from it, because the host answers with the first entry it can encode: a host
+// that cannot encode H.264 at all still gets to offer AV1 instead of failing.
+function streamOrder(supported, bad = [], first = "") {
+  const list = STREAM_CODECS.filter((c, i) => supported[i]).map((c) => c[0])
     .filter((c) => !bad.includes(c));
-  const at = list.indexOf(first);
-  if (at > 0) list = list.slice(at);
-  return list.length ? list.join(",") : "h264";
+  const lead = list.includes(first) ? first
+             : list.includes(STREAM_SAFE) ? STREAM_SAFE : "";
+  return lead ? [lead].concat(list.filter((c) => c !== lead)) : list;
+}
+
+// The same list as a query-string value. Unlike streamOrder this has to name
+// something whether or not anything is left, since the URL needs a value.
+function streamCodecs(supported, bad = [], first = "") {
+  const list = streamOrder(supported, bad, first);
+  return list.length ? list.join(",") : STREAM_SAFE;
 }
 
 // The family a WebCodecs codec string belongs to, for the state line and the
@@ -1926,13 +2194,89 @@ function streamStrain(drops, now, slowMs) {
   return "";
 }
 
-// The codec to fall to when `from` stops working: the best of what the probe
-// found that this session has not already given up on. Empty when there is
-// none - unlike streamCodecs, which has to name something for the URL whether
-// or not anything is left.
+// The codec to fall to when `from` stops working: whatever the next ask would
+// lead with once `from` is struck, so the state line and the URL agree. That
+// is the safe codec while the session still has it, which is the point - a
+// Chromebook that has just failed on AV1 is not helped by being handed HEVC,
+// the other format its decoder is likely to be missing. Empty when there is
+// nothing left, which is what tells streamDowngrade to pace instead.
 function streamNext(supported, bad, from) {
-  return STREAM_CODECS.filter((c, i) => supported[i]).map((c) => c[0])
-    .filter((c) => c !== from && !bad.includes(c))[0] || "";
+  return streamOrder(supported, bad.concat([from]))[0] || "";
+}
+
+// The codec worth spending one encoder restart on as an upgrade: the richest
+// the probe found that this session has not given up on, when that is not
+// already the one running. Empty when the stream is on the best there is - or
+// when the richer ones have been struck, which is how a machine that failed
+// this once stops being asked again.
+function streamBetter(supported, bad, current) {
+  const best = STREAM_CODECS.filter((c, i) => supported[i]).map((c) => c[0])
+    .filter((c) => !bad.includes(c))[0] || "";
+  return best && best !== current ? best : "";
+}
+
+// The device rows the picture is actually painted into. The canvas is the one
+// noVNC owns, so its CSS height is the size the picture is presented at
+// whichever way Fit is set: scaled into the window with Fit on, and the
+// framebuffer's own height at 1:1, where what is visible is a crop at native
+// scale and every row of it is a real row. Multiplied by the device pixel
+// ratio, because a ratio of 2 paints two device rows per CSS row and has
+// somewhere genuine to put them. The screen is the fallback for a canvas that
+// is not up yet; nothing at all answers 0, which asks for the base.
+//
+// Bounded by the framebuffer, which is the height the host actually has to
+// give: ddagrab never enlarges, so rows asked for past it produce the same
+// picture. They are not free, though. The host sizes the bitstream's declared
+// level on the cap and not on the picture it produced (video.mjs, -level from
+// capW/capH), and asking this 1920x1080 host for 1440 was measured here to
+// return the identical 1920x1080 picture declared avc1.640033 - level 5.1 -
+// where 1080 returns it as 640002a, level 4.2. Asking for rows the host does
+// not have buys nothing and spends a level some decoder will refuse.
+function streamRows(cssH, screenH, dpr, fbH) {
+  const scale = dpr > 0 ? dpr : 1;
+  const css = cssH > 0 ? cssH : screenH > 0 ? screenH : 0;
+  const rows = css > 0 ? Math.round(css * scale) : 0;
+  return fbH > 0 ? Math.min(rows, fbH) : rows;
+}
+
+// The cap to ask for: the largest rung this viewer can actually paint, never
+// above what its decoder has been shown to take.
+//
+// The largest that fits, and not the smallest that covers, because what is
+// being asked for is a fixed number of megabits and not a quality: rows the
+// display will only throw away are bits taken off the rows it keeps, so a
+// 768-row laptop handed 1080 rows gets a softer picture out of the same bytes
+// than it would have got from 720. `current` is the rung already running, and
+// it is sticky downward - a window nudged just inside a boundary keeps the
+// rung it has, because the rows it loses are invisible and the restart every
+// viewer on that encoder pays for is not. `allowed` is the decoder's earned
+// ceiling and has the last word: it is the line that keeps a 1080p panel with
+// a 720p decoder on 720.
+function streamHeight(rows, allowed, current) {
+  const top = STREAM_HEIGHTS[STREAM_HEIGHTS.length - 1];
+  let want = STREAM_HEIGHTS.filter((h) => h <= rows).pop() || STREAM_BASE_HEIGHT;
+  if (current && want < current && rows >= current * (1 - HEIGHT_SLACK)) want = current;
+  return Math.min(want, Math.max(STREAM_BASE_HEIGHT, Math.min(top, allowed || 0)));
+}
+
+// The next cap worth one encoder restart: one rung above what is running,
+// while the screen can use it and the session has not had it refused. One rung
+// at a time and never past what the screen asks for, so a decoder that stops
+// at 1080p60 proves 1080, is asked about 1440 exactly once, and is left there.
+function streamTaller(rows, current, bad) {
+  const want = streamHeight(rows, STREAM_HEIGHTS[STREAM_HEIGHTS.length - 1], 0);
+  const next = STREAM_HEIGHTS.find((h) => h > (current || STREAM_BASE_HEIGHT)) || 0;
+  return next && next <= want && (!bad || next < bad) ? next : 0;
+}
+
+// The remembered cap, which is a claim about this machine's decoder and not
+// about its window: the tallest picture that carried here for STREAM_PROVE_MS,
+// written on the same evidence the codec is written on and corrected back down
+// when one is refused. Anything that is not one of the rungs - a hand-edited
+// value, a key from some other page - is not believed.
+function streamProven(saved) {
+  const h = Math.round(Number(saved) || 0);
+  return STREAM_HEIGHTS.includes(h) ? h : STREAM_BASE_HEIGHT;
 }
 
 // The list to ask the host for now, from the probe, the session's bad list
@@ -1940,7 +2284,27 @@ function streamNext(supported, bad, from) {
 function chooseCodecs() {
   let last = "";
   try { last = localStorage.getItem(CODEC_KEY) || ""; } catch (_) {}
-  vidCodecs = streamCodecs(vidSupported, Array.from(vidBad), last);
+  vidCodecs = streamCodecs(vidSupported, Array.from(vidBad), vidWant || last);
+}
+
+// The rows this viewer paints right now, read off the canvas and the screen.
+function vidRows() {
+  const c = vidCanvas();
+  return streamRows(c ? c.clientHeight : 0, (window.screen && screen.height) || 0,
+                    window.devicePixelRatio || 1, c ? c.height : 0);
+}
+
+// The cap for the next ask. Read at every openVideo rather than watched, so a
+// window that changed while the stream was down costs nothing to account for.
+// The remembered value is read once and then lives in vidMaxhOk, which the
+// proof below raises and a refusal lowers.
+function chooseHeight() {
+  if (!vidMaxhOk) {
+    let saved = "";
+    try { saved = localStorage.getItem(HEIGHT_KEY) || ""; } catch (_) {}
+    vidMaxhOk = streamProven(saved);
+  }
+  vidMaxh = streamHeight(vidRows(), vidMaxhWant || vidMaxhOk, vidMaxh);
 }
 
 // Asked once, at load: isConfigSupported is a promise, and openVideo is not.
@@ -1960,6 +2324,48 @@ function parseVideoFrame(buf) {
            data: new Uint8Array(buf, 5) };
 }
 
+// What the recent arrivals say about the link. `base` is the smallest offset
+// seen between the host's timestamp and the local clock - the least-delayed
+// path in the window, which is the natural zero for the presentation clock -
+// and `jitter` is the spread around it, which is exactly the amount of arrival
+// noise the buffer has to swallow.
+function streamClock(clock) {
+  let lo = Infinity, hi = -Infinity;
+  for (const c of clock) { if (c.off < lo) lo = c.off; if (c.off > hi) hi = c.off; }
+  return { base: lo === Infinity ? 0 : lo, jitter: clock.length < 2 ? 0 : hi - lo };
+}
+
+// A picture that went up more than a frame period after its slot came is one
+// the buffer was too short to cover: it arrived after the clock already wanted
+// it. That is the growth signal, and an empty paint slot deliberately is not -
+// an empty slot is just as likely to be a frame the host never encoded, and no
+// amount of buffer will conjure one of those.
+function streamLate(at, now, frameMs) {
+  return now - at > frameMs;
+}
+
+// Where the buffer should sit after this decision. Growing is the safe
+// direction and happens at once, to the whole of what was measured; shrinking
+// gives latency back and happens one small step at a time, and only after
+// several clean decisions running. The asymmetry is the ladder's own, for the
+// ladder's reason: a stalled picture is felt immediately and a premature
+// shrink just stalls it again. Between the two thresholds is a dead band where
+// nothing moves, so a link sitting near a boundary does not oscillate.
+function streamDelay(delay, jitter, frameMs, late, calm) {
+  // One frame period is the floor, except where a frame period is itself more
+  // delay than the cap allows - a five-frame stream would otherwise be asked
+  // to hold 200 ms. Latency is the harder constraint of the two, so the cap
+  // wins; a delay under a frame period is a smaller jitter margin, not a
+  // broken clock.
+  const floor = Math.min(PACE_CAP_MS, Math.max(PACE_FLOOR_MS, frameMs));
+  const fit = (ms) => Math.min(PACE_CAP_MS, Math.max(floor, ms));
+  const want = fit(jitter + frameMs);
+  if (late >= PACE_LATE) return fit(Math.max(want, delay + frameMs / 2));
+  if (want > delay + PACE_BAND_MS) return want;
+  if (calm >= PACE_CALM && want < delay - PACE_BAND_MS) return fit(delay - PACE_SHRINK_MS);
+  return fit(delay);
+}
+
 // Whether to hand a chunk to the decoder, and whether to wait for a key after
 // it. A delta after a skipped frame is garbage - it references pixels this
 // decoder never saw - so once anything is dropped nothing goes in until the next
@@ -1972,6 +2378,46 @@ function streamGate(waitKey, key, queued) {
   return { decode: true, waitKey: false };
 }
 
+// How far the encoded picture's shape may sit from the framebuffer's before
+// the two are called different rectangles. The host's cap scales with the
+// aspect ratio kept and truncates each side to even, so the worst honest error
+// is one pixel on the short side - under half a percent at the smallest
+// picture the host will send. Two per cent leaves room for that and for an
+// encoder that rounds its own crop, and is nowhere near what a second monitor
+// costs: two 16:9 screens side by side make a 32:9 framebuffer, which is off
+// by a factor of two.
+const RECT_SKEW = 0.02;        // picture shape against framebuffer shape
+
+// Is the picture the host is sending the same rectangle the framebuffer is?
+//
+// This is the one thing that has to be true for Stream to be usable, and it is
+// not the same question as whether it is the same size. Every mouse coordinate
+// this page sends is measured against the canvas, and the canvas is the VNC
+// framebuffer; the decoded picture is drawn across the whole of that canvas.
+// So a picture of a smaller rectangle - one monitor where the framebuffer
+// spans two - arrives stretched over the whole framebuffer. That is the zoom,
+// and it is also every click landing somewhere the user did not aim, which is
+// the half of it that is not visible.
+//
+// Being scaled is not the problem and must not trip this: the host's cap
+// shrinks the picture but keeps its shape, so 1280x720 of a 2560x1440
+// framebuffer is the same rectangle and draws correctly across it. Only the
+// shape is compared, for that reason.
+//
+// What the comparison catches is a framebuffer that spans monitors against a
+// picture of one of them, which is never the same shape unless the monitors
+// were arranged into one by accident. What it cannot catch is the host
+// capturing the wrong one of two identically shaped monitors - the shapes
+// agree and the picture is wrong; see captureIndex in video.mjs, which is
+// where that assumption lives. Width and height are optional on the wire, from
+// a host that predates them or a sequence header this host could not read, and
+// with nothing to compare the picture is trusted exactly as it was before this
+// check existed.
+function streamRectOk(w, h, fbW, fbH) {
+  if (!(w > 0 && h > 0 && fbW > 0 && fbH > 0)) return true;
+  return Math.abs((w / h) / (fbW / fbH) - 1) <= RECT_SKEW;
+}
+
 // One short line for the state text, whatever went wrong. The bridge closes
 // with 1011 and a reason when the encoder is the problem, and 1006 with nothing
 // when the socket simply never got there - a host predating the route, a tunnel
@@ -1980,6 +2426,7 @@ function streamReason(why, code, reason) {
   switch (why) {
     case "nodecoder": return "this browser cannot decode video";
     case "host": return "this host has no video route";
+    case "shape": return "DECODER+ carries one screen - pick Main or Second screen";
     case "timeout": return "the host sent no video";
     case "decode": return "decoder error" + (reason ? " (" + reason + ")" : "");
     case "close":
@@ -1997,7 +2444,7 @@ function canStream() {
 function reflectStream() {
   const b = $("stream");
   const why = !("VideoDecoder" in window)
-    ? "This browser has no WebCodecs video decoder, so Stream cannot run here."
+    ? "This browser has no WebCodecs video decoder, so DECODER+ cannot run here."
     : !hostVideo ? "This host has no video route. Update the host script to get one."
     : "";
   b.disabled = !!why;
@@ -2008,6 +2455,140 @@ function reflectStream() {
 function vidCanvas() {
   return rfb ? (rfb.canvas || screenEl.querySelector("canvas")) : null;
 }
+
+// The context to paint into, found once per canvas rather than once per frame.
+//
+// It stays a 2D context, and not for want of looking at the alternatives. This
+// is noVNC's own canvas - the one VNC paints when Stream is off or has fallen
+// over, and the one whose width and height every mouse coordinate on this page
+// is measured against. noVNC binds a 2D context to it at novnc.js:13825, and a
+// canvas gives out one context kind for its whole life: asking the same
+// element for "bitmaprenderer" afterwards returns null, so an
+// ImageBitmapRenderingContext here would mean a second canvas stacked over the
+// first, with its own size to keep in step with the framebuffer, for the sake
+// of a transferFromImageBitmap that would still need a createImageBitmap off
+// the VideoFrame to feed it. WebGL costs the same second canvas and a shader
+// besides. Neither is worth breaking the one invariant - canvas size is the
+// input mapping - to find out. The cheap win that was actually available is
+// here: getContext was being called on every decoded frame.
+function vidPaintCtx() {
+  const c = vidCanvas();
+  if (!c) { vidCtxEl = vidCtx = null; return null; }
+  if (c !== vidCtxEl) { vidCtxEl = c; vidCtx = c.getContext("2d"); }
+  return vidCtx;
+}
+
+// A VideoFrame holds a buffer out of a pool the decoder cannot refill while it
+// is held, so letting one go is not housekeeping: a frame leaked here is a
+// decoder that stops producing pictures. Every frame this page touches goes
+// through one of these two, exactly once.
+function streamDrop(frame) {
+  try { frame.close(); } catch (_) {}
+}
+
+// Let go of everything being held, on any path that ends the stream the queue
+// belongs to: a downgrade, a socket close, the toggle going off, the tab
+// hiding, a new encoder whose timestamps mean nothing to the old slots.
+function streamFlush() {
+  for (const q of vidPaint) streamDrop(q.frame);
+  vidPaint = [];
+}
+
+// Take a decoded frame into the queue and fold its arrival into the clock.
+function streamHold(frame, now) {
+  const ms = (frame.timestamp || 0) / 1000;
+  const off = now - ms;
+  // An offset that moved by a second is not jitter, it is a different clock:
+  // every step down the ladder and every codec switch restarts ffmpeg, and its
+  // timestamps start again from zero. The frames already queued were slotted
+  // against the old one and are worthless.
+  if (!vidClock.length || Math.abs(off - vidBase) > PACE_RESET_MS) {
+    streamFlush();
+    vidClock = [];
+    vidBase = off;
+  }
+  vidClock.push({ t: now, off });
+  while (vidClock.length && now - vidClock[0].t > PACE_WINDOW_MS) vidClock.shift();
+  vidPaint.push({ frame, ms });
+  // Whatever the clock believes, the frames held are a resource the decoder
+  // needs back. Past the cap the oldest goes - it is the one whose slot has
+  // most nearly passed anyway - so the held count has a hard ceiling that no
+  // arithmetic above can raise.
+  while (vidPaint.length > PACE_QUEUE_MAX) streamDrop(vidPaint.shift().frame);
+}
+
+// The paint loop. requestAnimationFrame rather than a timer, deliberately: the
+// point of the exercise is even spacing on screen, and the screen only changes
+// at a vsync. A setInterval at 60 Hz lands at a phase unrelated to the
+// compositor, so the frame it writes is picked up one refresh later or not at
+// all, which puts back exactly the beat this code exists to remove - and it
+// keeps running at full rate in a background tab, burning a GPU on a picture
+// nobody is looking at. rAF is throttled to a crawl in a hidden tab, which is
+// the correct behaviour here and is why the output callback below refuses to
+// queue anything while document.hidden: the frames are closed as they arrive
+// and the queue stays empty, so a tab coming back does not paint a second of
+// history at once. The existing hidden-tab handling is unchanged otherwise -
+// the socket stays open and the gate drops to the next keyframe.
+function streamPaint() {
+  vidRaf = 0;
+  if (!decoder) { streamFlush(); return; }
+  const now = performance.now();
+  const frameMs = vidHz ? 1000 / vidHz : 1000 / 60;
+  // Everything whose slot has come. The newest of them is the picture; any
+  // behind it are frames this display had no slot for, and they are closed
+  // rather than drawn. Because the slot comes from the host's timestamp and
+  // not from arrival, two frames landing in the same millisecond still get
+  // slots a frame period apart and go up one per refresh - which is the whole
+  // mechanism.
+  let show = null;
+  while (vidPaint.length && vidPaint[0].ms + vidBase + vidDelay <= now) {
+    if (show) streamDrop(show.frame);
+    show = vidPaint.shift();
+  }
+  if (show) {
+    const ctx = vidPaintCtx();
+    try {
+      if (ctx) {
+        ctx.drawImage(show.frame, 0, 0, vidCtxEl.width, vidCtxEl.height);
+        vidPainted++;
+      }
+    } finally { streamDrop(show.frame); }
+    if (streamLate(show.ms + vidBase + vidDelay, now, frameMs)) vidLate++;
+  }
+  // Resize the buffer once a second, on the clock the frames themselves set.
+  if (now - vidDecided >= PACE_STEP_MS) {
+    const k = streamClock(vidClock);
+    // The zero of the clock is slewed, not jumped: a base that moved in one go
+    // would drag every queued slot with it and show as a lurch. One frame
+    // period a second is four orders of magnitude more than crystal drift
+    // between two machines needs and still invisible.
+    if (vidClock.length) vidBase += Math.max(-frameMs, Math.min(frameMs, k.base - vidBase));
+    vidDelay = streamDelay(vidDelay, k.jitter, frameMs, vidLate, vidSteady);
+    vidSteady = vidLate ? 0 : vidSteady + 1;
+    vidLate = 0;
+    vidDecided = now;
+  }
+  vidRaf = requestAnimationFrame(streamPaint);
+}
+
+// A window that changed size wants a different picture - but not on every
+// event a drag emits, and not for a change too small to see. The cap is part
+// of what the host joins two viewers on, so every change to it restarts the
+// encoder and costs everyone on it a keyframe. One ask, HEIGHT_SETTLE_MS after
+// the last resize, and only when the rung itself moved; the slack in
+// streamHeight is what keeps a boundary from counting as a move.
+window.addEventListener("resize", () => {
+  clearTimeout(vidMaxhTimer);
+  if (!vidSock || !vidReady) return;
+  vidMaxhTimer = setTimeout(() => {
+    if (!vidSock || !vidReady) return;
+    const was = vidMaxh;
+    chooseHeight();
+    if (vidMaxh === was) return;
+    state("live", "DECODER+: " + vidMaxh + "p for this window");
+    openVideo();
+  }, HEIGHT_SETTLE_MS);
+});
 
 function openVideo() {
   closeVideo();
@@ -2022,8 +2603,14 @@ function openVideo() {
   // display is the share dropdown's own vocabulary; the bridge whitelists it
   // and the codec list too.
   const step = STREAM_STEPS[vidStep];
+  // The picture cap goes with them. A host too old to know the parameter reads
+  // fps, mbps, display and codecs by name and never looks for maxh, so it
+  // ignores it and streams exactly as it does today - there is no version of
+  // this that an old host can fail on.
+  chooseHeight();
   const url = endpoint.replace("/ws?", "/video?") + "&fps=" + step.fps +
               "&mbps=" + Math.round((video ? 12 : 8) * step.mbps * 10) / 10 +
+              "&maxh=" + vidMaxh +
               "&display=" + encodeURIComponent($("share").value) + "&codecs=" + vidCodecs;
   let sock;
   try {
@@ -2103,8 +2690,20 @@ function videoConfig(codec) {
 // which is why the decoder is built fresh each time rather than reconfigured
 // mid-stream. VNC keeps the picture moving until the first decoded frame.
 function configureVideo(cfg) {
+  // Ahead of every other thing this function does, because if the host's
+  // picture is not the rectangle the canvas describes then there is no
+  // decoder worth building: drawing it would zoom the picture and move every
+  // click off its target. VNC already has the screen and keeps it.
+  const fb = vidCanvas();
+  if (fb && !streamRectOk(cfg.width, cfg.height, fb.width, fb.height)) {
+    streamOff("shape");
+    return;
+  }
   clearTimeout(vidTimer);
   if (decoder) { try { decoder.close(); } catch (_) {} decoder = null; }
+  // Whatever is queued belongs to the decoder just closed, and was slotted
+  // against an encoder clock that is about to start again from zero.
+  streamFlush();
   vidReady = false;
   // Strain is evidence about the stream being configured, and none of it
   // survives the configure. A drop recorded at sixty frames is not a fact
@@ -2121,26 +2720,39 @@ function configureVideo(cfg) {
   vidTimer = setTimeout(() => streamDowngrade("not producing frames"), 8000);
   const d = new VideoDecoder({
     output: (frame) => {
-      // Scaled to the canvas rather than drawn 1:1: the framebuffer is what the
-      // mouse coordinates are measured against, and the encoder's size need
-      // not match it exactly.
-      const c = decoder === d ? vidCanvas() : null;
-      try { if (c) {
-        if (!vidReady) {
-          clearTimeout(vidTimer);
-          vidReady = true;
-          rfb.pixels = false;
-          streamWant = 0;
-          pushStream();
-          $("quality").disabled = true;
-          try { localStorage.setItem(CODEC_KEY, streamFamily(vidCodec)); } catch (_) {}
-          state("live", "Streaming" + (vidNote ? " " + streamFamily(vidCodec) + vidNote : ""));
-        }
-        // The first picture out is the codec proving itself; that is the one
-        // the next visit starts on.
-        vidFrames++;
-        c.getContext("2d").drawImage(frame, 0, 0, c.width, c.height);
-      } } finally { frame.close(); }
+      // A frame from a decoder that has been replaced is stale pixels; it is
+      // let go of and not counted.
+      if (decoder !== d) { streamDrop(frame); return; }
+      // Counted as decoded the moment it comes out, whatever becomes of it
+      // afterwards. The strain rule downstream weighs decoded against
+      // delivered, and it has to go on meaning "the decoder kept up" and not
+      // "the screen showed it" - otherwise a presentation clock doing its job,
+      // dropping a frame the display had no refresh for, would read as the
+      // decoder failing and walk the quality ladder down for it.
+      vidFrames++;
+      if (!vidCanvas()) { streamDrop(frame); streamFlush(); return; }
+      // The takeover happens before the hidden check below, because a tab
+      // hidden in the seconds between the socket opening and the first frame
+      // would otherwise never clear the first-picture timeout, and a decoder
+      // that is working perfectly would be reported as producing nothing.
+      if (!vidReady) {
+        clearTimeout(vidTimer);
+        vidReady = true;
+        rfb.pixels = false;
+        streamWant = 0;
+        pushStream();
+        $("quality").disabled = true;
+        state("live", "DECODER+" + (vidNote ? " " + streamFamily(vidCodec) + vidNote : ""));
+      }
+      // Nothing is held while the tab is hidden: rAF is throttled there, so a
+      // queued frame would be a GPU buffer held for as long as the person
+      // stays in another tab, and a tab coming back would paint a lump of
+      // history all at once.
+      if (document.hidden) { streamDrop(frame); streamFlush(); return; }
+      // Into the queue rather than straight onto the canvas: the clock says
+      // when, and the loop it starts is what says it.
+      streamHold(frame, performance.now());
+      if (!vidRaf) vidRaf = requestAnimationFrame(streamPaint);
     },
     // An error that arrives later says the same thing as a refused configure,
     // just after the fact, and gets the same walk down.
@@ -2168,15 +2780,27 @@ function configureVideo(cfg) {
   decoder = d;
   // How long this codec has been decoding here, which the strike rule reads.
   // Steps down and back up reconfigure the same codec and must not reset it.
-  if (streamFamily(cfg.codec || "") !== streamFamily(vidCodec)) vidCodecSince = performance.now();
+  if (streamFamily(cfg.codec || "") !== streamFamily(vidCodec)) {
+    vidCodecSince = performance.now();
+    vidSaved = false;
+  }
   vidWaitKey = true;
   vidHz = cfg.fps || 0;
   vidEncoder = cfg.encoder || "";
   vidCodec = cfg.codec || "";
-  vidFrames = vidDelivered = 0;
+  vidFrames = vidDelivered = vidPainted = 0;
   vidDrops = [];
   vidSlowSince = 0;
   vidSince = vidCalm = performance.now();
+  // A fresh encoder is a fresh clock: no offset history to average, and one
+  // frame period of delay to start from, which is the least a presentation
+  // clock can hold and still be one.
+  vidClock = [];
+  vidBase = 0;
+  vidLate = 0;
+  vidSteady = 0;
+  vidDelay = Math.max(PACE_FLOOR_MS, vidHz ? 1000 / vidHz : 1000 / 60);
+  vidDecided = performance.now();
 }
 
 // The codec is not keeping up here, or will not decode at all: strike it for
@@ -2204,9 +2828,14 @@ function streamDowngrade(why, detail) {
   const to = from && !settled ? streamNext(vidSupported || [], Array.from(vidBad), from) : "";
   if (to) {
     vidBad.add(from);
+    // Forget it as the codec to start on as well. A struck codec still sitting
+    // in localStorage would lead the ask again on the very next visit and fail
+    // again, which is the once-a-session fallback this ordering exists to stop.
+    try { if (localStorage.getItem(CODEC_KEY) === from) localStorage.removeItem(CODEC_KEY); } catch (_) {}
+    if (vidWant === from) vidWant = "";
     chooseCodecs();
     vidNote = " after " + from + " was " + why;
-    state("live", "Stream: " + from + " " + why + ", switching to " + to);
+    state("live", "DECODER+: " + from + " " + why + ", switching to " + to);
     openVideo();
     return;
   }
@@ -2227,7 +2856,7 @@ function streamPace(why) {
   vidStep++;
   vidSoft = false;
   vidNote = " at " + STREAM_STEPS[vidStep].fps + " fps after " + why;
-  state("live", "Stream: " + why + ", retrying at " + STREAM_STEPS[vidStep].fps + " fps");
+  state("live", "DECODER+: " + why + ", retrying at " + STREAM_STEPS[vidStep].fps + " fps");
   openVideo();
 }
 
@@ -2235,14 +2864,86 @@ function streamPace(why) {
 // later. Try an easier one before trying a slower way of decoding this one,
 // and only call it an error when both are spent.
 function streamRefused(detail) {
+  // Except when what was refused is the upgrade this session just reached for.
+  // That is not a pace problem and there is nothing to learn from walking the
+  // ladder down on it: the safe codec was carrying this same stream at this
+  // same pace seconds ago. Strike it and go straight back.
+  const up = streamFamily(vidCodec);
+  if (up && up === vidWant) {
+    vidBad.add(up);
+    vidWant = "";
+    chooseCodecs();
+    vidNote = " after " + up + " was refused";
+    state("live", "DECODER+: " + up + " refused, back to " +
+          streamNext(vidSupported || [], Array.from(vidBad), up));
+    openVideo();
+    return;
+  }
+  // Or what was refused is the taller picture this session just reached for,
+  // which is the exact failure the cap exists for: 1080p60 H.264 is level 4.2
+  // and a built-in decoder that stops below it refuses the configure outright
+  // rather than falling back. Same answer as for a codec - strike the size,
+  // stop asking for it here and on the next visit, and go back to the one that
+  // was carrying this same stream seconds ago. Ahead of the pace ladder,
+  // because walking the pace down would be answering a question nobody asked:
+  // the frames were never the problem.
+  if (vidMaxhWant && vidMaxh === vidMaxhWant) {
+    vidMaxhBad = vidMaxhWant;
+    vidMaxhWant = 0;
+    vidMaxhOk = STREAM_HEIGHTS.filter((h) => h < vidMaxhBad).pop() || STREAM_BASE_HEIGHT;
+    try { localStorage.setItem(HEIGHT_KEY, String(vidMaxhOk)); } catch (_) {}
+    vidNote = " after " + vidMaxhBad + "p was refused";
+    state("live", "DECODER+: " + vidMaxhBad + "p refused, back to " + vidMaxhOk + "p");
+    openVideo();
+    return;
+  }
   if (vidStep + 1 < STREAM_STEPS.length) { streamPace("the decoder refused it"); return; }
   if (!vidSoft) {
     vidSoft = true;
-    state("live", "Stream: retrying without the hardware preference");
+    state("live", "DECODER+: retrying without the hardware preference");
     openVideo();
     return;
   }
   streamDowngrade("decoder error", detail);
+}
+
+// The safe codec has carried the picture cleanly for long enough to say the
+// decoder and the link are both fine, so spend one encoder restart finding out
+// whether the richer codec is real on this machine. A desktop that decodes AV1
+// in hardware reaches it and has it remembered for next time; a machine that
+// only appeared to gets the strike, comes straight back, and is not asked
+// again this session. Once per session, and only at full pace - asking a
+// machine that is already paced down to do something harder is the wrong
+// question.
+function streamUpgrade(to) {
+  vidUpgraded = true;
+  vidWant = to;
+  chooseCodecs();
+  vidNote = "";
+  state("live", "DECODER+: steady, trying " + to);
+  openVideo();
+}
+
+// The picture has been carried cleanly for long enough to say this decoder
+// takes it at this size, so spend one encoder restart asking whether it takes
+// the next size up. The same bargain as the codec upgrade above and for the
+// same reason: what a screen can show is not what its decoder will accept, and
+// decoded frames are the only honest evidence of the difference. A refusal is
+// caught in streamRefused, which strikes the size and comes straight back.
+// Only at full pace, since asking a machine that is already paced down to do
+// something harder is the wrong question.
+function streamGrow() {
+  // Not on a decoder that is already doing it in software. vidSoft is the
+  // hardware preference having been refused here, and a software decoder that
+  // is keeping up with 720p60 is the last thing to hand twice the pixels to:
+  // what it would cost is the pace ladder, which is frames rather than rows.
+  if (vidSoft) return;
+  const to = streamTaller(vidRows(), vidMaxh, vidMaxhBad);
+  if (!to) return;
+  vidMaxhWant = to;
+  vidNote = "";
+  state("live", "DECODER+: steady, trying " + to + "p");
+  openVideo();
 }
 
 // The scene calmed down. A step is asked for back rather than kept for the
@@ -2253,7 +2954,7 @@ function streamRecover() {
   vidStep--;
   vidUp = performance.now();
   vidNote = " at " + STREAM_STEPS[vidStep].fps + " fps";
-  state("live", "Stream: steady, back to " + STREAM_STEPS[vidStep].fps + " fps");
+  state("live", "DECODER+: steady, back to " + STREAM_STEPS[vidStep].fps + " fps");
   openVideo();
 }
 
@@ -2261,13 +2962,15 @@ function streamRecover() {
 // they are, which is what a hidden tab and a reconnect both want.
 function closeVideo() {
   clearTimeout(vidTimer);
+  if (vidRaf) { cancelAnimationFrame(vidRaf); vidRaf = 0; }
   vidReady = false;
   if (vidSock) { const s = vidSock; vidSock = null; try { s.close(); } catch (_) {} }
   if (decoder) { const d = decoder; decoder = null; try { d.close(); } catch (_) {} }
+  streamFlush();
   vidHz = 0;
   vidEncoder = "";
   vidCodec = "";
-  vidFrames = 0;
+  vidFrames = vidPainted = 0;
 }
 
 // Back to VNC pixels. With a reason it is a failure and the state line says
@@ -2282,9 +2985,9 @@ function streamOff(why, code, reason) {
   if (!rfb) return;
   if (rfb.pixels === false) rfb.pixels = true;
   if (!document.hidden) setRate(ceilHz());
-  if (!why) { state("live", "Connected"); return; }
-  state("live", "Stream unavailable: " + streamReason(why, code, reason));
-  if (why === "host" || why === "nodecoder") { reflectStream(); return; }
+  if (!why) { state("live", "VNC+"); return; }
+  state("live", "DECODER+ unavailable: " + streamReason(why, code, reason));
+  if (why === "host" || why === "nodecoder" || why === "shape") { reflectStream(); return; }
   // A tunnel hiccup or an encoder still warming up deserves one more go. Just
   // one: a host that cannot encode says so on every attempt, and a socket
   // reopened every few seconds is the loop this page has already had to
@@ -2380,8 +3083,17 @@ window.addEventListener("beforeunload", () => {
 // Keep the key out of the address bar once we have it. It still has to survive
 // a reload, though: stripped from the URL and saved nowhere, every F5 on a watch
 // link came back to the access-key card.
+//
+// The one key not worth saving is the entry code arriving on top of a saved key
+// that is something else. That is an old /cast#1234 bookmark meeting a host whose
+// key has since been rotated: the load it is on will fail either way, and writing
+// "1234" over the good saved key would turn that one failed load into every load
+// failing. When the key really is 1234 the two strings are the same and this
+// decides nothing.
 if (location.hash) {
-  if (token) store.set("castToken", token);
+  const saved = store.get("castToken");
+  const stale = token === ENTRY && saved && saved !== ENTRY;
+  if (token && !stale) store.set("castToken", token);
   history.replaceState(null, "", location.pathname + location.search);
 }
 
@@ -2431,9 +3143,19 @@ document.addEventListener("keydown", (e) => {
 // stranger and this machine, and by the time a line of this runs that key has
 // already been read out of the hash. What it buys is that a screen somebody
 // glances over reads as a calculator rather than as a way into a desktop. So the
-// keys genuinely work - a prop whose buttons do nothing is a prop anyone spots -
-// and the code is never written down anywhere, so every load asks again.
-const ENTRY = "1234";
+// calculator genuinely works - a prop whose buttons do nothing is a prop anyone
+// spots - and the code (ENTRY, declared at the top of this file because the hash
+// is read there) is never written down anywhere, so every load asks again.
+//
+// There are two calculators here and only one of them is on screen at a time.
+// The face of the cover is a real Desmos graphing calculator, fetched from
+// Desmos at load. The keypad below it is the fallback: it is four megabytes
+// lighter, it is already written, and it is what the cover falls back to when
+// the third-party script is slow, blocked, offline or refused. A cover that
+// fails closed - a calculator that never arrives and no way past it - would be
+// worse than no cover at all, so the fallback is not optional and is reachable
+// three ways: automatically on error, automatically on a timeout, and by hand
+// from the Basic key in the graph's header.
 
 const CALC_FN = {
   "sin(": (x) => Math.sin(calcAngle(x)),
@@ -2581,22 +3303,192 @@ function calcKey(e) {
   calcPress(k);
 }
 
+/* ---- the graphing calculator the cover actually wears ---- */
+
+// The Desmos calculator API rather than an iframe to desmos.com. The iframe does
+// embed - desmos.com sends no X-Frame-Options and no frame-ancestors - but it is
+// cross-origin, so this page could never see a key pressed inside it and the
+// door would be impossible to open. The API renders into an element of ours, in
+// our own document, which is what keeps the door workable at all.
+//
+// The key below is Desmos's public demo key, published in their own API docs. It
+// works and it is not a secret, but it is shared: whoever owns this site should
+// ask Desmos for their own, which is free, and swap it here.
+//
+// Pinned, not floating. /api/v1.11/ redirects to whatever the latest 1.11 build
+// is, which means the page silently changes under us; v1.11.4 is the build that
+// redirect resolved to on 2026-09-16 and the one this was written against. A
+// v1.12 line exists and serves too - if you move to it, the only calls this page
+// makes are GraphingCalculator(), getExpressions() and destroy(), all of which
+// have been in the API since long before either line.
+//
+// &lang=en is load-bearing and must not be dropped. Without it desmos.com
+// content-negotiates on Accept-Language: a browser that asks in fr-FR is
+// answered 302 to the same URL with &lang=fr, and that build is a different four
+// megabytes - 4348961 bytes against 4029588, both measured on 2026-09-16. A
+// hash only ever matches one of them, so a floating language would mean the
+// graph loads for an English viewer and is blocked for everybody else. Asking
+// for the English build by name makes the bytes the same for every viewer:
+// fetched under en-US, fr-FR and de-DE, gzipped and not, with an Origin header
+// and without, the response was byte-identical every time and carried no
+// redirect at all.
+//
+// The hash is the point of the exercise. Four megabytes of somebody else's
+// JavaScript run in this document, and this document has the access key and the
+// screen password sitting in sessionStorage where any script in the page can
+// read them. A bundle swapped at the CDN could post both anywhere it liked.
+// sha384 below is over the exact bytes that URL served on 2026-09-16; if what
+// arrives is anything else the browser refuses to run it, the script's error
+// handler fires, and the cover falls back to the keypad - which is the whole
+// reason the keypad is not optional. crossorigin="anonymous" goes with it and is
+// not decoration: an integrity= on a tag fetched in no-cors mode is a body the
+// browser cannot see, so it blocks the script outright instead of checking it.
+// desmos.com does send Access-Control-Allow-Origin: *, checked both with and
+// without an Origin header, so the CORS half of this holds.
+//
+// To re-pin after a version bump, twice, and compare the two:
+//   curl -s "<the new URL>" | openssl dgst -sha384 -binary | openssl base64 -A
+// A wrong hash is not a small mistake. The script then never loads for anyone.
+const DESMOS_SRC =
+  "https://www.desmos.com/api/v1.11.4/calculator.js" +
+  "?apiKey=dcb31709b452b1cf9dc26972add0fda6&lang=en";
+const DESMOS_SRI =
+  "sha384-IdnQ7U0//tPk18rk5uPy9VCfSgj6ttgHLylYI6TMKYHq7h0kn5MKD9Dr2m1fScCH";
+
+// Four megabytes over whatever link the viewer is on. Past this the cover gives
+// up on the graph and shows the keypad instead - a person staring at Loading…
+// with no way in is the one outcome this whole section exists to avoid.
+const DESMOS_WAIT_MS = 8000;
+
+let graphCalc = null;
+let graphTimer = 0;
+
+// The door, read off the expression list rather than off the keystrokes. A
+// keystroke log cannot tell 1234 typed on its own from the 1234 left behind
+// after backspacing 51234, and it cannot tell which row the digits landed in;
+// the expression list is the thing actually on the screen. It is compared as
+// latex and not as a value on purpose, and it is the same rule the keypad plays
+// by: the code typed on its own and nothing else is the way through. 617·2 is an
+// answer of 1234, not the code. y=1234x is a graph that contains it, not the
+// code. One row, holding exactly the four characters, is the code.
+function graphIsEntry() {
+  let rows;
+  try { rows = graphCalc.getExpressions(); } catch (_) { return false; }
+  const typed = rows.map((r) => String(r.latex || "").trim()).filter(Boolean);
+  return typed.length === 1 && typed[0] === ENTRY;
+}
+
+// Capturing, on the element Desmos was rendered into, so this runs before the
+// calculator's own Enter handling and the row is still the row that was typed.
+// Everything that is not the code is left alone and falls through to Desmos, so
+// Enter goes on meaning "next expression" for anybody actually graphing.
+function graphKey(e) {
+  if (e.key !== "Enter" || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (!graphIsEntry()) return;
+  e.preventDefault();
+  e.stopPropagation();
+  enter();
+}
+
+// The fallback, and the only thing that runs if any part of the above does not.
+// It is one-way: the graph is torn down rather than hidden, because a Desmos
+// instance holds a WebGL context and there is no reason to keep one alive behind
+// a keypad. Somebody who wanted the graph can reload.
+function showKeypad() {
+  clearTimeout(graphTimer);
+  graphTimer = 0;
+  if (graphCalc) {
+    $("graphBox").removeEventListener("keydown", graphKey, true);
+    try { graphCalc.destroy(); } catch (_) {}
+    graphCalc = null;
+    document.addEventListener("keydown", calcKey, true);
+  }
+  const g = $("graph");
+  if (g) g.hidden = true;
+  const c = $("calc");
+  if (c) c.hidden = false;
+}
+
+function mountGraph() {
+  clearTimeout(graphTimer);
+  graphTimer = 0;
+  // The watchdog may already have given up and shown the keypad. That decision
+  // stands: swapping the card back out from under somebody mid-sum is worse than
+  // a graph that arrived late and was not used.
+  const box = $("graphBox");
+  if (!box || !$("graph") || $("graph").hidden) return;
+  // The script can load and still not leave a calculator behind - a refused API
+  // key is the usual way - so nothing here assumes it worked.
+  try {
+    graphCalc = window.Desmos.GraphingCalculator(box, {
+      expressionsTopbar: false, settingsMenu: false, border: false,
+    });
+  } catch (_) {
+    showKeypad();
+    return;
+  }
+  const wait = $("graphWait");
+  if (wait) wait.remove();
+  // The typed-key door belongs to the keypad, and it preventDefaults digits.
+  // Left armed it would eat every key meant for the expression row.
+  document.removeEventListener("keydown", calcKey, true);
+  $("graphBox").addEventListener("keydown", graphKey, true);
+}
+
+// Three things can now stop the graph arriving where before there were two: the
+// network, the page's own Content-Security-Policy, and a bundle whose bytes are
+// not the pinned ones. All three land on the same handler. A script the CSP
+// refuses fires error on the element, a script whose integrity does not match
+// fires error on the element, and a script that simply never answers is caught
+// by the watchdog - so every way this can fail ends at the keypad, and the
+// keypad's door has been armed since before this function was called.
+function loadDesmos() {
+  const s = document.createElement("script");
+  s.src = DESMOS_SRC;
+  s.integrity = DESMOS_SRI;
+  s.crossOrigin = "anonymous";
+  s.async = true;
+  s.onload = () => { if (window.Desmos && window.Desmos.GraphingCalculator) mountGraph(); else showKeypad(); };
+  s.onerror = showKeypad;
+  graphTimer = setTimeout(showKeypad, DESMOS_WAIT_MS);
+  document.head.appendChild(s);
+}
+
 // Past the calculator is where the page it was covering actually starts.
 function enter() {
+  clearTimeout(graphTimer);
   document.removeEventListener("keydown", calcKey, true);
+  if (graphCalc) { try { graphCalc.destroy(); } catch (_) {} graphCalc = null; }
   const lock = $("lock");
   if (lock) lock.remove();
   if (DIRECT || token) start();
   else { state("wait", "Waiting for a key"); $("gateInput").focus(); }
 }
 
-$("calcPads").addEventListener("click", (e) => {
-  const b = e.target.closest("button");
-  if (b && b.dataset.k) calcPress(b.dataset.k);
-});
-$("calcDeg").addEventListener("click", () => calcPress("deg"));
-document.addEventListener("keydown", calcKey, true);
-calcShow();
+// A watch link ending in #1234 says the person already knows what the cover is
+// for, so there is no cover to put up: no Desmos fetch, no keypad, no key
+// listeners. It takes the cover down and does nothing else - enter() falls
+// through to the ordinary access-key path, which reads the hash as the key like
+// any other hash, so #1234 is the whole watch link when 1234 is the key, and is
+// the saved key or the card asking for one when it is not. The hash is
+// stripped from the URL by the boot block above like any other, so a reload with
+// nothing in the address bar puts the cover back, which is the same rule the
+// code itself has always followed: every load asks again.
+if (SKIP_COVER) enter();
+else {
+  $("calcPads").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (b && b.dataset.k) calcPress(b.dataset.k);
+  });
+  $("calcDeg").addEventListener("click", () => calcPress("deg"));
+  $("graphBasic").addEventListener("click", showKeypad);
+  // Armed from the start, and so the keypad's door works during the seconds the
+  // graph is still downloading even though the keypad is not the card on screen.
+  // There is no window in which the cover is up and nothing opens it.
+  document.addEventListener("keydown", calcKey, true);
+  calcShow();
+  loadDesmos();
+}
 </script>
 </body>
 </html>

@@ -17,6 +17,28 @@ browser ──wss──> cloudflared ──> cast-host bridge :6080 ──tcp─
    └─── GET /api/cast (access key) ─────────┘ POST the tunnel URL every 30s
 ```
 
+## The two names
+
+The toolbar carries one toggle and it picks between two entirely different ways
+of getting a picture, so they have names.
+
+**VNC+** is the RFB path: TightVNC on this machine, the bridge in front of it,
+and noVNC in the page. It ships the screen as compressed stills and it is what
+makes text readable, so it is the default and it is what carries the keyboard
+and mouse in both modes. The `+` is the bridge — the request injector, the rate
+ladder and the display cropping below are all things plain VNC does not do.
+
+**DECODER+** is the hardware video path: the host's GPU encodes the desktop and
+the browser's hardware decoder plays it back. It is the toggle, and the section
+further down is about it.
+
+Which one is live is always readable off the state line: it says `VNC+`, or
+`DECODER+ h264`, and it says which one it fell back to when something goes wrong.
+
+Neither name reaches the wire. The route is still `/video`, the flags are still
+`--video`, `--codec` and `--ffmpeg`, and the query parameters, config fields and
+stored keys are all unchanged — an older page and a newer host still stream.
+
 ## Making it fast
 
 Four things dominate how fast this feels, and the toolbar shows all four live so
@@ -39,7 +61,8 @@ The tunnel figure is not overhead anyone can code away: it is almost exactly
 twice the 24 ms it takes to reach Cloudflare and back, because the traffic goes
 up to an edge and back down again. Which leads to the biggest single win here:
 
-**`--lan` — skip the tunnel when you are in the same building.** Without it, a
+**`--lan` — take the tunnel out of the path when you are in the same building.**
+It does not turn the tunnel off — the public watch link keeps working. Without it, a
 laptop two metres away still pays the full 50 ms round trip out to Cloudflare and
 back. The reason it cannot just connect locally is that a browser refuses a
 `ws://` socket from an `https://` page, so going through the site forces the
@@ -256,13 +279,39 @@ that has never been tuned says so instead of guessing. It stays a readout and
 never becomes a lever — the poll rate is a machine-wide setting, and a remote page
 moving it is a different question from which monitor it is looking at.
 
-## Stream: hardware video for games and video
+### Which VNC+ server, and whether it pushes
+
+`vnc-server.mjs` is the one place that knows what a VNC server is: the binary
+paths, the default port, the share argv, and — the field that matters — whether
+it implements **ContinuousUpdates**. Nothing in it spawns, installs or writes a
+registry key; it is a table and four functions over it, and its filesystem probe
+is an argument so a test can describe a machine without having one.
+
+The answer for Windows is short, and `vnc-plus.md` has the sources. TurboVNC
+ships no Windows server at all. UltraVNC's desktop thread will not act on a
+screen change more than once every 33 ms and says `// MAX 30fps` in its own
+source. TigerVNC is the only Windows server with ContinuousUpdates, and it pays
+for it by going back to strip polling — 50 ms across 16 strips, so any given
+pixel is revisited every 160 ms — where TightVNC already prefers DXGI Desktop
+Duplication, the same mechanism `ddagrab` uses for DECODER+. So TightVNC stays
+the default, it is first in the table, and adopting anything else has to be
+something someone typed rather than something an installer did.
+
+What changed in the bridge is that the injector above is now a *branch* rather
+than an assumption. On a server that pushes updates, noVNC stops sending
+`FramebufferUpdateRequest` the moment continuous updates are negotiated, so the
+injected ten bytes would no longer be a duplicate of something the viewer was
+sending anyway — they would be a foreign message in a stream nobody else is
+writing to. On such a server the injector stays silent and the startup line says
+so. With TightVNC selected the branch is false and every byte is as it was.
+
+## DECODER+: hardware video for games and video
 
 Everything above makes stills arrive faster. It cannot make them smaller: a game
 or a video changes every pixel every frame, Tight has to compress each one from
 scratch, and the link chokes at 15-20 fps whatever the ladder asks for. The GPU
 has a hardware H.264 encoder that does this job for a living, and the browser has
-a hardware decoder (WebCodecs) to match. **Stream** in the toolbar joins the two.
+a hardware decoder (WebCodecs) to match. **DECODER+** in the toolbar joins the two.
 
 When it is on, the host runs ffmpeg — Desktop Duplication capture straight into
 `h264_nvenc`, low-latency settings, no B-frames, a keyframe every second —
@@ -270,11 +319,11 @@ and fans the raw stream out over a second WebSocket path, `/video`. The page
 decodes it and paints into the same canvas noVNC draws on, so every coordinate
 the mouse and keyboard rely on is unchanged. TightVNC stays connected for input
 only: the page stops asking it for pixels (`rfb.pixels = false`) and the ladder
-is parked at 0. Turn Stream off and all of that comes back exactly as it was.
+is parked at 0. Turn DECODER+ off and all of that comes back exactly as it was.
 
 It is a toggle rather than the default because text is softer. H.264 at 8 mbps
 is built for motion, and Tight's lossless rectangles are what make a terminal
-readable. Watch a video or play a game with Stream on; read code with it off.
+readable. Watch a video or play a game with DECODER+ on; read code with it off.
 
 The wire is deliberately small. `/video` takes the same `?k=` as `/ws`, plus
 `fps` (1-120, default 60), `mbps` (1-50, default 8), `display` (the Show
@@ -299,7 +348,17 @@ screen capture nobody is watching. If `h264_nvenc` will not start the host tries
 `h264_amf`, then `h264_qsv`, then `libx264` on the CPU; if none will, every
 `/video` socket is closed with code 1011 and "no encoder", and the page falls
 back to Tight with a reason in the status text. An encoder that dies mid-stream
-is restarted once.
+is restarted once; a second death within ten seconds of the first is taken as
+final, and every `/video` socket is closed with 1011 and "encoder died" rather
+than left watching a process that will not stay up. Either way it is one line in
+the host window saying which happened.
+
+However the host stops — Ctrl+C, the console window closing, the stop file the
+agent drops, or a startup failure after a viewer had already started an encoder,
+which is possible because the bridge is listening before the tunnel URL has been
+scraped — ffmpeg goes with it. It holds the D3D11 desktop duplication for as
+long as it runs, so one left behind is not merely a stray process: it is why the
+next run cannot acquire the screen, on a machine where nothing else looks wrong.
 
 H.264 is the floor, not the ceiling. Bytes are the constraint through the
 tunnel, and AV1 buys the most picture per byte, then HEVC — so the page asks
@@ -325,7 +384,7 @@ socket to find out. A host with the route off answers `/video` with a plain 404.
 One caveat on **Show**: TightVNC and ffmpeg count monitors differently. Tight's
 "display N" is its own numbering; ffmpeg's `ddagrab` takes an output index, and
 `primary` and `full` both map to output 0 while `N` maps to output N-1. On a
-machine whose primary monitor is not the first output, Stream can show a
+machine whose primary monitor is not the first output, DECODER+ can show a
 different screen from the one Tight was sharing. Pick the display by number if
 that happens; the dropdown's choice is sent to both.
 
@@ -404,15 +463,16 @@ file to roll it.
 
 | Flag | Default | What it does |
 | --- | --- | --- |
-| `--lan` | off | Also listen on the local network and serve the viewer page |
+| `--lan` | off | Also listen on your LAN address, and serve the viewer page there only |
 | `--share` | `primary` | `primary`, `full`, or a display number |
-| `--video` | `on` | `off` disables the `/video` route (see Stream above) |
-| `--ffmpeg` | ffmpeg on PATH | The ffmpeg binary Stream should run |
-| `--codec` | the page's preference | `av1`, `hevc` or `h264`: pin what Stream encodes |
+| `--video` | `on` | `off` disables the `/video` route (see DECODER+ above) |
+| `--ffmpeg` | ffmpeg on PATH | The ffmpeg binary DECODER+ should run |
+| `--codec` | the page's preference | `av1`, `hevc` or `h264`: pin what DECODER+ encodes |
 | `--tunnel` | `auto` | `cloudflared`, `ngrok`, or `none` for LAN-only (publishes nothing) |
 | `--url wss://…` | — | You already have a tunnel; publish this instead of starting one |
 | `--port` | `6080` | Bridge port |
-| `--vnc` | `127.0.0.1:5900` | Where the VNC server is |
+| `--vnc` | the selected server's port on `127.0.0.1` | Where the VNC+ server is |
+| `--vnc-server` | first installed, which is TightVNC | `tightvnc`, `tigervnc` or `ultravnc`: which VNC+ server to drive |
 | `--name` | hostname | Label shown in the browser tab |
 | `--ngrok-domain` | — | Your reserved ngrok domain, for a URL that never changes |
 | `--site` | `https://go.instellar.net` | Where to publish |
@@ -507,12 +567,12 @@ one click on the picture always settles it.
 ## When it drops
 
 A cast that keeps dropping is one of three things, and the host window now says
-which. Every disconnect logs how long the session lasted, and the tunnel's own
-warnings are printed for the whole run rather than being thrown away once the
-URL has been scraped.
+which. Every disconnect logs how long the session lasted and why in words, and
+the tunnel's own warnings are printed for the whole run rather than being thrown
+away once the URL has been scraped.
 
 ```
-[14:02:11] viewer gone - viewer hung up after 104s (0 live)
+[14:02:11] viewer gone - the connection was reset after 104s (0 live)
 [14:02:11] tunnel: 2026-09-03T14:02:10Z ERR Connection terminated error="..."
 ```
 
@@ -546,29 +606,92 @@ The registry refresh is still every 30 seconds, but a failed refresh is retried
 twice within seconds and only one POST can be in flight. The first publish gets
 the same treatment, so a Vercel cold start or a short DNS/5xx wobble no longer
 aborts startup or uses up the 90-second record lifetime waiting for the next
-ordinary heartbeat. A longer outage is logged and retried every 10 seconds.
+ordinary heartbeat. A longer outage is retried every 10 seconds, and is logged
+once rather than once per attempt: the registry record is how a viewer *finds*
+this host, not how a connected one stays connected, so an outage there does not
+touch a stream already running and does not deserve a line a second in the
+window of somebody watching one. It says what broke, and says so again when it
+comes back.
 
 `--lan` sidesteps the whole category when the viewer is in the same building:
 no tunnel, nothing between the two machines to time anything out.
+
+### What is not printed
+
+Everything the host window says is meant to be worth reading, which means most
+of what a stream does while it runs has to stay out of it.
+
+Disconnects say what happened, not what the kernel called it. A closed laptop
+lid, a viewer walking out of wifi range and a tunnel dropping a socket mid-frame
+all arrive here as `ECONNRESET`, `EPIPE` or `write after end`, and a raw error
+code printed beside a stream that never faltered reads as a fault in this
+program rather than as somebody leaving. The codes this host knows are named in
+words; anything it does not recognise still prints verbatim, because that is
+where a real bug would show up.
+
+The tunnel's routine bookkeeping is dropped. cloudflared rotates its four edge
+connections on a schedule of its own and prints `INF Unregistered tunnel
+connection connIndex=N` for each rotation — four cheerful lines, at information
+level, in a console whose only other content is errors. Warnings and errors from
+the tunnel still print. Four identical ones, which is the same failure on each
+of its four connections, print once and then stay quiet for a minute, so a fault
+that is still happening an hour later still says so.
+
+One viewer can no longer take the others with it. Every access unit is handed to
+each `/video` socket in a single loop inside the encoder's output handler, so a
+throw from a socket the kernel had already torn down used to end that loop: the
+viewers behind it in the set lost the frame, and the throw came out of a stream
+handler with nothing above it to catch it, which ends the host for everybody.
+Nothing handed to the encoder may throw now. A viewer that hangs up while its
+socket is still being upgraded no longer starts an encoder for nobody either —
+that left a subscriber nothing would ever remove, so the encoder never reached
+its three-second idle stop and went on writing a frame into a destroyed socket
+sixty times a second for the rest of the run.
 
 ## Security
 
 Three gates stand between the internet and this machine:
 
 1. The bridge binds **loopback only** unless you pass `--lan`, so the tunnel is
-   normally the sole way in. `--lan` opens it to your local network as well —
-   fine at home, think twice on a network you do not control.
+   normally the sole way in. `--lan` adds a **second listener bound to your LAN
+   address** — not `0.0.0.0` — and that second listener is the only one that ever
+   serves the viewer page. Fine at home, think twice on a network you do not
+   control.
 2. The WebSocket URL carries a per-run `?k=` secret. Guessing the tunnel
    hostname is not enough — a wrong key gets a 403 before any bytes reach VNC,
    and the same key guards the display-switching endpoint.
 3. TightVNC's own password.
 
-Gate 2 only holds because the bridge serves the viewer page — which has that key
-inlined — **only under `--lan`**. It used to serve it on every run, and the tunnel
-reverse-proxies every path, so anyone who learned the tunnel hostname could read
-the key straight out of `GET /` and open a socket onto TightVNC with it. Under
-`--lan` the page is reachable from your own network, which is the same audience
-that can already reach the bridge port.
+Gate 2 only holds because the viewer page — which has that key inlined — is never
+served to the tunnel. That used to be spelled as a flag: serve the page whenever
+`--lan` was passed. **A flag cannot keep that promise, and this file used to claim
+it did.** `--lan` does not turn the tunnel off, the default is `--tunnel auto`, and
+cloudflared reverse-proxies *every* path into the same listener — so `--lan` on its
+own meant `GET https://<tunnel-host>/` returned the session key to anyone who knew
+the hostname, with no key of any kind asked for first, leaving only the TightVNC
+password between a stranger and the mouse. The old justification here — that the
+page was reachable by "the same audience that can already reach the bridge port"
+— was simply false: the audience was the whole internet.
+
+What holds it now is **which socket accepted the request**, which is not something
+a caller can write:
+
+* Under `--lan` the bridge opens a second listener bound to your LAN address
+  alone, and only that listener serves `/` and `/novnc.js`.
+* The tunnel is spawned as `cloudflared tunnel --url http://127.0.0.1:<port>`, so
+  everything it proxies arrives on the **loopback** listener — which serves no
+  page on any run, with or without `--lan`.
+* The page route also requires a non-loopback peer and a `Host` matching that same
+  LAN address. That is a second lock, not the bolt: `Host` is written by the
+  caller, so it covers `--url` pointing a proxy of your own at the LAN address,
+  and it would not catch a proxy on your own LAN that rewrites `Host`.
+* If no LAN address can be found, `--lan` serves **no page at all** rather than
+  binding something broader. If the host cannot tell where a request came from, it
+  does not hand out the key.
+
+`--lan` is still a decision about your local network: the page served there has
+the session key written into it, so anyone on that network who loads it arrives at
+gate 3 and nothing else.
 
 ### The two keys
 
@@ -622,7 +745,8 @@ node tools\cast-host\test\paste.test.mjs       the order the clipboard and the k
 node tools\cast-host\test\viewer.test.mjs      reconnect backoff, the offline card, and its escaping
 node tools\cast-host\test\video-route.test.mjs the /video route against a stand-in ffmpeg
 node tools\cast-host\test\video.test.mjs       AU splitting, codec strings, the GOP cache and the encoder chain
-node tools\cast-host\test\stream-client.test.mjs the page's pure Stream helpers: header, lag gate, reasons, codec list
+node tools\cast-host\test\stream-client.test.mjs the page's pure DECODER+ helpers: header, lag gate, reasons, codec list
+node tools\cast-host\test\vnc-server.test.mjs  the VNC+ server table, discovery and share argv
 ```
 
 The bridge, framing and adaptive suites bind loopback ports in the 59000 and

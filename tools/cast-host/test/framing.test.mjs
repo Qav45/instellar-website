@@ -26,7 +26,8 @@ function boot(vncPort, port, env) {
   const proc = spawn(process.execPath, [
     HOST_SCRIPT, "--tunnel", "none", "--lan", "--port", String(port),
     "--vnc", "127.0.0.1:" + vncPort, "--share", "nope",
-  ], { cwd: REPO, windowsHide: true, env: Object.assign({}, process.env, env || {}) });
+  ], { cwd: REPO, windowsHide: true,
+       env: Object.assign({}, process.env, { CAST_SESSION_KEY: KEY }, env || {}) });
   return new Promise((resolve, reject) => {
     let out = "";
     const t = setTimeout(() => reject(new Error("bridge did not start:\n" + out)), 15000);
@@ -40,14 +41,12 @@ function boot(vncPort, port, env) {
   });
 }
 
-// The session key is only in the page, and the page is only served under --lan.
-const sessionKey = (port) => new Promise((resolve) => {
-  http.get({ host: "127.0.0.1", port, path: "/" }, (r) => {
-    let b = "";
-    r.on("data", (c) => (b += c));
-    r.on("end", () => resolve((b.match(/CAST_DIRECT="([\w-]+)"/) || [])[1] || ""));
-  });
-});
+// The session key is only ever in the page, and the page is served on the --lan
+// listener alone - so reading it back from a loopback request is exactly the
+// thing the bridge now refuses. Pin it through the host's test hook instead,
+// which also keeps this suite working on a machine with no network at all.
+const KEY = "framing-test-" + process.pid;
+const sessionKey = async () => KEY;
 
 function upgrade(port, key) {
   const sock = net.connect(port, "127.0.0.1", () => {
