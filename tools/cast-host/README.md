@@ -391,6 +391,41 @@ that happens; the dropdown's choice is sent to both.
 Frames never touch disk. ffmpeg writes to a pipe, the host parses the bytes in
 memory and forwards them, and nothing in this path can write an image file.
 
+## Mic: hearing the host's microphone
+
+The **Mic** button beside DECODER+ plays whatever the host's microphone picks
+up, live, in the page. It is off every time the page loads and only a click
+turns it on. It shares nothing with the picture, so it works with DECODER+ on
+or off.
+
+`/audio` sits next to `/video` and is guarded by the same session key.
+`audio.mjs` runs one ffmpeg for everyone listening:
+`-f dshow -audio_buffer_size 20 -i audio=<CAST_MIC>`, converted to 16 kHz
+mono s16le on a pipe. The host cuts that into 20ms chunks (640 bytes) and
+sends each one as its own WebSocket message, after one text message with the
+format. It is raw PCM rather than Opus because 256 kbps is nothing next to
+the video, and raw PCM needs no framing and no decoder support check. The
+page turns each chunk straight into an `AudioBuffer`.
+
+- **Device.** `CAST_MIC` names the DirectShow device and defaults to
+  `Microphone (heyday Microphone 01)`. `ffmpeg -list_devices true -f dshow -i dummy`
+  lists the names. `CAST_MIC=off` removes the route, and `/audio` then answers
+  a keyed request with 404, as `/video` does under `--video off`.
+- **Only while someone listens.** The first listener opens the mic. It closes
+  2 s after the last one leaves.
+- **Latency.** The page schedules each chunk 60 ms ahead. A chunk that would
+  land more than 150 ms ahead is dropped, not queued. On the host, a listener
+  whose socket holds more than 8 KB (a quarter second) skips chunks until it
+  catches up. Delay from the host comes to roughly 20 ms (dshow buffer) + 20 ms
+  (chunk) + the tunnel + 60 ms (jitter buffer): about 150 ms on the tunnel, and
+  it cannot grow past about 250 ms.
+- **When it fails.** A missing device or a missing ffmpeg closes the listener
+  with 1011 `no mic`, and the button reads `Mic: none on host`. The host logs
+  why and keeps running. It does not retry on its own; a click tries again.
+
+Audio never touches disk either. ffmpeg writes to a pipe and the host forwards
+the bytes.
+
 ## Requirements on the host
 
 * **TightVNC Server** running with a password set. Verify with

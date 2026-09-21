@@ -29,7 +29,7 @@ const grab = (from, to) => {
 
 const sandbox = {};
 vm.createContext(sandbox);
-const { LAG_QUEUE, STREAM_CODECS, STREAM_SAFE, STREAM_STEPS, STEP_UP_MS, PROBATION_MS, STRIKE_MS, STREAM_PROVE_MS,
+const { LAG_QUEUE, LAG_MS, STREAM_CODECS, STREAM_SAFE, STREAM_STEPS, STEP_UP_MS, PROBATION_MS, STRIKE_MS, STREAM_PROVE_MS,
         STRAIN_DROPS, STRAIN_DROP_MS, STRAIN_RATIO, STRAIN_SLOW_MS,
         PACE_CAP_MS, PACE_FLOOR_MS, PACE_BAND_MS, PACE_SHRINK_MS, PACE_CALM, PACE_LATE,
         PACE_WINDOW_MS, PACE_STEP_MS, PACE_RESET_MS, PACE_QUEUE_MAX,
@@ -38,6 +38,7 @@ const { LAG_QUEUE, STREAM_CODECS, STREAM_SAFE, STREAM_STEPS, STEP_UP_MS, PROBATI
         parseVideoFrame, streamGate, streamRectOk, streamReason, streamOrder, streamCodecs, streamNext, streamBetter,
         streamFamily, streamSlow, streamStrain, streamClock, streamLate, streamDelay } = vm.runInContext(
   grab("const LAG_QUEUE = ", ";\n") +
+  grab("const LAG_MS = ", "\n") +
   // These four carry a trailing comment, so the line end is the marker.
   grab("const STRAIN_DROPS = ", "\n") +
   grab("const STRAIN_DROP_MS = ", "\n") +
@@ -72,7 +73,7 @@ const { LAG_QUEUE, STREAM_CODECS, STREAM_SAFE, STREAM_STEPS, STEP_UP_MS, PROBATI
   grab("function streamClock(clock) {", "\n}\n") +
   grab("function streamLate(at, now, frameMs) {", "\n}\n") +
   grab("function streamDelay(delay, jitter, frameMs, late, calm) {", "\n}\n") +
-  grab("function streamGate(waitKey, key, queued) {", "\n}\n") +
+  grab("function streamGate(waitKey, key, queued, overMs = 0) {", "\n}\n") +
   grab("function streamRectOk(w, h, fbW, fbH) {", "\n}\n") +
   grab("function streamReason(why, code, reason) {", "\n}\n") +
   grab("function streamOrder(supported, bad = [], first = \"\") {", "\n}\n") +
@@ -82,7 +83,7 @@ const { LAG_QUEUE, STREAM_CODECS, STREAM_SAFE, STREAM_STEPS, STEP_UP_MS, PROBATI
   grab("function streamFamily(codec) {", "\n}\n") +
   grab("function streamSlow(deliveredFps, decodedFps) {", "\n}\n") +
   grab("function streamStrain(drops, now, slowMs) {", "\n}\n") +
-  "({ LAG_QUEUE, STREAM_CODECS, STREAM_SAFE, STREAM_STEPS, STEP_UP_MS, PROBATION_MS, STRIKE_MS, STREAM_PROVE_MS," +
+  "({ LAG_QUEUE, LAG_MS, STREAM_CODECS, STREAM_SAFE, STREAM_STEPS, STEP_UP_MS, PROBATION_MS, STRIKE_MS, STREAM_PROVE_MS," +
   " STRAIN_DROPS, STRAIN_DROP_MS, STRAIN_RATIO, STRAIN_SLOW_MS," +
   " PACE_CAP_MS, PACE_FLOOR_MS, PACE_BAND_MS, PACE_SHRINK_MS, PACE_CALM, PACE_LATE," +
   " PACE_WINDOW_MS, PACE_STEP_MS, PACE_RESET_MS, PACE_QUEUE_MAX," +
@@ -135,8 +136,17 @@ ok("no buffer at all is not a frame", parseVideoFrame(null) === null && parseVid
   ok("a delta on an open gate with an idle decoder is decoded", g.decode === true && g.waitKey === false);
   g = streamGate(false, false, LAG_QUEUE);
   ok("a queue right at the limit is still decoded", g.decode === true && g.waitKey === false);
-  g = streamGate(false, false, LAG_QUEUE + 1);
-  ok("a queue over the limit drops the delta and closes the gate", g.decode === false && g.waitKey === true);
+  g = streamGate(false, false, LAG_QUEUE + 1, LAG_MS);
+  ok("a queue over the limit for LAG_MS drops the delta and closes the gate", g.decode === false && g.waitKey === true);
+  // The deltas held up behind a keyframe that took a while to cross the tunnel
+  // land together, so the queue is past the limit the moment they do, on any
+  // decoder. Closing the gate on that threw away frames a hardware decoder
+  // clears in milliseconds and froze the picture until the next keyframe -
+  // which brings the same burst with it.
+  g = streamGate(false, false, LAG_QUEUE + 6, 0);
+  ok("a burst that has only just put the queue over the limit is decoded", g.decode === true && g.waitKey === false);
+  g = streamGate(false, false, LAG_QUEUE + 6, LAG_MS - 1);
+  ok("so is one the decoder is still inside LAG_MS of clearing", g.decode === true && g.waitKey === false);
   g = streamGate(true, false, 0);
   ok("once closed, an emptied queue does not reopen it - only a key can",
      g.decode === false && g.waitKey === true);
@@ -150,6 +160,10 @@ ok("no buffer at all is not a frame", parseVideoFrame(null) === null && parseVid
 // that would be wrong if someone raised it.
 ok("the limit is three frames, and so under 70ms of queue at sixty",
    LAG_QUEUE === 3 && (LAG_QUEUE + 1) * (1000 / 60) < 70, LAG_QUEUE);
+// The wait is a small share of the one-second GOP a cut costs to recover from,
+// or the gate would sit through most of a stall before cutting it.
+ok("a queue is given well under the GOP to clear before the gate closes",
+   LAG_MS > 0 && LAG_MS <= 250, LAG_MS);
 
 /* -------------------------------------------------------------- reasons -- */
 
@@ -393,8 +407,8 @@ ok("the bottom step still clears the host's floor of one frame and one megabit",
 {
   // `age` is how long the codec has been decoding, `up` how long ago the pace
   // was last asked back for; both are what the two time rules read.
-  const run = (codec, bad, supported, step, why, detail, { age = 0, up = 0, ceil = 0 } = {}) => {
-    const out = { off: null, opened: 0, remembered: streamFamily(codec) };
+  const run = (codec, bad, supported, step, why, detail, { age = 0, up = 0, ceil = 0, maxh = 720, want = 0 } = {}) => {
+    const out = { off: null, opened: 0, remembered: streamFamily(codec), line: "" };
     const NOW = 1000000;
     const ctx = vm.createContext({
       STREAM_CODECS, STREAM_SAFE, STREAM_STEPS, STRIKE_MS, PROBATION_MS, streamFamily,
@@ -408,17 +422,33 @@ ok("the bottom step still clears the host's floor of one frame and one megabit",
       vidCodec: codec, vidBad: new Set(bad), vidSupported: supported, vidStep: step,
       vidCeil: ceil, vidCodecSince: age ? NOW - age : 0, vidUp: up ? NOW - up : 0,
       vidCodecs: "", vidNote: "", vidSoft: false, vidWant: "",
-      chooseCodecs() {}, state() {},
+      vidMaxh: maxh, vidMaxhWant: want, vidMaxhBad: 0, vidMaxhOk: 720,
+      STREAM_HEIGHTS, STREAM_BASE_HEIGHT, HEIGHT_KEY: "cast.maxh",
+      chooseCodecs() {}, state(_, line) { out.line = line; },
       openVideo() { out.opened++; },
       streamOff(w, code, reason) { out.off = reason; },
     });
-    vm.runInContext(grab("function streamPace(why) {", "\n}\n") +
+    vm.runInContext(grab("function streamShorter(what) {", "\n}\n") +
+      grab("function streamPace(why) {", "\n}\n") +
       grab("function streamDowngrade(why, detail) {", "\n}\n") +
       "streamDowngrade(" + JSON.stringify(why) + ", " + JSON.stringify(detail || "") + ");", ctx);
     return { off: out.off, opened: out.opened, step: ctx.vidStep, ceil: ctx.vidCeil,
              bad: Array.from(ctx.vidBad).join(), note: ctx.vidNote,
-             remembered: out.remembered };
+             remembered: out.remembered, line: out.line,
+             maxhBad: ctx.vidMaxhBad, maxhWant: ctx.vidMaxhWant };
   };
+
+  // A taller picture that decodes but strains is the size failing. It used to
+  // strike the codec - or step the pace down - and go on sending those rows.
+  {
+    const t = run("avc1.64002a", [], ALL, 0, "decoding too slowly", "", { maxh: 1080, want: 1080 });
+    ok("strain on an unproven taller picture strikes the size, not the codec",
+       t.maxhBad === 1080 && t.maxhWant === 0 && t.bad === "" && t.step === 0 && t.opened === 1,
+       JSON.stringify(t));
+    ok("and the state line says so", /1080p decoding too slowly, back to 720p/.test(t.line), t.line);
+    const e = run("avc1.64002a", [], ALL, 0, "decoder error", "boom", { maxh: 1080, want: 1080 });
+    ok("a decoder error is not read as the size straining", e.maxhBad === 0, JSON.stringify(e));
+  }
 
   let r = run("av01.0.08M.08", [], ALL, 0, "dropping frames");
   ok("a strained av1 is struck and h264 asked for at the same pace",
@@ -605,7 +635,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   });
   vm.runInContext(`let decoder = null, vidTimer = 0, vidReady = false;
     let vidFrames = 0, vidDelivered = 0, vidPainted = 0, vidDrops = [], vidSlowSince = 0;
-    let vidSince = 0, vidCalm = 0, vidCodecSince = 0, vidWaitKey = true, vidHz = 0, vidEncoder = '', vidCodec = '', vidNote = '';
+    let vidSince = 0, vidCalm = 0, vidCodecSince = 0, vidFamily = '', vidWaitKey = true, vidHz = 0, vidEncoder = '', vidCodec = '', vidNote = '';
     let streamWant = 30, vidSock = null, vidSoft = false;
     let vidStep = 0, vidCeil = 0, vidUp = 0;
     let vidPaint = [], vidClock = [], vidBase = 0, vidDelay = 0, vidRaf = 0;
@@ -624,6 +654,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
     grab("function streamPaint() {", "\n}\n") +
     grab("function videoConfig(codec) {", "\n}\n") +
     grab("function streamPace(why) {", "\n}\n") +
+    grab("function streamShorter(what) {", "\n}\n") +
     grab("function streamRefused(detail) {", "\n}\n") +
     grab("function configureVideo(cfg) {", "\n}\n") +
     grab("function closeVideo() {", "\n}\n"), ctx);
@@ -756,6 +787,71 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   vsync(20);
   ok("a loop that wakes to a dead decoder drops what it held and does not reschedule",
      closed === 1 && get("vidPaint.length") === 0 && rafs.length === 0);
+
+  /* -- a first picture that came out late does not become the clock's zero -- */
+  // The first keyframe out of a fresh decoder carries the decoder's start-up
+  // on top of the link: here it lands 280 ms later, against its timestamp, than
+  // every frame after it. The clock anchored on it and then only slewed a frame
+  // period a second, so every later frame's slot sat 280 ms out while the
+  // six-frame queue shed them from the front long before any slot came - the
+  // screen took nothing for twenty seconds and the readout said 0 fps, with
+  // VNC already switched off by the first picture.
+  configure(60);
+  const period = 1000 / 60;
+  clock = 80000;
+  painted = 0;
+  out(frame(0));
+  let hostMs = 300;
+  for (let i = 0; i < 120; i++) {
+    vsync(period);
+    out(frame(hostMs));
+    hostMs += period;
+  }
+  ok("a late first picture does not stall the paint: the steady frames go up at the rate they arrive",
+     painted > 100, painted + " of 120");
+  // Every steady frame lands 80000 - 300 + one period after its timestamp.
+  ok("the clock's zero is the steady frames' offset, not the late picture's",
+     Math.abs(get("vidBase") - (80000 - 300 + period)) <= period, get("vidBase"));
+
+  /* -- the join replay is not arrival jitter -- */
+  // A joining viewer is sent the GOP so far - here 600 ms of it - in one
+  // burst, and the decoder gets through it in a few tens of milliseconds. Each
+  // replayed frame lands up to 600 ms later against its timestamp than the
+  // live frames that follow, and the jitter window held those offsets for two
+  // seconds: the buffer went to the cap at the first decision and came back
+  // down four milliseconds a second, so every encoder restart - a step, a codec
+  // switch, a resize - bought a quarter of a minute of extra delay.
+  configure(60);
+  clock = 85000;
+  for (let i = 0; i <= 36; i++) { out(frame(i * period)); vsync(1.5); }
+  hostMs = 37 * period;
+  for (let i = 0; i < 180; i++) { vsync(period); out(frame(hostMs)); hostMs += period; }
+  ok("a replayed GOP does not push the buffer up: three seconds later it holds about a frame",
+     get("vidDelay") <= period + PACE_BAND_MS, get("vidDelay"));
+
+  /* -- a restarted encoder's clock is not a gap in the old one -- */
+  vm.runInContext("vidLastTs = 99999000; vidMissed = 7", ctx);
+  configure(60);
+  ok("a new config forgets the old encoder's last timestamp, so its fresh clock counts nothing missed",
+     get("vidLastTs") === -1 && get("vidMissed") === 0);
+
+  /* -- a proven codec stays proven across the reopen a step costs -- */
+  // Every pace step goes through openVideo, whose closeVideo empties vidCodec
+  // before the new config lands. Compared against that, the same codec read
+  // as a new one, its clock started again, and the next strain inside
+  // STRIKE_MS struck a codec that had carried the picture for minutes.
+  vm.runInContext("closeVideo(); vidFamily = ''; vidCodecSince = 0;", ctx);
+  clock = 88000;
+  configure(60);
+  const since = get("vidCodecSince");
+  clock += 120000;
+  vm.runInContext("closeVideo()", ctx);
+  configure(30);
+  ok("stepping down the same codec keeps the time it has been proven for",
+     get("vidCodecSince") === since, get("vidCodecSince") + " vs " + since);
+  vm.runInContext("closeVideo()", ctx);
+  vm.runInContext('configureVideo({ codec: "av01.0.08M.08", fps: 60 })', ctx);
+  ok("a real change of family still starts the clock again", get("vidCodecSince") === clock);
 
   /* -- the buffer resizes on the loop's own clock -- */
   //
@@ -1083,7 +1179,8 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
       vidCodec: "avc1.64002a", vidWant: "", vidNote: "", vidSoft: true, vidStep: 0,
       vidMaxh: 720, vidMaxhWant: 0, vidMaxhBad: 0, vidMaxhOk: 720,
     }, over));
-    vm.runInContext(grab("function streamRefused(detail) {", "\n}\n") +
+    vm.runInContext(grab("function streamShorter(what) {", "\n}\n") +
+                    grab("function streamRefused(detail) {", "\n}\n") +
                     "streamRefused('unsupported configuration');", ctx);
     return { ctx, out };
   };
@@ -1190,6 +1287,136 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   drag(5);
   ok("with no stream running there is nothing to renegotiate and no timer left",
      timers.size === 0 && out.opened === 1);
+}
+
+/* ----------------------------------------------- not before the session -- */
+
+// connect() puts the new RFB in `rfb` at once, and the streamOff retry, a tab
+// coming back and the codec probe all check only that `rfb` is set. Landing in
+// the handshake they opened a video socket the connect handler then closed and
+// opened again: two encoder joins and two GOP replays for one picture.
+{
+  let sockets = 0;
+  const ctx = vm.createContext({
+    WebSocket: class { constructor() { sockets++; } addEventListener() {} },
+    closeVideo() {}, canStream: () => true, streamOff() {}, chooseHeight() {},
+    setTimeout: () => 0, setRate() {}, ceilHz: () => 30,
+    document: { hidden: false }, $: () => ({ value: "0" }), STREAM_STEPS,
+  });
+  vm.runInContext(`let stream = true, endpoint = "wss://h/ws?t=1", video = false;
+    let vidCodecs = "avc1", vidStep = 0, vidMaxh = 720, vidSock = null, vidTimer = 0, vidProbe = null;
+    let rfb = { pixels: true, _rfbConnectionState: "connecting" };`, ctx);
+  vm.runInContext(grab("function openVideo() {", "\n}\n"), ctx);
+  vm.runInContext("openVideo()", ctx);
+  ok("a session still handshaking gets no video socket", sockets === 0, sockets);
+  vm.runInContext('rfb._rfbConnectionState = "connected"; openVideo()', ctx);
+  ok("the connected session gets its one", sockets === 1, sockets);
+}
+
+/* ------------------------------------------ the replay is not drained -- */
+
+// vidDrained is what keeps the join replay's backlog from counting as lag
+// drops. It was asked on every chunk including the first, which lands on an
+// empty queue - so it was true before the burst began and every keyframe
+// burst after the one-second grace counted, two of them a step down: sixty to
+// thirty three seconds after start, thirty to twenty three seconds later.
+{
+  const on = {};
+  const ctx = vm.createContext({
+    WebSocket: class { addEventListener(t, fn) { on[t] = fn; } },
+    closeVideo() {}, canStream: () => true, streamOff() {}, chooseHeight() {},
+    setTimeout: () => 0, setRate() {}, ceilHz: () => 30,
+    document: { hidden: false }, $: () => ({ value: "0" }), STREAM_STEPS,
+    performance: { now: () => 5000 }, stats: { window: 0 },
+    EncodedVideoChunk: class { constructor(o) { Object.assign(this, o); } },
+    LAG_QUEUE, LAG_MS, STRAIN_DROP_MS, STRAIN_DROPS, STRAIN_SLOW_MS,
+    streamStrain, streamDowngrade() {},
+  });
+  vm.runInContext(`let stream = true, endpoint = "wss://h/ws?t=1", video = false;
+    let vidCodecs = "avc1", vidStep = 0, vidMaxh = 720, vidSock = null, vidTimer = 0, vidProbe = null;
+    let rfb = { pixels: true, _rfbConnectionState: "connected" };
+    let decoder = { state: "configured", decodeQueueSize: 0, decode() {} };
+    let vidWaitKey = true, vidReady = false, vidDrained = false, vidOver = 0, vidDelivered = 0;
+    let vidMissed = 0, vidLastTs = -1, vidLastAu = 0, vidHz = 60, vidDrops = [], vidSince = 0, vidCalm = 0;
+    const au = (key, ms) => { const b = new ArrayBuffer(7); const v = new DataView(b);
+      v.setUint8(0, key ? 1 : 0); v.setUint32(1, ms); return { data: b }; };`, ctx);
+  vm.runInContext(grab("function parseVideoFrame(buf) {", "\n}\n") +
+                  grab("function streamGate(waitKey, key, queued, overMs = 0) {", "\n}\n") +
+                  grab("function streamMissed(prevUs, us, hz) {", "\n}\n") +
+                  grab("function openVideo() {", "\n}\n") + "openVideo();", ctx);
+  on.message(vm.runInContext("au(true, 0)", ctx));
+  ok("the replay's first chunk on an empty queue does not count as the queue having drained",
+     vm.runInContext("vidDrained", ctx) === false);
+  vm.runInContext("vidReady = true; decoder.decodeQueueSize = 20", ctx);
+  on.message(vm.runInContext("au(false, 17)", ctx));
+  ok("nor does the backlog behind the first picture", vm.runInContext("vidDrained", ctx) === false);
+  vm.runInContext("decoder.decodeQueueSize = 0", ctx);
+  on.message(vm.runInContext("au(false, 33)", ctx));
+  ok("the queue emptying after the first picture is what drains it", vm.runInContext("vidDrained", ctx) === true);
+  ok("and a replay of consecutive frames is no frames missed", vm.runInContext("vidMissed", ctx) === 0);
+}
+
+/* ------------------------------------------ a decoder that died hidden -- */
+
+// Stream zeroes the VNC rate, the tab is hidden at zero, and the video socket
+// dies in the background. The fallback skips setRate while hidden, and the
+// return restored the zero it was hidden at: a frozen VNC picture.
+{
+  const ctx = vm.createContext({
+    closeVideo() {}, $: () => ({}), state() {}, reflectStream() {}, streamReason: () => "",
+    setTimeout: () => 0, ceilHz: () => 30, setRate(hz) { vm.runInContext("streamWant = " + hz, ctx); },
+    document: { hidden: true },
+  });
+  vm.runInContext(`let video = false, stream = true, vidTried = true, streamWant = 0, hiddenWant = 0;
+    const rfb = { pixels: false };`, ctx);
+  vm.runInContext(grab("function streamOff(why, code, reason) {", "\n}\n"), ctx);
+  vm.runInContext('streamOff("close", 1006, "")', ctx);
+  ok("a stream that falls over in a hidden tab leaves VNC its rate for the return",
+     vm.runInContext("hiddenWant", ctx) === 30, vm.runInContext("hiddenWant", ctx));
+  ok("while still asking for nothing until the tab is back", vm.runInContext("streamWant", ctx) === 0);
+}
+
+/* --------------------------------------------- frames lost on the link -- */
+
+// The host skips a viewer whose socket fell a megabyte behind until the next
+// keyframe. The page decodes every AU it is given, so decoded matched
+// delivered, nothing read as strain, and the stream froze a GOP at a time at
+// the same bitrate for ever - calm enough to earn upgrades. The skipped AUs are
+// visible only as gaps in the host's timestamps, which count frames.
+{
+  const ctx = vm.createContext({});
+  vm.runInContext(grab("function streamMissed(prevUs, us, hz) {", "\n}\n"), ctx);
+  const missed = (a, b, hz) => vm.runInContext("streamMissed(" + a + ", " + b + ", " + hz + ")", ctx);
+  // stamp() rounds each timestamp to the millisecond, so sixty a second
+  // arrives 16 and 17 ms apart.
+  ok("consecutive frames at sixty are nothing missed, whichever way the ms rounded",
+     missed(0, 16000, 60) === 0 && missed(16000, 33000, 60) === 0);
+  ok("a still desktop is not a gap: ddagrab still sends a frame every period",
+     missed(1000000, 1050000, 20) === 0);
+  ok("half a second skipped at sixty is thirty frames the decoder never saw",
+     missed(0, 500000 + 16667, 60) === 30, missed(0, 516667, 60));
+  ok("the first AU of a stream has nothing to be a gap from", missed(-1, 5000000, 60) === 0);
+  ok("and a clock that did not move, or an unknown rate, counts nothing",
+     missed(5000, 5000, 60) === 0 && missed(0, 900000, 0) === 0);
+
+  const thin = (over) => {
+    const out = { paced: 0, shorter: 0 };
+    const c = vm.createContext(Object.assign({
+      out, STREAM_STEPS, vidStep: 0,
+      streamShorter() { out.shorter++; return false; },
+      streamPace() { out.paced++; },
+      streamDowngrade() { out.struck = true; },
+    }, over));
+    vm.runInContext(grab("function streamThin(why) {", "\n}\n") + "streamThin('losing frames on the link');", c);
+    return out;
+  };
+  const t = thin({});
+  ok("a link losing frames steps the pace down, and does not strike the codec",
+     t.paced === 1 && !t.struck);
+  const tall = thin({ streamShorter() { return true; } });
+  ok("a taller picture being tried is given up first, before the pace", tall.paced === 0);
+  const bottom = thin({ vidStep: STREAM_STEPS.length - 1 });
+  ok("at the bottom step there is nothing cheaper to ask for", bottom.paced === 0);
 }
 
 console.log(failed ? "\n" + failed + " FAILED" : "\nall passed");

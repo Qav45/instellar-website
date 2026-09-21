@@ -10,6 +10,7 @@
 //   CAST_FAKE_FFMPEG_PID        file to write this process id to
 //   CAST_FAKE_FFMPEG_ARGS       file to append the argv to, one JSON line per run
 //   CAST_FAKE_FFMPEG_DIE_AFTER  exit 3 after this many ms (each run)
+//   CAST_FAKE_FFMPEG_STALL_AFTER  stop writing after this many ms but stay alive (each run)
 //   CAST_FAKE_FFMPEG_BARE_IDR   1: keyframes after the first carry no parameter sets
 //   CAST_FAKE_FFMPEG_GOP        pictures per keyframe (30)
 //   CAST_FAKE_FFMPEG_TICK_MS    ms between pictures (16)
@@ -81,5 +82,6 @@ const tick = () => {
   process.stdout.write(Buffer.concat(parts));
   n++;
 };
-setInterval(tick, Number(env.CAST_FAKE_FFMPEG_TICK_MS) || 16);
+const ticker = setInterval(tick, Number(env.CAST_FAKE_FFMPEG_TICK_MS) || 16);
+if (env.CAST_FAKE_FFMPEG_STALL_AFTER) setTimeout(() => { clearInterval(ticker); setInterval(() => {}, 60000); }, Number(env.CAST_FAKE_FFMPEG_STALL_AFTER));
 if (env.CAST_FAKE_FFMPEG_DIE_AFTER) setTimeout(() => process.exit(3), Number(env.CAST_FAKE_FFMPEG_DIE_AFTER));

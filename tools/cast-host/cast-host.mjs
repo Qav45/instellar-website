@@ -39,6 +39,7 @@ import path from "node:path";
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { createVideoSource, validateVideoSettings, CODECS } from "./video.mjs";
+import { createAudioSource, DEFAULT_MIC } from "./audio.mjs";
 import { selectServer, shareArgv, pushesUpdates, defaultPort } from "./vnc-server.mjs";
 
 /* ---------------------------------------------------------------- config -- */
@@ -71,6 +72,9 @@ const FFMPEG = arg("ffmpeg", "") || process.env.CAST_FFMPEG_BIN || "";
 // that claims a decoder in hardware and then stutters on it. Only that codec's
 // encoders are tried.
 const CODEC = arg("codec", "");
+// The microphone /audio plays. It only opens while a viewer is listening;
+// CAST_MIC=off takes the route away altogether.
+const MIC = process.env.CAST_MIC || DEFAULT_MIC;
 if (CODEC && !CODECS.includes(CODEC)) {
   console.error("\n  --codec must be one of " + CODECS.join(", ") + "\n");
   process.exit(2);
@@ -337,6 +341,11 @@ function onUpgrade(req, socket, head) {
                "Content-Type: text/plain\r\n\r\nvideo off\n");
     return;
   }
+  if (url.pathname === "/audio" && !audio && url.searchParams.get("k") === SESSION_KEY) {
+    socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n" +
+               "Content-Type: text/plain\r\n\r\naudio off\n");
+    return;
+  }
   if (url.searchParams.get("k") !== SESSION_KEY || !handshake(req, socket)) {
     socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n" +
                "Content-Type: text/plain\r\n\r\nbad or missing key\n");
@@ -344,6 +353,7 @@ function onUpgrade(req, socket, head) {
   }
   if (url.pathname === "/ping") pingProbe(socket, head);
   else if (url.pathname === "/video") videoRoute(socket, head, url);
+  else if (url.pathname === "/audio") audioRoute(socket, head);
   // Which tab this socket belongs to, so /ctl can name it later. Not a
   // credential - the key above is - just an identifier, and an absent one means
   // an older page and the old whole-host behaviour.
@@ -573,6 +583,61 @@ function videoRoute(ws, head, url) {
   // `unsubscribe` was still the no-op above, so nothing would ever release the
   // subscription. Harmless today because that path clears the whole sink set,
   // but it is the kind of thing that stops being harmless quietly.
+  if (done) unsubscribe();
+}
+
+/* ----------------------------------------------------------------- audio -- */
+
+// The host microphone, shared by every listener. null when there is no ffmpeg
+// or CAST_MIC=off, and then /audio answers 404 like /video does.
+let audio = null;
+
+// A /audio listener. Same shape as videoRoute: server-to-client only, the same
+// keepalive, and nothing handed to the source may throw. Whether a chunk is
+// dropped for a listener that is behind is audio.mjs's call, off buffered().
+function audioRoute(ws, head) {
+  let done = false;
+  let missedPongs = 0;
+  let unsubscribe = () => {};
+  const since = Date.now();
+
+  const shut = (why, code) => {
+    if (done) return;
+    done = true;
+    clearInterval(keepalive);
+    unsubscribe();
+    log("mic listener gone" + (why ? ": " + why : "") +
+        " after " + Math.round((Date.now() - since) / 1000) + "s");
+    if (code && !ws.destroyed) frame(ws, 0x8, closeFrame(code, why));
+    if (!ws.destroyed) ws.end();
+  };
+
+  const keepalive = setInterval(() => {
+    if (ws.destroyed) return;
+    if (++missedPongs >= 3) return shut("listener stopped answering pings");
+    frame(ws, 0x9, Buffer.alloc(0));
+  }, KEEPALIVE_MS);
+
+  const feed = wsReader(ws, () => {}, shut, () => { missedPongs = 0; });
+  ws.on("error", (e) => shut(plainly(e)));
+  ws.on("close", () => shut());
+  ws.on("end", () => shut("listener hung up"));
+  ws.on("data", feed);
+  if (head && head.length) feed(head);
+  // Gone already (see videoRoute): subscribing now would open the mic for nobody.
+  if (done) return;
+  log("mic listener connected");
+
+  const sink = (what, fn) => (...a) => {
+    if (done) return;
+    try { return fn(...a); } catch (e) { shut(what + ": " + plainly(e)); }
+  };
+  unsubscribe = audio.subscribe({
+    config: sink("config", (cfg) => frame(ws, 0x1, Buffer.from(JSON.stringify(cfg)))),
+    pcm: sink("audio", (bytes) => frame(ws, 0x2, bytes)),
+    buffered: () => (done ? 0 : ws.writableLength),
+    close: (code, reason) => shut(reason, code),
+  });
   if (done) unsubscribe();
 }
 
@@ -1204,6 +1269,7 @@ function giveUpTunnel(kind) {
       " attempts - the link is dead, shutting down");
   stopPublishLoop();
   if (video) video.stop();
+  if (audio) audio.stop();
   unpublish().then(() => {
     restoreShare();
     process.exit(1);
@@ -1535,6 +1601,13 @@ async function main() {
     if (ffmpeg) video = createVideoSource({ ffmpeg, log });
     else log("DECODER+ off (ffmpeg not found on PATH - install it to offer DECODER+)");
   }
+  // The mic needs ffmpeg too, but not DECODER+: --video off leaves it be.
+  if (MIC === "off") log("mic off (CAST_MIC=off)");
+  else {
+    const ffmpeg = FFMPEG || findBin("ffmpeg");
+    if (ffmpeg) audio = createAudioSource({ ffmpeg, device: MIC, log });
+    else log("mic off (ffmpeg not found on PATH)");
+  }
 
   // Resolved before anything binds, because under --lan it decides what the
   // second listener binds to. A machine with no route out has no LAN address to
@@ -1659,6 +1732,7 @@ process.on("uncaughtException", (e) => {
   stopPublishLoop();
   restoreShare();
   if (video) video.stop();
+  if (audio) audio.stop();
   if (tunnelProc) tunnelProc.kill();
   const out = () => process.exit(1);
   if (TUNNELLESS || !publishedUrl) return out();
@@ -1677,6 +1751,7 @@ async function shutDown() {
     // back - that is local, instant, and the thing worth saving.
     restoreShare();
     if (video) video.stop();
+    if (audio) audio.stop();
     if (tunnelProc) tunnelProc.kill();
     process.exit(0);
   }
@@ -1687,6 +1762,7 @@ async function shutDown() {
   // a network round trip that can hang for its full 5s.
   restoreShare();
   if (video) video.stop();
+  if (audio) audio.stop();
   if (!TUNNELLESS) await unpublish();
   if (tunnelProc) tunnelProc.kill();
   process.exit(0);
@@ -1729,4 +1805,4 @@ main().catch((e) => {
 // wrong. Every deliberate exit path calls video.stop() itself; this catches the
 // ones that are not deliberate. stop() is synchronous, which is the only kind of
 // work an 'exit' handler can do.
-process.on("exit", () => { if (video) video.stop(); });
+process.on("exit", () => { if (video) video.stop(); if (audio) audio.stop(); });

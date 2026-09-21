@@ -445,6 +445,7 @@ const S60 = { fps: 60, mbps: 8, maxh: 720, display: "primary", codecs: ["h264"] 
     at("-bf") === "0" && at("-g") === "60");
   ok("still a low latency tuning with zero latency on",
     at("-tune") === "ll" && at("-zerolatency") === "1");
+  ok("nvenc hands each packet out as it is encoded, not frames later", at("-delay") === "0");
   ok("spatial AQ moves bits to the detailed regions", at("-spatial-aq") === "1");
   // -cq is not a shared scale: the same number costs the better codecs more
   // bytes, so each gets the number measured to cost what H.264's does.
@@ -666,6 +667,12 @@ ok("the recorded option lists reject the cap that shipped and never ran",
   let before = b.aus.length;
   await sleep(1100);
   ok("viewer over the backlog limit receives no AUs", b.aus.length === before);
+  // Back under the limit is not caught up: a keyframe that picked it up here
+  // would leave most of a megabyte of lag in front of every picture after it.
+  b.backlog = 900 * 1024;
+  await sleep(1100);
+  ok("a skipped viewer is not resumed while still most of a megabyte behind",
+    b.aus.length === before, b.aus.length - before + " AUs");
   b.backlog = 0;
   await until(() => b.aus.length > before, 1500);
   ok("viewer resumes on a keyframe once its backlog drains",
@@ -675,7 +682,18 @@ ok("the recorded option lists reject the cap that shipped and never ran",
   await until(() => b.aus.length > before, 1500);
   ok("a backlog bigger than a keyframe but inside the limit still delivers",
     b.aus.length > before, b.aus.length - before + " AUs");
+  // ...but not for ever: a queue that settles just under the limit is standing
+  // latency, and it is skipped once it has sat there longer than a GOP.
+  b.backlog = 900 * 1024;
+  await sleep(1500);
+  before = b.aus.length;
+  await sleep(700);
+  ok("a viewer that stays most of a megabyte behind is skipped, not fed for ever",
+    b.aus.length === before, b.aus.length - before + " AUs");
   b.backlog = 0;
+  await until(() => b.aus.length > before, 1500);
+  ok("...and resumes on a keyframe once it drains",
+    b.aus.length > before && (b.aus[before].flags & 1) === 1);
   ok("the other viewer never dropped", a.aus.every((x, i) => i === 0 || x.ts >= a.aus[i - 1].ts) && a.aus.length > 60);
 
   // Idle stop: the encoder outlives a quick reconnect but not 3 s of nobody.
@@ -755,6 +773,26 @@ ok("the recorded option lists reject the cap that shipped and never ran",
   ok("the old viewer resumed on a keyframe from the new encoder", !!firstAfter);
   src.stop();
   ok("stop() closes viewers with 1001", a.closed && a.closed.code === 1001 && b.closed && b.closed.code === 1001);
+}
+
+// -- a viewer that switches settings and leaves before the old encoder exits --
+// The new start waits on the old process's exit. Leaving inside that wait must
+// still end in the idle stop, not in an encoder started for nobody.
+{
+  const src = createVideoSource({ ffmpeg: null, log: () => {} });
+  const a = recorder();
+  const offA = src.subscribe(S60, a);
+  await until(() => a.aus.length >= 5, 3000);
+  const pid1 = readPid();
+  const offB = src.subscribe({ ...S60, fps: 30 }, recorder());
+  offA();
+  offB();
+  await until(() => readPid() !== pid1, 3000);
+  const pid2 = readPid();
+  await until(() => !alive(pid2), 5000);
+  ok("an encoder queued behind a switch is stopped when nobody is left to watch it",
+    pid2 !== pid1 && !alive(pid2) && src.settings() === null);
+  src.stop();
 }
 
 // -- the cap is part of what two viewers have to agree about ----------------
@@ -898,6 +936,30 @@ ok("the recorded option lists reject the cap that shipped and never ran",
   delete process.env.CAST_FAKE_FFMPEG_DIE_AFTER;
 }
 
+// -- an encoder that stays alive but stops producing ------------------------
+// ddagrab repeats frames to hold its rate, so silence from a live process is a
+// wedge, not a still screen. Restarted like a crash, and bounded like one.
+{
+  process.env.CAST_FAKE_FFMPEG_STALL_AFTER = "2300";
+  const logs = [];
+  const src = createVideoSource({ ffmpeg: null, log: (l) => logs.push(l) });
+  const a = recorder();
+  src.subscribe(S60, a);
+  await until(() => a.configs.length >= 1, 3000);
+  const pid1 = readPid();
+  await until(() => a.configs.length >= 2, 8000);
+  ok("an encoder that goes silent is killed and restarted, and the viewer gets a fresh config",
+    a.configs.length === 2 && readPid() !== pid1 && !alive(pid1) && !a.closed &&
+    logs.some((l) => /exited \(.*\): no picture from the encoder for 3s - restarting$/.test(l)),
+    logs.join(" | "));
+  await until(() => a.closed, 10000);
+  ok("going silent again inside the crash window closes with 1011, not a restart storm",
+    a.closed && a.closed.code === 1011 && a.closed.reason === "encoder died" && a.configs.length === 2,
+    JSON.stringify(a.closed) + " " + logs.join(" | "));
+  src.stop();
+  delete process.env.CAST_FAKE_FFMPEG_STALL_AFTER;
+}
+
 // -- a bare IDR from an encoder that does not repeat SPS/PPS ----------------
 {
   process.env.CAST_FAKE_FFMPEG_BARE_IDR = "1";
@@ -928,7 +990,7 @@ ok("the recorded option lists reject the cap that shipped and never ran",
     JSON.stringify(cfg));
   let argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
   ok("av1_nvenc argv: nvenc low-latency flags, forced IDR, no h264 profile, obu muxer",
-    argv.join(" ").includes("-c:v av1_nvenc -preset p4 -tune ll -zerolatency 1 -rc vbr -spatial-aq 1 -b:v 0 -cq 32 -maxrate 8M") &&
+    argv.join(" ").includes("-c:v av1_nvenc -preset p4 -tune ll -zerolatency 1 -delay 0 -rc vbr -spatial-aq 1 -b:v 0 -cq 32 -maxrate 8M") &&
     argv.join(" ").includes("-bf 0 -forced-idr 1 -level 4.0 -flush_packets 1 -f obu pipe:1") && !argv.includes("-profile:v"), argv.join(" "));
   ok("first av1 unit is a key with the delimiter, sequence header and frame",
     (a.aus[0].flags & 1) === 1 && obusOf(a.aus[0].bytes).length === 3 && obusOf(a.aus[1].bytes).length === 2);
@@ -1184,6 +1246,28 @@ const graphOf = (argv) => argv[argv.indexOf("-filter_complex") + 1];
     readPid() !== pid1 && !alive(pid1) && a.configs.length === 2 &&
     a.configs[1].fps === 30 && b.configs[0] === a.configs[1]);
   src.stop();
+}
+
+// The same holds for the restart after a crash. The encoder was producing
+// pictures a moment ago; the first start after it dies failing is the screen,
+// and walking the chain on it lands on libx264 or on no picture cap at all.
+{
+  process.env.CAST_FFMPEG_BIN = GATE;
+  gateReset();
+  process.env.CAST_GATE_ONLY = "h264_nvenc";
+  process.env.CAST_FAKE_FFMPEG_DIE_AFTER = "2300";
+  const logs = [];
+  const src = createVideoSource({ ffmpeg: null, log: (l) => logs.push(l) });
+  const a = recorder();
+  src.subscribe(S60, a);
+  await until(() => gateRuns().length >= 3 && a.configs.length >= 2, 8000);
+  const runs = gateRuns().slice(0, 3);
+  ok("a restart after a crash that fails once is retried on the same encoder, not walked",
+    runs.length === 3 && runs.every((r) => encOf(r) === "h264_nvenc" && graphOf(r).includes(",scale=w=trunc(")) &&
+    !logs.some((l) => /retrying without it|no encoder could start/.test(l)),
+    runs.map(encOf).join(" -> ") + " | " + logs.join(" | "));
+  src.stop();
+  delete process.env.CAST_FAKE_FFMPEG_DIE_AFTER;
 }
 
 // The extra start is spent once and not held in reserve: an encoder that is

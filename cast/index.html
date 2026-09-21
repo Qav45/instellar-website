@@ -132,6 +132,8 @@
      back and only a click can take it again, so the button must not go on
      claiming the pointer is captured. */
   #grab.on:not(.held) { background:transparent; color:var(--ink); border:1px dashed var(--ink3); }
+  /* Mic asked for, not yet heard: on, but not claiming to be live. */
+  #mic.on.wait { background:transparent; color:var(--ink); border:1px dashed var(--ink3); }
   #bar label { color:var(--ink3); font-size:12px; display:flex; align-items:center; gap:7px;
          white-space:nowrap; }
 
@@ -307,6 +309,7 @@
   <div class="grp">
     <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
     <button id="stream" title="Hardware video for games and video: the host's GPU encodes the screen (AV1, HEVC or H.264, whichever this browser decodes in hardware) and this browser decodes it, sixty frames a second. Text goes a little soft, which is why it is a toggle and not the default.">DECODER+</button>
+    <button id="mic" title="Hear the host's microphone, live, in this tab. Off every time the page loads - the mic on the host only opens while this is on - and nothing is recorded anywhere.">Mic</button>
     <button id="grab" title="Keep the pointer in the remote screen and send movement rather than position - what a game needs. Turn Fullscreen on too and Escape reaches the game; hold it to let go.">Mouse lock</button>
     <button id="full" title="Fullscreen">Fullscreen</button>
   </div>
@@ -709,13 +712,19 @@ function tick() {
   const vidFps = decoder && dt > 0 ? vidFrames / dt : 0;
   const vidIn = decoder && dt > 0 ? vidDelivered / dt : 0;
   const vidOut = decoder && dt > 0 ? vidPainted / dt : 0;
-  vidFrames = vidDelivered = vidPainted = 0;
+  const vidMiss = decoder && dt > 0 ? vidMissed / dt : 0;
+  vidFrames = vidDelivered = vidPainted = vidMissed = 0;
   // A decoder putting out well under what arrives is one that cannot keep up
   // - a Chromebook decoding AV1 in software, typically. Two seconds of it and
   // the codec is swapped for the next one, below.
   if (decoder && vidReady) {
     if (streamSlow(vidIn, vidFps)) { if (!vidSlowSince) vidSlowSince = now; }
     else vidSlowSince = 0;
+    // The same rule for the link: frames the host stamped and skipped, weighed
+    // against the ones that arrived. Not in a hidden tab, whose throttled
+    // socket is the browser's doing and not the link's.
+    if (!document.hidden && streamSlow(vidIn + vidMiss, vidIn)) { if (!vidShortSince) vidShortSince = now; }
+    else vidShortSince = 0;
     // Aged out here as well as where they are recorded: with the drops stopped
     // nothing else touches the list, and a stale entry would read as a rough
     // second for ever and no pace would ever be asked back for.
@@ -723,8 +732,15 @@ function tick() {
     const why = streamStrain(vidDrops, now, vidSlowSince ? now - vidSlowSince : 0);
     // Anything short of a verdict still counts as a rough second, and the calm
     // that earns the pace back has to be an unbroken one.
-    if (vidSlowSince || vidDrops.length) vidCalm = now;
-    if (why) streamDowngrade(why);
+    // A second in which nothing arrived is not a calm one either: it proves
+    // nothing about the decoder, and must not earn a step up or an upgrade.
+    if (vidSlowSince || vidShortSince || vidDrops.length || !vidIn) vidCalm = now;
+    // Nothing arriving at all, with the last picture still up and VNC off, is
+    // a frozen screen that nothing else would ever notice. Back to VNC, and
+    // the one bounded retry streamOff already makes.
+    if (!document.hidden && now - vidLastAu > STALL_MS) streamOff("timeout");
+    else if (why) streamDowngrade(why);
+    else if (vidShortSince && now - vidShortSince >= STRAIN_SLOW_MS) streamThin("losing frames on the link");
     else if (vidStep > vidCeil && now - vidCalm >= STEP_UP_MS) streamRecover();
     else if (now - vidCalm >= STREAM_PROVE_MS) {
       // This codec has carried the picture for an unbroken stretch, which is
@@ -732,6 +748,11 @@ function tick() {
       // to start on next visit - written here rather than at the first decoded
       // picture, where it used to be written, because one picture is precisely
       // what a Chromebook decoding AV1 in software also produces.
+      // A stream that has carried the picture this long has earned the one
+      // unasked retry back. Spent once per connect, it meant the first tunnel
+      // hiccup of the evening was retried and the second left DECODER+ off -
+      // toggle still lit - until a reconnect or a trip to another tab.
+      vidTried = false;
       if (!vidSaved) {
         vidSaved = true;
         try { localStorage.setItem(CODEC_KEY, streamFamily(vidCodec)); } catch (_) {}
@@ -751,8 +772,10 @@ function tick() {
       else if (!vidStep) streamGrow();
     }
   }
-  const want = decoder ? vidHz : metrics.streamHz;
-  const fps = decoder ? vidOut : metrics.fps;
+  // Until the first decoded picture VNC is still what is on the screen, so it
+  // is VNC's rate that is shown - not a red 0 against the encoder's sixty.
+  const want = decoder && vidReady ? vidHz : metrics.streamHz;
+  const fps = decoder && vidReady ? vidOut : metrics.fps;
   hud.fps.textContent = fps || want
     ? Math.round(fps) + (want ? " / " + Math.round(want) : "")
     : "–";
@@ -1470,6 +1493,7 @@ function connect() {
   vidTried = false;
   vidStep = vidCeil = 0;
   vidUp = vidCodecSince = 0;
+  vidFamily = "";
   vidSoft = false;
 
   // Building the socket here rather than handing RFB a URL is what makes the link
@@ -1575,6 +1599,8 @@ function connect() {
   });
 
   me.addEventListener("disconnect", (e) => {
+    // Any session ending ends the mic, a superseded one (Reconnect) included.
+    micOff();
     if (!current()) return;
     rfb = null;
     closePing();
@@ -1822,6 +1848,9 @@ document.addEventListener("visibilitychange", () => {
     // out: rAF will not run to paint them, and a held VideoFrame is a buffer
     // the decoder cannot have back.
     if (document.hidden) streamFlush();
+    // A frozen background tab receives nothing, and that is not the stream
+    // stalling: its deadline starts again from the tab coming back.
+    else vidLastAu = performance.now();
     if (!document.hidden && !vidSock) openVideo();
   }
   if (document.hidden) return;
@@ -1908,6 +1937,83 @@ $("fit").addEventListener("click", () => {
   refocus();
 });
 
+/* ----------------------------------------------------------------- mic -- */
+
+// The host's microphone, over /audio beside the VNC+ socket: 20ms chunks of
+// s16le mono, each scheduled straight onto an AudioContext. Off on every load
+// and only ever started by a click - a live microphone must not come on by
+// itself - and it shares nothing with DECODER+.
+//
+// The jitter buffer is how far ahead of the speaker the next chunk is placed:
+// MIC_LEAD after a gap, and a chunk that would land more than MIC_MAX ahead is
+// dropped instead, so a tunnel stall or a host clock running fast costs a click
+// of lost audio rather than latency that never comes back.
+const MIC_LEAD = 0.06;
+const MIC_MAX = 0.15;
+let mic = null;             // { ws, ctx, at, rate, opened, live } while on
+
+function micShow(text, on, wait) {
+  const b = $("mic");
+  b.textContent = text;
+  b.classList.toggle("on", on);
+  b.classList.toggle("wait", wait);
+}
+
+function micOff(text) {
+  const m = mic;
+  mic = null;
+  if (m) {
+    m.ws.onmessage = m.ws.onclose = null;
+    try { m.ws.close(); } catch (_) {}
+    m.ctx.close().catch(() => {});
+  }
+  micShow(text || "Mic", false, false);
+}
+
+function micOn() {
+  if (!rfb || !endpoint) return;
+  // Made and resumed inside the click, which is what lets it make a sound.
+  const ctx = new AudioContext({ latencyHint: "interactive" });
+  ctx.resume().catch(() => {});
+  const ws = new WebSocket(endpoint.replace("/ws?", "/audio?"));
+  ws.binaryType = "arraybuffer";
+  const m = mic = { ws, ctx, at: 0, rate: 16000, opened: false, live: false };
+  micShow("Mic: connecting", true, true);
+  ws.onopen = () => { m.opened = true; };
+  ws.onmessage = (e) => {
+    if (mic !== m) return;
+    if (typeof e.data === "string") {
+      try { m.rate = JSON.parse(e.data).rate || m.rate; } catch (_) {}
+      return;
+    }
+    const now = ctx.currentTime;
+    if (m.at < now) m.at = now + MIC_LEAD;
+    else if (m.at - now > MIC_MAX) return;
+    const s = new Int16Array(e.data);
+    const buf = ctx.createBuffer(1, s.length, m.rate);
+    const f = buf.getChannelData(0);
+    for (let i = 0; i < s.length; i++) f[i] = s[i] / 32768;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(m.at);
+    m.at += buf.duration;
+    if (!m.live) { m.live = true; micShow("Mic: live", true, false); }
+  };
+  // "no mic" is the host saying the device is not there; a socket that never
+  // opened is a host with no /audio at all (CAST_MIC=off, no ffmpeg, older).
+  ws.onclose = (e) => {
+    if (mic !== m) return;
+    micOff(e.reason === "no mic" || !m.opened ? "Mic: none on host" : "Mic: lost");
+  };
+}
+
+$("mic").addEventListener("click", () => {
+  if (mic) micOff(); else micOn();
+  refocus();
+});
+addEventListener("pagehide", () => micOff());
+
 /* ---------------------------------------------------------- video mode -- */
 
 // Everything a person watching a video wants and a person driving a desktop
@@ -1990,11 +2096,27 @@ const STREAM_TITLE = $("stream").title;
 // together. Made safe by the drained-queue gate below: the host's replay burst
 // blows past any tolerance this small, and it no longer counts as strain.
 const LAG_QUEUE = 3;
+// And how long it has to stay there. decodeQueueSize counts chunks not yet
+// handed to the decoder, not frames of past: a keyframe that takes a couple of
+// hundred milliseconds to cross the tunnel holds up every delta behind it, and
+// they land together, so the queue jumps past three behind every keyframe on a
+// link it takes that long to carry - whatever the decoder is - and a hardware
+// decoder clears it in a few milliseconds a chunk. Cutting on the count alone
+// threw those frames away and froze the picture until the next keyframe,
+// which is the same burst again. A queue that is still over the limit after
+// this long is a decoder that is behind.
+const LAG_MS = 150;            // a queue over LAG_QUEUE for this long is behind, not a burst
 const STRAIN_DROPS = 2;        // lag drops within STRAIN_DROP_MS mean the decoder is behind
 const STRAIN_DROP_MS = 10000;
 const STRAIN_RATIO = 0.85;     // decoded under this share of what arrives, for STRAIN_SLOW_MS
 const STRAIN_SLOW_MS = 2000;
 const STRAIN_GRACE_MS = 1000;  // a fresh decoder's first second is the GOP replay, not strain
+// No access unit at all for this long, on a tab that is being looked at, is a
+// stream that has stopped - the encoder alive and the socket open, but nothing
+// coming out. It is not a still screen: ddagrab sends a frame every period
+// whether or not anything moved (see streamMissed). Longer than the host's
+// skip-to-keyframe takes to drain a backlog, which is a gap and not a stop.
+const STALL_MS = 5000;
 // What to ask the host for, most demanding first. A viewer that keeps up with
 // no codec at all does not have a codec problem: it has more frames and more
 // bytes arriving than it or its link can carry. `mbps` is a share of what the
@@ -2081,6 +2203,7 @@ let vidSock = null;
 let decoder = null;      // a live VideoDecoder means Stream is carrying the picture
 let vidReady = false;    // switch off VNC only after a decoded picture arrives
 let vidWaitKey = true;   // deltas are useless without the key they build on
+let vidOver = 0;         // when the decode queue went over LAG_QUEUE, 0 while it is not
 let vidTimer = 0;        // the wait for a config message on a fresh socket
 let vidFrames = 0;       // decoder outputs since the last tick
 let vidHz = 0;           // the rate the encoder was configured for
@@ -2088,6 +2211,10 @@ let vidEncoder = "";     // which encoder the host ended up on, for the hover te
 let vidCodec = "";       // and the codec string it is sending
 let vidTried = false;    // one unasked retry per connect, no more
 let vidDelivered = 0;    // AUs arriving since the last tick, decoded or not
+let vidMissed = 0;       // AUs the host stamped and never sent us, since the last tick
+let vidLastTs = -1;      // the host timestamp of the last AU to arrive, -1 before one
+let vidLastAu = 0;       // when an AU last arrived at all
+let vidShortSince = 0;   // when the link first lost more than it could spare
 let vidDrops = [];       // when the lag control last fired, newest last
 let vidSlowSince = 0;    // when decoded output first fell short of the arrivals
 let vidSince = 0;        // when the current decoder was configured
@@ -2098,6 +2225,7 @@ let vidCeil = 0;         // the most demanding step still worth trying this sess
 let vidCalm = 0;         // when the current step last saw strain, or started
 let vidUp = 0;           // when the pace was last asked for back
 let vidCodecSince = 0;   // when the current codec family started decoding here
+let vidFamily = "";      // and which family that is, kept across reopens
 let vidSoft = false;     // the hardware preference was refused here; stop asking for it
 let vidPaint = [];       // decoded frames waiting for their slot on the screen
 let vidClock = [];       // recent arrivals: when each landed, and how late the host said
@@ -2184,6 +2312,19 @@ function streamFamily(codec) {
 // short of.
 function streamSlow(deliveredFps, decodedFps) {
   return deliveredFps > 0 && decodedFps < deliveredFps * STRAIN_RATIO;
+}
+
+// How many access units the host stamped between two that arrived, and never
+// sent. ddagrab hands the encoder a frame every period whether or not the
+// screen changed, and the host stamps AUs by counting them (stamp() in
+// video.mjs), so arrivals sit one period apart even on a still desktop. A wider
+// gap is frames lost on the way: the host skipping this viewer to the next
+// keyframe because its socket fell a megabyte behind. The decoder never sees
+// those, so decoded against delivered cannot, and a Chromebook that decodes
+// everything it is given read as calm while the picture froze a GOP at a time.
+function streamMissed(prevUs, us, hz) {
+  if (!(prevUs >= 0) || !(hz > 0) || us <= prevUs) return 0;
+  return Math.max(0, Math.round((us - prevUs) * hz / 1e6) - 1);
 }
 
 // Whether the decoder is not keeping up, and why, in the words the state line
@@ -2374,11 +2515,13 @@ function streamDelay(delay, jitter, frameMs, late, calm) {
 // it. A delta after a skipped frame is garbage - it references pixels this
 // decoder never saw - so once anything is dropped nothing goes in until the next
 // key. The drop itself is the lag control: a decoder holding more than
-// LAG_QUEUE chunks is behind by that many frames, and feeding it more only makes
-// the picture later. A keyframe is always decoded; it is the recovery point.
-function streamGate(waitKey, key, queued) {
+// LAG_QUEUE chunks for LAG_MS running is behind, and feeding it more only makes
+// the picture later. `overMs` is how long the queue has been over the limit; a
+// burst that the decoder is already clearing has barely been over at all. A
+// keyframe is always decoded; it is the recovery point.
+function streamGate(waitKey, key, queued, overMs = 0) {
   if (key) return { decode: true, waitKey: false };
-  if (waitKey || queued > LAG_QUEUE) return { decode: false, waitKey: true };
+  if (waitKey || (queued > LAG_QUEUE && overMs >= LAG_MS)) return { decode: false, waitKey: true };
   return { decode: true, waitKey: false };
 }
 
@@ -2511,6 +2654,19 @@ function streamHold(frame, now) {
     vidClock = [];
     vidBase = off;
   }
+  // A frame that came out earlier than the clock's zero allows proves the zero
+  // too late, and by more than a frame the slew below would take seconds to
+  // walk back. The first picture out of a fresh decoder is exactly that: it
+  // carries the decoder's start-up, anchors the clock, and every frame after
+  // it is slotted that far out - while the queue cap sheds them from the front
+  // before any slot comes, so nothing is painted at all. Jumping forward only
+  // makes queued frames due sooner, and the paint loop shows the newest.
+  // The arrivals behind it were measured against that stale zero and go too:
+  // the join replay is up to a second of frames decoded at once, each later
+  // against its timestamp than the next, and left in the window its spread
+  // read as that much jitter - the buffer went to the cap on every encoder
+  // restart and took a quarter of a minute to come back down.
+  else if (vidBase - off > (vidHz ? 1000 / vidHz : 1000 / 60)) { vidBase = off; vidClock = []; }
   vidClock.push({ t: now, off });
   while (vidClock.length && now - vidClock[0].t > PACE_WINDOW_MS) vidClock.shift();
   vidPaint.push({ frame, ms });
@@ -2597,6 +2753,12 @@ window.addEventListener("resize", () => {
 function openVideo() {
   closeVideo();
   if (!stream || !rfb || !endpoint || document.hidden) return;
+  // Not before the session is up, whoever asks: the streamOff retry, a tab
+  // coming back and the codec probe answering can all land between connect()
+  // and the RFB connect event, and the connect handler opens one of its own a
+  // moment later - two sockets, two encoder joins and two GOP replays for one
+  // picture, with the first decoder painting a canvas that has no size yet.
+  if (rfb._rfbConnectionState !== "connected") return;
   if (rfb.pixels === false) { rfb.pixels = true; setRate(ceilHz()); }
   if (!canStream()) { streamOff("VideoDecoder" in window ? "host" : "nodecoder"); return; }
   // The codec probe is still out only in the first moments after load; come
@@ -2644,7 +2806,13 @@ function openVideo() {
     const f = parseVideoFrame(e.data);
     if (!f) return;
     vidDelivered++;
-    const g = streamGate(vidWaitKey, f.key, decoder.decodeQueueSize);
+    vidMissed += streamMissed(vidLastTs, f.timestamp, vidHz);
+    vidLastTs = f.timestamp;
+    vidLastAu = performance.now();
+    const q = decoder.decodeQueueSize, at = performance.now();
+    if (q <= LAG_QUEUE) vidOver = 0;
+    else if (!vidOver) vidOver = at;
+    const g = streamGate(vidWaitKey, f.key, q, vidOver ? at - vidOver : 0);
     // The gate closing on an open stream is the lag control firing. Nothing
     // before the first picture counts, and neither does the cached GOP the
     // host replays on join: up to a second of frames arrive at once, which
@@ -2658,7 +2826,10 @@ function openVideo() {
     // A hidden tab's drops are the browser throttling it, not the link or the
     // decoder straining, and must not step the stream down for when it returns.
     // Emptying the queue once is what proves the burst above is behind us.
-    if (!vidDrained && decoder.decodeQueueSize <= 1) vidDrained = true;
+    // Not before the first picture: the replay's own first chunk lands on an
+    // empty queue, so asked then this was true before the burst began and
+    // shielded nothing - every lag drop after the one-second grace counted.
+    if (!vidDrained && vidReady && decoder.decodeQueueSize <= 1) vidDrained = true;
     if (g.waitKey && !vidWaitKey && vidReady && !document.hidden && vidDrained &&
         performance.now() - vidSince > STRAIN_GRACE_MS) {
       const now = performance.now();
@@ -2784,18 +2955,25 @@ function configureVideo(cfg) {
   decoder = d;
   // How long this codec has been decoding here, which the strike rule reads.
   // Steps down and back up reconfigure the same codec and must not reset it.
-  if (streamFamily(cfg.codec || "") !== streamFamily(vidCodec)) {
+  // Against vidFamily, not vidCodec: every step reopens, and closeVideo has
+  // emptied vidCodec by the time the new config lands, so a proven codec that
+  // stepped down was timed from zero again and struck on its next strain.
+  if (streamFamily(cfg.codec || "") !== vidFamily) {
     vidCodecSince = performance.now();
     vidSaved = false;
   }
+  vidFamily = streamFamily(cfg.codec || "");
   vidWaitKey = true;
+  vidOver = 0;
   vidHz = cfg.fps || 0;
   vidEncoder = cfg.encoder || "";
   vidCodec = cfg.codec || "";
-  vidFrames = vidDelivered = vidPainted = 0;
+  vidFrames = vidDelivered = vidPainted = vidMissed = 0;
+  vidLastTs = -1;
+  vidShortSince = 0;
   vidDrops = [];
   vidSlowSince = 0;
-  vidSince = vidCalm = performance.now();
+  vidSince = vidCalm = vidLastAu = performance.now();
   // A fresh encoder is a fresh clock: no offset history to average, and one
   // frame period of delay to start from, which is the least a presentation
   // clock can hold and still be one.
@@ -2821,6 +2999,11 @@ function configureVideo(cfg) {
 // being paced, and so are a codec with no name to it and the bottom step of
 // the ladder. Those are the old failure.
 function streamDowngrade(why, detail) {
+  // A taller picture that decodes but cannot be kept up with is the size
+  // failing, not the codec or the pace: the same stream carried cleanly one
+  // rung down seconds ago. Blaming either walked a Chromebook down the codec
+  // list or the ladder while it went on being sent the rows it choked on.
+  if (!detail && streamShorter(why)) return;
   const from = streamFamily(vidCodec);
   // A codec that decoded this scene for half a minute and then fell behind is
   // not the wrong codec: the picture got harder. Subnautica underwater is the
@@ -2864,6 +3047,30 @@ function streamPace(why) {
   openVideo();
 }
 
+// Strike the taller picture this session is trying, if that is what is
+// running, and go back to the rung that was carrying the stream before it.
+function streamShorter(what) {
+  if (!vidMaxhWant || vidMaxh !== vidMaxhWant) return false;
+  vidMaxhBad = vidMaxhWant;
+  vidMaxhWant = 0;
+  vidMaxhOk = STREAM_HEIGHTS.filter((h) => h < vidMaxhBad).pop() || STREAM_BASE_HEIGHT;
+  try { localStorage.setItem(HEIGHT_KEY, String(vidMaxhOk)); } catch (_) {}
+  vidNote = " after " + vidMaxhBad + "p was " + what;
+  state("live", "DECODER+: " + vidMaxhBad + "p " + what + ", back to " + vidMaxhOk + "p");
+  openVideo();
+  return true;
+}
+
+// The link is losing frames the decoder never saw. Fewer bytes is the answer,
+// so a taller rung being tried goes first and then the pace ladder, which asks
+// for fewer frames and fewer bits; the codec did nothing wrong and is not
+// struck. At the bottom step there is nothing cheaper to ask for, and the
+// strain goes on holding off every step up and upgrade.
+function streamThin(why) {
+  if (streamShorter(why)) return;
+  if (vidStep + 1 < STREAM_STEPS.length) streamPace(why);
+}
+
 // The decoder would not take this stream, either at configure time or a moment
 // later. Try an easier one before trying a slower way of decoding this one,
 // and only call it an error when both are spent.
@@ -2891,16 +3098,7 @@ function streamRefused(detail) {
   // was carrying this same stream seconds ago. Ahead of the pace ladder,
   // because walking the pace down would be answering a question nobody asked:
   // the frames were never the problem.
-  if (vidMaxhWant && vidMaxh === vidMaxhWant) {
-    vidMaxhBad = vidMaxhWant;
-    vidMaxhWant = 0;
-    vidMaxhOk = STREAM_HEIGHTS.filter((h) => h < vidMaxhBad).pop() || STREAM_BASE_HEIGHT;
-    try { localStorage.setItem(HEIGHT_KEY, String(vidMaxhOk)); } catch (_) {}
-    vidNote = " after " + vidMaxhBad + "p was refused";
-    state("live", "DECODER+: " + vidMaxhBad + "p refused, back to " + vidMaxhOk + "p");
-    openVideo();
-    return;
-  }
+  if (streamShorter("refused")) return;
   if (vidStep + 1 < STREAM_STEPS.length) { streamPace("the decoder refused it"); return; }
   if (!vidSoft) {
     vidSoft = true;
@@ -2989,6 +3187,11 @@ function streamOff(why, code, reason) {
   if (!rfb) return;
   if (rfb.pixels === false) rfb.pixels = true;
   if (!document.hidden) setRate(ceilHz());
+  // A hidden tab restores on return the rate it was hidden at, and under
+  // Stream that was zero - so a decoder that died in the background came back
+  // to a frozen VNC picture until the ladder happened to climb. The rate this
+  // fallback would have set is the one to come back to.
+  else if (hiddenWant >= 0) hiddenWant = ceilHz();
   if (!why) { state("live", "VNC+"); return; }
   state("live", "DECODER+ unavailable: " + streamReason(why, code, reason));
   if (why === "host" || why === "nodecoder" || why === "shape") { reflectStream(); return; }

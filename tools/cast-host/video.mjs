@@ -547,6 +547,15 @@ const ENCODERS = {
 };
 export const codecOf = (encoder) => encoder === "libx264" ? "h264" : encoder.split("_")[0];
 const BACKLOG_LIMIT = 1024 * 1024;   // bytes queued on a viewer before it is skipped
+// ...and what it has to be back down to before a keyframe picks it up again.
+// Still more than a 1080p keyframe, so the last one sent is never what holds
+// a viewer off the next.
+const RESUME_LIMIT = BACKLOG_LIMIT / 4;
+// How long a viewer may stay more than RESUME_LIMIT behind before it is
+// skipped as if it had reached BACKLOG_LIMIT. A keyframe passes through that
+// band and out again; a viewer still in it a whole GOP later is not catching
+// up, it is carrying the queue as standing latency.
+const STANDING_MS = 1000;
 // A keyframe costs around 190KB of the 1080p desktop and a delta on a still
 // screen costs under a kilobyte, so on this cast the keyframes ARE the
 // bitrate: one a second measured 1.89 mbps and one every three seconds 0.72,
@@ -572,6 +581,11 @@ const CRASH_WINDOW_MS = 10000;       // a second death this soon after a restart
 // back. See stamp() - a quarter second is long enough that no single slow
 // keyframe moves it and short enough that real lost frames do not accumulate.
 const CADENCE_SLIP_MS = 250;
+// An encoder that is alive and has put out nothing for this long is wedged.
+// ddagrab's dup_frames (default true, `ffmpeg -h filter=ddagrab`) repeats the
+// last picture to hold its framerate, so a still screen is still a unit every
+// period - at the lowest rate the page asks for, 20 fps, this is sixty of them.
+const STALL_MS = 3000;
 
 /* ------------------------------------------------- profile and level cap -- */
 
@@ -844,8 +858,15 @@ export function ffmpegArgs(encoder, s, scale = true) {
   // couple of milliseconds either way, the picture is the same and the file is
   // smaller. Spatial AQ moves bits from flat regions to detailed ones, which
   // is most of what a desktop is.
+  //
+  // -delay 0 because -zerolatency does not cover it. ffmpeg's nvenc holds
+  // finished packets back until "delay" frames are in flight, and the default
+  // (INT_MAX) is clamped to the surface count less one - three with no
+  // lookahead and no B-frames, so every picture left the encoder two captures
+  // after it was taken: 33ms at sixty, and more as the rate comes down. That is
+  // read from ffmpeg's nvenc.c (output_ready), not measured on this host.
   const tune = {
-    nvenc: ["-preset", "p4", "-tune", "ll", "-zerolatency", "1", "-rc", "vbr", "-spatial-aq", "1"],
+    nvenc: ["-preset", "p4", "-tune", "ll", "-zerolatency", "1", "-delay", "0", "-rc", "vbr", "-spatial-aq", "1"],
     amf: ["-usage", "ultralowlatency", "-rc", "cbr"],
     qsv: ["-preset", "veryfast", "-look_ahead", "0"],
     libx264: ["-preset", "ultrafast", "-tune", "zerolatency", "-x264-params", "repeat-headers=1"],
@@ -980,13 +1001,26 @@ export function createVideoSource(opts) {
   // every delta behind it was skipped, and the viewer got one picture per GOP.
   // Anything tighter than this has to measure itself against the keyframe, not
   // against the average frame.
+  //
+  // Skipping is how the queue drains, so the keyframe that ends it waits for
+  // the queue to have drained. Resuming the moment the socket was back under
+  // the limit put the viewer back on the stream with most of a megabyte - on a
+  // slow tunnel, seconds - still between it and the screen, where it stayed.
+  //
+  // A size alone never trips on a queue that settles under it. A link a little
+  // slower than the picture holds a viewer at 900KB for as long as it lasts -
+  // most of a second behind the screen, every frame delivered, nothing ever
+  // skipped - so time spent above RESUME_LIMIT counts too.
   const deliver = (e, au) => {
-    if (e.sink.buffered() > BACKLOG_LIMIT) {
+    const buffered = e.sink.buffered();
+    if (buffered <= RESUME_LIMIT) e.behindSince = 0;
+    else if (!e.behindSince) e.behindSince = Date.now();
+    if (buffered > BACKLOG_LIMIT || (e.behindSince && Date.now() - e.behindSince > STANDING_MS)) {
       e.waitKey = true;
       return;
     }
     if (e.waitKey) {
-      if (!(au.flags & 1)) return;
+      if (!(au.flags & 1) || buffered > RESUME_LIMIT) return;
       e.waitKey = false;
     }
     e.sink.au(au.flags, au.ts, au.bytes);
@@ -1170,10 +1204,27 @@ export function createVideoSource(opts) {
       { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     child = proc;
     startedAt = Date.now();
+    let lastAuAt = 0;
     proc.stdout.on("data", (chunk) => {
       if (child !== proc) return;
-      for (const au of parser.feed(chunk)) onAu(au);
+      for (const au of parser.feed(chunk)) { lastAuAt = Date.now(); onAu(au); }
     });
+    // A process can outlive its picture: desktop duplication wedged after a
+    // UAC prompt, the secure desktop or a mode change, without ffmpeg exiting.
+    // Nothing else notices - the viewers' pings are answered by this host, not
+    // by the encoder - so every viewer holds the last picture for ever. Killed
+    // here rather than through kill(), so the exit handler below takes it as a
+    // crash: restarted once, and closed with 1011 if it wedges again within
+    // CRASH_WINDOW_MS. Not armed before the first picture (the exit handler's
+    // start-up rules own that) or while nobody is watching.
+    const watchdog = setInterval(() => {
+      if (child !== proc) { clearInterval(watchdog); return; }
+      if (!proven || !sinks.size || Date.now() - lastAuAt <= STALL_MS) return;
+      clearInterval(watchdog);
+      errTail += "\nno picture from the encoder for " + STALL_MS / 1000 + "s";
+      proc.kill();
+    }, 500);
+    watchdog.unref();
     proc.stderr.on("data", (c) => {
       errTail = (errTail + String(c)).slice(-2000);
     });
@@ -1205,6 +1256,12 @@ export function createVideoSource(opts) {
       }
       lastCrashAt = Date.now();
       log("DECODER+ " + encoder + " exited (" + code + ")" + (why ? ": " + why : "") + " - restarting");
+      // This encoder was producing pictures a moment ago, so a restart that
+      // fails is about whatever ended it - the desktop duplication lost to a
+      // UAC prompt or a mode change - not about the encoder. Walking the chain
+      // on it would land on libx264 or an uncapped picture for the rest of the
+      // session the moment the screen came back.
+      retryOnce = true;
       start(settings);
     });
   };
@@ -1222,7 +1279,7 @@ export function createVideoSource(opts) {
     if (stopped) { sink.close(1011, "stopped"); return () => {}; }
     clearTimeout(idleTimer);
     idleTimer = null;
-    const entry = { sink, waitKey: true };
+    const entry = { sink, waitKey: true, behindSince: 0 };
     sinks.add(entry);
     if (child && canJoin(current, settings, encoder)) {
       // Joining a running stream: the config and the cached GOP let the
@@ -1249,7 +1306,11 @@ export function createVideoSource(opts) {
     }
     return () => {
       if (!sinks.delete(entry)) return;
-      if (sinks.size || !child) return;
+      // A start still waiting on the old encoder's exit counts as running: a
+      // viewer that switches settings and leaves inside that wait would
+      // otherwise have the encoder start after it for nobody, with no idle
+      // stop ever set - on the GPU until the next viewer or the host's end.
+      if (sinks.size || (!child && !queued)) return;
       // Keep the encoder warm across a viewer's reconnect; stop it if nobody
       // comes back so an idle host is not burning GPU on nothing.
       // unref'd: keeping an idle encoder warm is worth three seconds of GPU,
