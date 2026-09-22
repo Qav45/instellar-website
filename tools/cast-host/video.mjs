@@ -517,11 +517,14 @@ export function validateVideoSettings(q) {
   const fpsRaw = q.get("fps");
   const mbpsRaw = q.get("mbps");
   const maxhRaw = q.get("maxh");
+  const cqRaw = q.get("cq");
   const display = q.get("display") || "primary";
   const fps = fpsRaw == null || fpsRaw === "" ? 60 : Math.round(Number(fpsRaw));
   const mbps = mbpsRaw == null || mbpsRaw === "" ? 8 : Number(mbpsRaw);
   const maxh = maxhRaw == null || maxhRaw === "" ? DEFAULT_MAX_HEIGHT : Math.round(Number(maxhRaw));
-  if (!Number.isFinite(fps) || !Number.isFinite(mbps) || !Number.isFinite(maxh)) return null;
+  // The viewer's text setting: an offset on QUALITY, negative is sharper.
+  const cq = cqRaw == null || cqRaw === "" ? 0 : Math.round(Number(cqRaw));
+  if (!Number.isFinite(fps) || !Number.isFinite(mbps) || !Number.isFinite(maxh) || !Number.isFinite(cq)) return null;
   if (display !== "primary" && display !== "full" && !/^[1-9][0-9]?$/.test(display)) return null;
   const codecs = (q.get("codecs") || "").split(",").filter((c, i, all) => CODECS.includes(c) && all.indexOf(c) === i);
   // Kept even: every codec here subsamples chroma by two, and an odd dimension
@@ -531,6 +534,7 @@ export function validateVideoSettings(q) {
     fps: Math.min(120, Math.max(1, fps)),
     mbps: Math.min(50, Math.max(1, Math.round(mbps * 10) / 10)),
     maxh: capped - (capped % 2),
+    cq: Math.min(12, Math.max(-12, cq)),
     display,
     codecs: codecs.length ? codecs : ["h264"],
   };
@@ -843,7 +847,7 @@ export function ffmpegArgs(encoder, s, scale = true) {
   // keyframe costs what its pixels cost, and a capped picture is a smaller
   // keyframe by the same ratio. That is arithmetic, not a measurement.
   const rate = vbr
-    ? ["-b:v", "0", "-cq", String(QUALITY[codecOf(encoder)] || QUALITY.h264),
+    ? ["-b:v", "0", "-cq", String(Math.min(51, Math.max(1, (QUALITY[codecOf(encoder)] || QUALITY.h264) + (s.cq || 0)))),
        "-maxrate", s.mbps + "M", "-bufsize", Math.round(s.mbps * 250) + "k",
        "-g", String(s.fps * GOP_SECONDS), "-bf", "0"]
     : ["-b:v", s.mbps + "M", "-maxrate", s.mbps + "M",
@@ -900,7 +904,7 @@ export function ffmpegArgs(encoder, s, scale = true) {
 // light client silently gets handed the stream it cannot decode.
 const canJoin = (a, b, encoder) =>
   a && b && a.fps === b.fps && a.mbps === b.mbps && a.display === b.display &&
-  a.maxh === b.maxh && b.codecs.includes(codecOf(encoder));
+  a.maxh === b.maxh && (a.cq || 0) === (b.cq || 0) && b.codecs.includes(codecOf(encoder));
 
 // What the config message needs from the first keyframe: the WebCodecs codec
 // string and the picture size, each read from the codec's own header.
@@ -1296,7 +1300,7 @@ export function createVideoSource(opts) {
       // The first viewer picks the settings; a later one who wants something
       // else restarts the encoder for everyone. Start over at the top of the
       // chain: the failure may have been about the old settings.
-      if (child) log("DECODER+ restarting for " + settings.fps + " fps / " + settings.mbps + " mbps / " + settings.maxh + "p / " + settings.display + " / " + settings.codecs.join(","));
+      if (child) log("DECODER+ restarting for " + settings.fps + " fps / " + settings.mbps + " mbps / " + settings.maxh + "p / cq " + (settings.cq > 0 ? "+" : "") + settings.cq + " / " + settings.display + " / " + settings.codecs.join(","));
       const deliberate = !!child || !!dying;
       kill();
       encoderIdx = 0;

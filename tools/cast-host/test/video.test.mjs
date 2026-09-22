@@ -358,6 +358,10 @@ const q = (o) => ({ get: (k) => (k in o ? o[k] : null) });
   ok("settings accept full and 99", validateVideoSettings(q({ display: "full" })).display === "full" &&
     validateVideoSettings(q({ display: "99" })).display === "99");
   ok("settings refuse display 100", validateVideoSettings(q({ display: "100" })) === null);
+  ok("settings default the text offset to 0 and clamp it to +-12",
+    validateVideoSettings(q({})).cq === 0 &&
+    validateVideoSettings(q({ cq: "-30" })).cq === -12 && validateVideoSettings(q({ cq: "30" })).cq === 12);
+  ok("settings refuse a non-numeric text offset", validateVideoSettings(q({ cq: "sharp" })) === null);
   // The picture cap negotiates like fps and mbps do, and defaults to the size
   // the weak client can decode rather than to whatever the host's desktop is.
   ok("the picture cap defaults to 720 and is negotiable",
@@ -453,6 +457,8 @@ const S60 = { fps: 60, mbps: 8, maxh: 720, display: "primary", codecs: ["h264"] 
   const av1 = ffmpegArgs("av1_nvenc", { ...S60, codecs: ["av1"] });
   ok("each codec asks for quality on its own scale",
     hevc[hevc.indexOf("-cq") + 1] === "26" && av1[av1.indexOf("-cq") + 1] === "32");
+  const sharp = ffmpegArgs("hevc_nvenc", { ...S60, codecs: ["hevc"], cq: -6 });
+  ok("the viewer's text offset moves the quality aim", sharp[sharp.indexOf("-cq") + 1] === "20");
   const amf = ffmpegArgs("h264_amf", S60);
   const amfAt = (flag) => amf[amf.indexOf(flag) + 1];
   ok("the other vendors keep constant bitrate and the full ask",

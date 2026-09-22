@@ -136,6 +136,7 @@
   #mic.on.wait { background:transparent; color:var(--ink); border:1px dashed var(--ink3); }
   #bar label { color:var(--ink3); font-size:12px; display:flex; align-items:center; gap:7px;
          white-space:nowrap; }
+  #vidTune:not([hidden]) { display:flex; align-items:center; gap:10px; }
 
   /* ---- overflow menu ---- */
   #more { position:relative; display:flex; }
@@ -306,6 +307,26 @@
       <option value="3,7">Fast</option>
     </select>
   </label>
+  <span id="vidTune" hidden>
+    <label>Bitrate
+      <select id="vidMbps" title="DECODER+ ceiling: what motion may climb to. A still screen costs far less.">
+        <option value="auto" selected>Auto</option>
+        <option value="4">4 Mb/s</option>
+        <option value="8">8 Mb/s</option>
+        <option value="12">12 Mb/s</option>
+        <option value="20">20 Mb/s</option>
+        <option value="30">30 Mb/s</option>
+      </select>
+    </label>
+    <label>Text
+      <select id="vidCq" title="DECODER+ sharpness on a still screen. Sharper costs more bytes; bitrate alone does not sharpen text.">
+        <option value="4">Soft</option>
+        <option value="0" selected>Normal</option>
+        <option value="-4">Sharp</option>
+        <option value="-8">Sharpest</option>
+      </select>
+    </label>
+  </span>
   <div class="grp">
     <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
     <button id="stream" title="Hardware video for games and video: the host's GPU encodes the screen (AV1, HEVC or H.264, whichever this browser decodes in hardware) and this browser decodes it, sixty frames a second. Text goes a little soft, which is why it is a toggle and not the default.">DECODER+</button>
@@ -1909,6 +1930,17 @@ $("quality").addEventListener("change", () => {
   refocus();
 });
 
+// DECODER+'s own knobs. Each is a new ask, so the encoder restarts on it with a
+// fresh keyframe, as for the Video toggle. Kept per browser.
+for (const id of ["vidMbps", "vidCq"]) {
+  try { const v = localStorage.getItem("cast." + id); if (v && $(id).querySelector('option[value="' + v + '"]')) $(id).value = v; } catch (_) {}
+  $(id).addEventListener("change", () => {
+    try { localStorage.setItem("cast." + id, $(id).value); } catch (_) {}
+    if (rfb && decoder) openVideo();
+    refocus();
+  });
+}
+
 // Switching monitors is a host-side change, so it goes to the bridge's control
 // endpoint. The session key already in the endpoint URL is what authorises it.
 $("share").addEventListener("change", async () => {
@@ -2774,9 +2806,13 @@ function openVideo() {
   // ignores it and streams exactly as it does today - there is no version of
   // this that an old host can fail on.
   chooseHeight();
+  // The Bitrate and Text dropdowns, when set, replace the ask; the strain
+  // ladder still takes its share off a picked bitrate. A host too old for cq
+  // ignores it, as with maxh.
+  const picked = Number($("vidMbps").value) || (video ? 12 : 8);
   const url = endpoint.replace("/ws?", "/video?") + "&fps=" + step.fps +
-              "&mbps=" + Math.round((video ? 12 : 8) * step.mbps * 10) / 10 +
-              "&maxh=" + vidMaxh +
+              "&mbps=" + Math.round(picked * step.mbps * 10) / 10 +
+              "&maxh=" + vidMaxh + "&cq=" + $("vidCq").value +
               "&display=" + encodeURIComponent($("share").value) + "&codecs=" + vidCodecs;
   let sock;
   try {
@@ -2917,6 +2953,7 @@ function configureVideo(cfg) {
         streamWant = 0;
         pushStream();
         $("quality").disabled = true;
+        $("vidTune").hidden = false;
         state("live", "DECODER+" + (vidNote ? " " + streamFamily(vidCodec) + vidNote : ""));
       }
       // Nothing is held while the tab is hidden: rAF is throttled there, so a
@@ -3181,6 +3218,7 @@ function closeVideo() {
 function streamOff(why, code, reason) {
   closeVideo();
   $("quality").disabled = video;
+  $("vidTune").hidden = true;
   // No session means nothing to fall back to, and whatever card is up owns
   // the state line: a video socket outliving Stop cast must not overwrite
   // "Host offline" with its own goodbye.
