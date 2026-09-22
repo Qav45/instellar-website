@@ -318,6 +318,12 @@
         <option value="30">30 Mb/s</option>
       </select>
     </label>
+    <label>Size
+      <select id="vidSize" title="DECODER+ picture size. Auto fits this window; 1080p sends every pixel of the host's screen, which is what small text needs. Turn Fit off to see it 1:1.">
+        <option value="auto" selected>Auto</option>
+        <option value="1080">1080p</option>
+      </select>
+    </label>
     <label>Text
       <select id="vidCq" title="DECODER+ sharpness on a still screen. Sharper costs more bytes; bitrate alone does not sharpen text.">
         <option value="4">Soft</option>
@@ -1932,7 +1938,7 @@ $("quality").addEventListener("change", () => {
 
 // DECODER+'s own knobs. Each is a new ask, so the encoder restarts on it with a
 // fresh keyframe, as for the Video toggle. Kept per browser.
-for (const id of ["vidMbps", "vidCq"]) {
+for (const id of ["vidMbps", "vidSize", "vidCq"]) {
   try { const v = localStorage.getItem("cast." + id); if (v && $(id).querySelector('option[value="' + v + '"]')) $(id).value = v; } catch (_) {}
   $(id).addEventListener("change", () => {
     try { localStorage.setItem("cast." + id, $(id).value); } catch (_) {}
@@ -2482,6 +2488,11 @@ function chooseHeight() {
     vidMaxhOk = streamProven(saved);
   }
   vidMaxh = streamHeight(vidRows(), vidMaxhWant || vidMaxhOk, vidMaxh);
+  // Size pinned by hand: ask for it whatever the window, as a trial, so a
+  // decoder that refuses it goes back through streamShorter and is not asked
+  // again this session.
+  const pinned = Number($("vidSize").value);
+  if (pinned && pinned !== vidMaxhBad) vidMaxh = vidMaxhWant = pinned;
 }
 
 // Asked once, at load: isConfigSupported is a promise, and openVideo is not.
