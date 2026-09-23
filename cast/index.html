@@ -205,63 +205,35 @@
   .card .foot { color:var(--muted); font-size:12px; margin-top:14px; line-height:1.5; }
 
   /* ---- the screen password card ---- */
-  /* The one card the viewer actually stops at, so it gets to look like
-     something: a rotating glow behind the panel, dots that pop as the password
-     lands, and a shake when the host says no. Nothing here changes what is
-     sent - it is the same input, the same Enter, the same sendCredentials. */
-  .card.pw { position:relative; background:#11151f; border-color:#2a3245; overflow:hidden;
-          text-align:center; padding:30px 26px 24px; }
-  .card.pw::before { content:""; position:absolute; inset:-60%; z-index:0;
-          background:conic-gradient(from 0deg, transparent 0 55%, rgba(110,168,254,.55) 72%,
-          rgba(167,139,250,.55) 82%, transparent 92% 100%);
-          animation:pwSpin 5.5s linear infinite; }
-  .card.pw::after { content:""; position:absolute; inset:1px; z-index:0; border-radius:13px;
-          background:radial-gradient(120% 90% at 50% -10%, #1b2334 0%, #11151f 62%); }
-  .card.pw > * { position:relative; z-index:1; }
-  @keyframes pwSpin { to { transform:rotate(1turn); } }
-  .card.pw h2 { font-size:21px; margin-bottom:4px;
-          background:linear-gradient(92deg,#e7e9ee,#6ea8fe,#a78bfa,#e7e9ee);
-          background-size:280% 100%; -webkit-background-clip:text; background-clip:text;
-          -webkit-text-fill-color:transparent; color:transparent;
-          animation:pwShine 6s linear infinite; }
-  @keyframes pwShine { to { background-position:280% 0; } }
-  .card.pw p { margin-bottom:18px; }
-  .pwRing { width:64px; height:64px; margin:0 auto 16px; border-radius:50%;
-          border:1px solid #2a3245; display:flex; align-items:center; justify-content:center;
-          color:var(--accent); box-shadow:0 0 0 0 rgba(110,168,254,.35);
-          animation:pwPulse 2.4s ease-out infinite; }
-  .pwRing svg { width:26px; height:26px; }
-  @keyframes pwPulse { 0% { box-shadow:0 0 0 0 rgba(110,168,254,.30); }
-          70% { box-shadow:0 0 0 16px rgba(110,168,254,0); }
-          100% { box-shadow:0 0 0 0 rgba(110,168,254,0); } }
-  .pwDots { display:flex; gap:9px; justify-content:center; margin-bottom:16px; }
-  .pwDots i { width:9px; height:9px; border-radius:50%; background:#2a3245;
-          transition:background .18s, transform .18s; }
-  .pwDots i.on { background:var(--accent); box-shadow:0 0 10px rgba(110,168,254,.8);
-          animation:pwPop .22s ease-out; }
-  @keyframes pwPop { from { transform:scale(.2); } 60% { transform:scale(1.5); } }
-  .card.pw input { text-align:center; letter-spacing:.42em; font-size:16px; padding:13px 12px;
-          background:rgba(10,13,20,.85); border-color:#2a3245; caret-color:var(--accent);
-          transition:border-color .2s, box-shadow .2s; }
-  .card.pw input::placeholder { letter-spacing:.12em; }
-  .card.pw input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(110,168,254,.16); }
-  .card.pw button { position:relative; overflow:hidden;
-          background:linear-gradient(100deg,#6ea8fe,#a78bfa); color:#0b0d12; padding:12px; }
-  .card.pw button::after { content:""; position:absolute; top:0; bottom:0; width:45%;
-          left:-60%; background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);
-          animation:pwSweep 2.6s ease-in-out infinite; }
-  @keyframes pwSweep { 0% { left:-60%; } 55%,100% { left:130%; } }
-  .card.pw.bad { animation:pwShake .42s; }
-  .card.pw.bad .pwDots i { background:#ff8080; box-shadow:none; }
-  .card.pw.bad .pwRing { border-color:#ff8080; color:#ff8080; animation:none; }
-  @keyframes pwShake { 10%,90% { transform:translateX(-3px); }
-          30%,70% { transform:translateX(6px); } 50% { transform:translateX(-6px); } }
-  .card.pw.ok .pwDots i { background:#7ee0a5; box-shadow:0 0 10px rgba(126,224,165,.8); }
-  .card.pw.ok .pwRing { border-color:#7ee0a5; color:#7ee0a5;
-          animation:pwPulse 1s ease-out infinite; }
-  @media (prefers-reduced-motion:reduce) {
-    .card.pw::before, .card.pw h2, .pwRing, .card.pw button::after, .card.pw.bad { animation:none; }
-  }
+  /* Laid out like the macOS login screen, because that is the screen this is
+     standing in front of: round user picture, the machine's name under it, a
+     176x32 translucent field with the arrow inside it, and the hint line
+     underneath that turns into the error. Sizes and colours follow the
+     Renovamen/playground-macos login page. The shake is the one the real
+     screen does when the password is wrong. Nothing here changes what is sent
+     - same input, same Enter, same sendCredentials. */
+  .card.pw { background:none; border:0; padding:0; max-width:none; width:auto; text-align:center; }
+  .pwFace { width:96px; height:96px; margin:0 auto; border-radius:50%; display:flex;
+          align-items:center; justify-content:center; color:#fff;
+          background:rgba(255,255,255,.16); backdrop-filter:blur(24px); }
+  .pwFace svg { width:44px; height:44px; }
+  .pwName { margin-top:8px; font-size:20px; font-weight:600; color:#fff; }
+  .pwField { display:flex; align-items:center; width:176px; height:32px; margin:16px auto 0;
+          border-radius:6px; background:rgba(209,213,219,.5); backdrop-filter:blur(24px); }
+  .card.pw .pwField input { flex:1; min-width:0; margin:0; padding:0 8px; background:none;
+          border:0; border-radius:6px; color:#fff; font-size:13px; }
+  .card.pw .pwField input::placeholder { color:rgba(255,255,255,.75); }
+  .card.pw .pwField input:focus { outline:none; border:0; }
+  .card.pw .pwField button { width:28px; height:100%; margin:0; padding:0; flex:0 0 28px;
+          background:none; color:#fff; font-size:13px; line-height:1; opacity:0;
+          pointer-events:none; transition:opacity .15s; }
+  .card.pw .pwField.filled button { opacity:1; pointer-events:auto; }
+  .pwHint { margin-top:8px; font-size:13px; color:rgba(229,231,235,.85); }
+  .pwHint.err { color:#ff8080; }
+  .pwField.bad { animation:pwShake .4s; }
+  @keyframes pwShake { 10%,90% { transform:translateX(-4px); }
+          30%,70% { transform:translateX(8px); } 50% { transform:translateX(-8px); } }
+  @media (prefers-reduced-motion:reduce) { .pwField.bad { animation:none; } }
 
   /* ---- the way in ---- */
   /* Light, because every calculator is, and because a dark panel in front of a
@@ -1332,45 +1304,36 @@ function askToken(message) {
 
 function askPassword(message) {
   veil(
-    '<div class="pwRing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-      'stroke-width="1.8" stroke-linecap="round"><rect x="4" y="10.5" width="16" height="10" ' +
-      'rx="2.5"></rect><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path></svg></div>' +
-    "<h2>Screen password</h2>" +
-    "<p>The VNC password set on the host machine.</p>" +
-    '<div class="pwDots">' + "<i></i>".repeat(8) + "</div>" +
-    (message ? '<div class="err">' + esc(message) + "</div>" : "") +
-    '<input type="password" id="pw" placeholder="Password" autocomplete="off">' +
-    '<button id="pwGo">Unlock</button>',
+    '<div class="pwFace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="8.5" r="3.6"></circle>' +
+      '<path d="M4.5 20a7.5 7.5 0 0 1 15 0"></path></svg></div>' +
+    '<div class="pwName">Screen</div>' +
+    '<div class="pwField">' +
+      '<input type="password" id="pw" placeholder="Enter Password" autocomplete="off">' +
+      '<button id="pwGo" type="button" aria-label="Unlock">&rarr;</button>' +
+    "</div>" +
+    '<div class="pwHint' + (message ? " err" : "") + '" id="pwHint">' +
+      esc(message || "The VNC password set on the host machine.") + "</div>",
     (el) => {
-      const card = el.querySelector(".card");
+      el.querySelector(".card").classList.add("pw");
+      const field = el.querySelector(".pwField");
       const input = el.querySelector("#pw");
-      const dots = el.querySelectorAll(".pwDots i");
-      card.classList.add("pw");
-      // A rejected password lands with the card already red; the first key the
-      // viewer presses is them trying again, so that is where it clears.
-      if (message) card.classList.add("bad");
+      // The real screen shakes the field once when it lands on a rejection,
+      // then goes quiet; typing again clears the red line under it.
+      if (message) {
+        field.classList.add("bad");
+        field.addEventListener("animationend", () => field.classList.remove("bad"));
+      }
       input.addEventListener("input", () => {
-        card.classList.remove("bad");
-        const n = Math.min(input.value.length, dots.length);
-        dots.forEach((d, i) => d.classList.toggle("on", i < n));
+        field.classList.toggle("filled", input.value.length > 0);
+        el.querySelector("#pwHint").classList.remove("err");
       });
-      let sent = false;
       const go = () => {
-        // The card now lives on for a moment after Unlock, so a second click
-        // in that gap would send the credentials twice.
-        if (sent) return;
-        sent = true;
         password = input.value;
         store.set("castPass", password);
         needPassword = false;
-        // The green sweep is only a flourish, so it must not gate the
-        // connection: the credentials go out on a timer either way, and a
-        // card that has already been replaced is simply gone by then.
-        card.classList.add("ok");
-        setTimeout(() => {
-          if (rfb) { hideVeil(); rfb.sendCredentials({ password: password }); }
-          else start();
-        }, 260);
+        if (rfb) { hideVeil(); rfb.sendCredentials({ password: password }); }
+        else start();
       };
       el.querySelector("#pwGo").addEventListener("click", go);
       input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
