@@ -123,6 +123,7 @@
   #bar button:focus-visible, #bar select:focus-visible { outline:2px solid var(--clay); outline-offset:1px; }
   #bar button.on { background:var(--ink); color:#141413; }
   #bar button.on:hover { background:#fff; }
+  #kbdIn { position:fixed; left:0; bottom:0; width:1px; height:1px; opacity:0; border:0; padding:0; font-size:16px; }
   #bar select { -webkit-appearance:none; appearance:none; border-color:var(--hair); padding-right:26px;
          background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23c2c0b6' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center; }
   #bar select option { background:#1f1e1c; color:var(--ink); }
@@ -370,6 +371,8 @@
     <button id="mic" title="Hear the host's microphone, live, in this tab. Off every time the page loads - the mic on the host only opens while this is on - and nothing is recorded anywhere.">Mic</button>
     <button id="grab" title="Keep the pointer in the remote screen and send movement rather than position - what a game needs. Turn Fullscreen on too and Escape reaches the game; hold it to let go.">Mouse lock</button>
     <button id="full" title="Fullscreen">Fullscreen</button>
+    <button id="kbd" title="Open this device's on-screen keyboard and type into the remote machine - for phones and tablets">Keyboard</button>
+    <input id="kbdIn" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Type into the remote machine">
   </div>
   <div id="more">
     <button id="moreBtn" title="More controls" aria-haspopup="true" aria-expanded="false">&hellip;</button>
@@ -3330,6 +3333,51 @@ $("look").addEventListener("click", () => {
 });
 
 $("cad").addEventListener("click", () => { if (rfb) rfb.sendCtrlAltDel(); refocus(); });
+
+// A phone only raises its keyboard for a text field, never for the canvas, so
+// the Keyboard button focuses a hidden one inside the toolbar (which the
+// focus watchdog leaves alone) and forwards what lands in it. Mobile keyboards
+// report most keys as "Unidentified", so typing is read off the field's value:
+// each change is diffed against the last one and sent as backspaces plus
+// characters, which also survives word-at-a-time composition and autocorrect.
+// A one-character sentinel keeps Backspace working when nothing is typed yet.
+const kbdIn = $("kbdIn");
+const KBD_SENTINEL = "_";
+let kbdLast = KBD_SENTINEL;
+function kbdReset() { kbdIn.value = kbdLast = KBD_SENTINEL; }
+function kbdChar(ch) {
+  if (!rfb) return;
+  if (ch === "\n") { rfb.sendKey(0xff0d, "Enter"); return; }
+  const c = ch.codePointAt(0);
+  rfb.sendKey(c < 0x100 ? c : 0x01000000 + c, null);
+}
+$("kbd").addEventListener("click", () => {
+  if (document.activeElement === kbdIn) { kbdIn.blur(); refocus(); return; }
+  kbdReset();
+  kbdIn.focus();
+});
+kbdIn.addEventListener("focus", () => $("kbd").classList.add("on"));
+kbdIn.addEventListener("blur", () => $("kbd").classList.remove("on"));
+kbdIn.addEventListener("input", (e) => {
+  const v = kbdIn.value;
+  let p = 0;
+  while (p < v.length && p < kbdLast.length && v[p] === kbdLast[p]) p++;
+  for (let i = p; i < kbdLast.length; i++) if (rfb) rfb.sendKey(0xff08, "Backspace");
+  for (const ch of v.slice(p)) kbdChar(ch);
+  kbdLast = v;
+  if (!e.isComposing && (v === "" || v.length > 40)) kbdReset();
+});
+// Keys with no text of their own. Backspace is deliberately not here: the
+// input handler above already sends it, and iOS fires both.
+const KBD_KEYS = { Enter: 0xff0d, Tab: 0xff09, Escape: 0xff1b,
+  ArrowLeft: 0xff51, ArrowUp: 0xff52, ArrowRight: 0xff53, ArrowDown: 0xff54 };
+kbdIn.addEventListener("keydown", (e) => {
+  const k = KBD_KEYS[e.key];
+  if (k === undefined || e.isComposing) return;
+  e.preventDefault();
+  if (rfb) rfb.sendKey(k, e.key);
+  kbdReset();
+});
 
 $("full").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen();
