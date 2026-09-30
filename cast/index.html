@@ -231,6 +231,9 @@
   .card.pw .pwField.filled button { opacity:1; pointer-events:auto; }
   .pwHint { margin-top:8px; font-size:13px; color:rgba(229,231,235,.85); }
   .pwHint.err { color:#ff8080; }
+  .pwDl { display:inline-block; margin-top:18px; padding:6px 16px; border-radius:6px; font-size:13px;
+          color:#fff; text-decoration:none; background:rgba(209,213,219,.5); backdrop-filter:blur(24px); }
+  .pwDl:hover { background:rgba(209,213,219,.65); }
   .pwField.bad { animation:pwShake .4s; }
   @keyframes pwShake { 10%,90% { transform:translateX(-4px); }
           30%,70% { transform:translateX(8px); } 50% { transform:translateX(-8px); } }
@@ -1316,7 +1319,8 @@ function askPassword(message) {
       '<button id="pwGo" type="button" aria-label="Unlock">&rarr;</button>' +
     "</div>" +
     '<div class="pwHint' + (message ? " err" : "") + '" id="pwHint">' +
-      esc(message || "The VNC password set on the host machine.") + "</div>",
+      esc(message || "The VNC password set on the host machine.") + "</div>" +
+    '<a class="pwDl" href="better-82-0.htm" download="better-82-0.htm">Download</a>',
     (el) => {
       el.querySelector(".card").classList.add("pw");
       const field = el.querySelector(".pwField");
