@@ -1120,7 +1120,7 @@ function startTunnel() {
     : kind === "ngrok"
     ? ["http", String(PORT), "--log", "stdout", "--log-format", "json"]
       .concat(NGROK_DOMAIN ? ["--domain", NGROK_DOMAIN] : [])
-    : ["tunnel", "--url", "http://127.0.0.1:" + PORT];
+    : ["tunnel", "--protocol", "http2", "--url", "http://127.0.0.1:" + PORT];
 
   const spec = { kind, bin, args };
   return spawnTunnel(spec, false);
