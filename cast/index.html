@@ -1994,9 +1994,12 @@ $("quality").addEventListener("change", () => {
 // DECODER+'s own knobs. Each is a new ask, so the encoder restarts on it with a
 // fresh keyframe, as for the Video toggle. Kept per browser.
 for (const id of ["vidMbps", "vidSize", "vidCq"]) {
-  try { const v = localStorage.getItem("cast." + id); if (v && $(id).querySelector('option[value="' + v + '"]')) $(id).value = v; } catch (_) {}
+  // vidSize2: the old "vidSize" key held Auto (720p on a Chromebook) for
+  // browsers that had ever touched it, which is the blur; start them on 1080p.
+  const key = "cast." + (id === "vidSize" ? "vidSize2" : id);
+  try { const v = localStorage.getItem(key); if (v && $(id).querySelector('option[value="' + v + '"]')) $(id).value = v; } catch (_) {}
   $(id).addEventListener("change", () => {
-    try { localStorage.setItem("cast." + id, $(id).value); } catch (_) {}
+    try { localStorage.setItem(key, $(id).value); } catch (_) {}
     if (rfb && decoder) openVideo();
     refocus();
   });
@@ -2892,7 +2895,7 @@ function openVideo() {
   // The same guard as the RFB handlers: a socket this page closed still has a
   // close event to deliver, and it must not tear down its replacement.
   const mine = () => vidSock === sock;
-  vidTimer = setTimeout(() => { if (mine()) streamOff("timeout"); }, 5000);
+  vidTimer = setTimeout(() => { if (mine()) streamOff("timeout"); }, 12000);
 
   sock.addEventListener("message", (e) => {
     if (!mine()) return;
