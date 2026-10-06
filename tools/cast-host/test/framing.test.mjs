@@ -312,7 +312,7 @@ function clientFrame(op, payload, masked = true) {
   const dropped = await new Promise((resolve) => {
     dead.on("close", () => resolve(true));
     dead.on("error", () => resolve(true));
-    setTimeout(() => resolve(false), 1800);
+    setTimeout(() => resolve(false), 4000);
   });
   ok("an unresponsive viewer is dropped after bounded missed pongs", dropped);
 

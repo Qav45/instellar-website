@@ -577,7 +577,7 @@ const GOP_SECONDS = 1;               // recover dropped frames within one second
 // (0.97 / 0.96 / 0.99 mbps over six seconds), so a viewer that negotiates the
 // better codec spends its efficiency on a sharper picture rather than on more
 // bytes - and never arrives at a bitrate higher than H.264's by accident.
-const QUALITY = { h264: 20, hevc: 26, av1: 32 };
+const QUALITY = { h264: 14, hevc: 20, av1: 26 };
 const IDLE_MS = 3000;                // keep the encoder warm this long after the last viewer
 const STARTUP_MS = 2000;             // an exit sooner than this means "cannot start"
 const CRASH_WINDOW_MS = 10000;       // a second death this soon after a restart is final
@@ -785,7 +785,7 @@ export function ffmpegArgs(encoder, s, scale = true) {
   // system memory is an error, not a no-op.
   if (scale) {
     filter += ",hwdownload,format=bgra,scale=w=trunc(iw*" + fit + "/2)*2:h=trunc(ih*" +
-      fit + "/2)*2,format=nv12";
+      fit + "/2)*2:flags=lanczos,format=nv12";
   } else if (encoder === "libx264") {
     // libx264 runs on the CPU and cannot read D3D11 textures; the others take
     // the captured frame straight from the GPU.

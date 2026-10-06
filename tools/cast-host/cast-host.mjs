@@ -514,7 +514,7 @@ function videoRoute(ws, head, url) {
   // up on a quiet socket.
   const keepalive = setInterval(() => {
     if (ws.destroyed) return;
-    if (++missedPongs >= 3) return shut("viewer stopped answering pings");
+    if (++missedPongs >= 8) return shut("viewer stopped answering pings");
     frame(ws, 0x9, Buffer.alloc(0));
   }, KEEPALIVE_MS);
 
@@ -614,7 +614,7 @@ function audioRoute(ws, head) {
 
   const keepalive = setInterval(() => {
     if (ws.destroyed) return;
-    if (++missedPongs >= 3) return shut("listener stopped answering pings");
+    if (++missedPongs >= 8) return shut("listener stopped answering pings");
     frame(ws, 0x9, Buffer.alloc(0));
   }, KEEPALIVE_MS);
 
@@ -778,7 +778,7 @@ function bridge(ws, head, viewerId) {
     // A ping that gets no pong is more useful than traffic for traffic's sake:
     // after a tunnel rebuild a half-open socket can otherwise occupy TightVNC
     // indefinitely. Browsers answer below JavaScript, even in a background tab.
-    if (++missedPongs >= 3) return shut("viewer stopped answering pings");
+    if (++missedPongs >= 8) return shut("viewer stopped answering pings");
     frame(ws, 0x9, Buffer.alloc(0));
   }, KEEPALIVE_MS);
 

@@ -800,6 +800,13 @@ function tick() {
     // socket is the browser's doing and not the link's.
     if (!document.hidden && streamSlow(vidIn + vidMiss, vidIn)) { if (!vidShortSince) vidShortSince = now; }
     else vidShortSince = 0;
+    // Frames that all arrive, only late: the link is carrying a standing queue
+    // (a game's motion pushing the encoder to its ceiling). Nothing is lost, so
+    // the checks above never see it, and ping and fps die together. The probe's
+    // round trip over its own floor is that queue.
+    if (!document.hidden && stats.rtt && stats.floor && stats.rtt - stats.floor > LAG_QUEUE_MS &&
+        now - vidSince > LAG_GRACE_MS) { if (!vidLagSince) vidLagSince = now; }
+    else vidLagSince = 0;
     // Aged out here as well as where they are recorded: with the drops stopped
     // nothing else touches the list, and a stale entry would read as a rough
     // second for ever and no pace would ever be asked back for.
@@ -809,14 +816,15 @@ function tick() {
     // that earns the pace back has to be an unbroken one.
     // A second in which nothing arrived is not a calm one either: it proves
     // nothing about the decoder, and must not earn a step up or an upgrade.
-    if (vidSlowSince || vidShortSince || vidDrops.length || !vidIn) vidCalm = now;
+    if (vidSlowSince || vidShortSince || vidLagSince || vidDrops.length || !vidIn) vidCalm = now;
     // Nothing arriving at all, with the last picture still up and VNC off, is
     // a frozen screen that nothing else would ever notice. Back to VNC, and
     // the one bounded retry streamOff already makes.
     if (!document.hidden && now - vidLastAu > STALL_MS) streamOff("timeout");
     else if (why) streamDowngrade(why);
     else if (vidShortSince && now - vidShortSince >= STRAIN_SLOW_MS) streamThin("losing frames on the link");
-    else if (vidStep > vidCeil && now - vidCalm >= STEP_UP_MS) streamRecover();
+    else if (vidLagSince && now - vidLagSince >= LAG_QUEUE_HOLD_MS) streamThin("queueing on the link");
+    else if ((vidStep > vidCeil || now - vidCeilAt >= CEIL_FORGET_MS) && vidStep > 0 && now - vidCalm >= STEP_UP_MS) streamRecover();
     else if (now - vidCalm >= STREAM_PROVE_MS) {
       // This codec has carried the picture for an unbroken stretch, which is
       // the evidence isConfigSupported could not give. Remember it as the one
@@ -2227,7 +2235,10 @@ const STRAIN_DROPS = 2;        // lag drops within STRAIN_DROP_MS mean the decod
 const STRAIN_DROP_MS = 10000;
 const STRAIN_RATIO = 0.85;     // decoded under this share of what arrives, for STRAIN_SLOW_MS
 const STRAIN_SLOW_MS = 2000;
-const STRAIN_GRACE_MS = 1000;  // a fresh decoder's first second is the GOP replay, not strain
+const LAG_QUEUE_MS = 120;      // probe round trip this far over its floor is a queue on the link...
+const LAG_GRACE_MS = 8000;     // the smoothed round trip still carries the last stream's queue after a restart
+const LAG_QUEUE_HOLD_MS = 3000; // ...and this long over it is a standing one, not a keyframe
+const STRAIN_GRACE_MS = 1000; // a fresh decoder's first second is the GOP replay, not strain
 // No access unit at all for this long, on a tab that is being looked at, is a
 // stream that has stopped - the encoder alive and the socket open, but nothing
 // coming out. It is not a still screen: ddagrab sends a frame every period
@@ -2240,6 +2251,7 @@ const STALL_MS = 5000;
 // Video toggle would have asked for.
 const STREAM_STEPS = [{ fps: 60, mbps: 1 }, { fps: 30, mbps: 0.5 }, { fps: 20, mbps: 0.25 }];
 const STEP_UP_MS = 30000;      // this long without strain and the pace is asked for back
+const CEIL_FORGET_MS = 120000; // a step this session could not hold is tried again after this long, not never
 const PROBATION_MS = 60000;    // strain this soon after a step up puts that step out of reach
 const STRIKE_MS = 30000;       // a codec that ran this long before straining is not the problem
 // How long a codec has to carry the picture cleanly before it is believed:
@@ -2304,7 +2316,7 @@ const HEIGHT_SETTLE_MS = 1500;  // a window being dragged is one size change, no
 // one took a queue out from between the hand and the screen for that exact
 // reason. A buffer that cures judder by adding a fifth of a second of lag has
 // cured nothing.
-const PACE_CAP_MS = 80;      // the most delay the clock will ever hold
+const PACE_CAP_MS = 50;      // the most delay the clock will ever hold
 const PACE_FLOOR_MS = 8;     // and the least, whatever the frame period says
 const PACE_BAND_MS = 6;      // dead band: inside this the buffer does not move
 const PACE_SHRINK_MS = 4;    // how much one step back down gives away
@@ -2332,12 +2344,14 @@ let vidMissed = 0;       // AUs the host stamped and never sent us, since the la
 let vidLastTs = -1;      // the host timestamp of the last AU to arrive, -1 before one
 let vidLastAu = 0;       // when an AU last arrived at all
 let vidShortSince = 0;   // when the link first lost more than it could spare
+let vidLagSince = 0;     // when the probe's round trip first sat well over its floor
 let vidDrops = [];       // when the lag control last fired, newest last
 let vidSlowSince = 0;    // when decoded output first fell short of the arrivals
 let vidSince = 0;        // when the current decoder was configured
 let vidDrained = false;  // this decoder has emptied its queue at least once
 let vidNote = "";        // what the state line says about the last downgrade
 let vidStep = 0;         // how far down STREAM_STEPS this session has had to go
+let vidCeilAt = 0;       // when that ceiling was set; it is forgotten after CEIL_FORGET_MS
 let vidCeil = 0;         // the most demanding step still worth trying this session
 let vidCalm = 0;         // when the current step last saw strain, or started
 let vidUp = 0;           // when the pace was last asked for back
@@ -2743,7 +2757,11 @@ function vidCanvas() {
 function vidPaintCtx() {
   const c = vidCanvas();
   if (!c) { vidCtxEl = vidCtx = null; return null; }
-  if (c !== vidCtxEl) { vidCtxEl = c; vidCtx = c.getContext("2d"); }
+  if (c !== vidCtxEl) {
+    vidCtxEl = c; vidCtx = c.getContext("2d");
+    // Any resample of the picture (a window smaller than the host) uses the good filter.
+    if (vidCtx) vidCtx.imageSmoothingQuality = "high";
+  }
   return vidCtx;
 }
 
@@ -2899,7 +2917,7 @@ function openVideo() {
   // The Bitrate and Text dropdowns, when set, replace the ask; the strain
   // ladder still takes its share off a picked bitrate. A host too old for cq
   // ignores it, as with maxh.
-  const picked = Number($("vidMbps").value) || (video ? 12 : 8);
+  const picked = Number($("vidMbps").value) || (video ? 20 : 16);
   const url = endpoint.replace("/ws?", "/video?") + "&fps=" + step.fps +
               "&mbps=" + Math.round(picked * step.mbps * 10) / 10 +
               "&maxh=" + vidMaxh + "&cq=" + $("vidCq").value +
@@ -3098,6 +3116,7 @@ function configureVideo(cfg) {
   vidFrames = vidDelivered = vidPainted = vidMissed = 0;
   vidLastTs = -1;
   vidShortSince = 0;
+  vidLagSince = 0;
   vidDrops = [];
   vidSlowSince = 0;
   vidSince = vidCalm = vidLastAu = performance.now();
@@ -3166,7 +3185,7 @@ function streamDowngrade(why, detail) {
 function streamPace(why) {
   // A step that strained again this soon after being asked for back is one
   // this session cannot hold; stop climbing to it.
-  if (vidUp && performance.now() - vidUp < PROBATION_MS) vidCeil = vidStep + 1;
+  if (vidUp && performance.now() - vidUp < PROBATION_MS) { vidCeil = vidStep + 1; vidCeilAt = performance.now(); }
   vidStep++;
   vidSoft = false;
   vidNote = " at " + STREAM_STEPS[vidStep].fps + " fps after " + why;
@@ -3194,8 +3213,25 @@ function streamShorter(what) {
 // struck. At the bottom step there is nothing cheaper to ask for, and the
 // strain goes on holding off every step up and upgrade.
 function streamThin(why) {
-  if (streamShorter(why)) return;
+  if (streamShorter(why) || streamLean(why)) return;
   if (vidStep + 1 < STREAM_STEPS.length) streamPace(why);
+}
+
+// Send fewer pixels before fewer frames. A game wants its frame rate and loses
+// little to a smaller picture, and rows are what the bytes scale with. The
+// struck height is not tried again this session, so the grow probe cannot walk
+// straight back into it. False at the bottom rung: the caller takes the pace.
+function streamLean(why) {
+  const lower = STREAM_HEIGHTS.filter((h) => h < vidMaxh).pop();
+  if (!lower) return false;
+  vidMaxhBad = vidMaxh;
+  vidMaxhWant = 0;
+  vidMaxhOk = lower;
+  try { localStorage.setItem(HEIGHT_KEY, String(lower)); } catch (_) {}
+  vidNote = " after " + vidMaxhBad + "p was " + why;
+  state("live", "DECODER+: " + vidMaxhBad + "p " + why + ", back to " + lower + "p");
+  openVideo();
+  return true;
 }
 
 // The decoder would not take this stream, either at configure time or a moment

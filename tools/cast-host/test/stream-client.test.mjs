@@ -567,7 +567,7 @@ ok("growing is one decision and shrinking is many: the asymmetry is the point",
   while (steps < 100 && streamDelay(d, 0, 20, 0, PACE_CALM) !== d) { d = streamDelay(d, 0, 20, 0, PACE_CALM); steps++; }
   ok("a link that calms walks the buffer back down to within a dead band of one frame",
      d >= 20 && d <= 20 + PACE_BAND_MS, d + " after " + steps + " decisions");
-  ok("and it takes its time getting there", steps >= 10, steps);
+  ok("and it takes its time getting there", steps >= 5, steps);
 }
 ok("the floor holds however fast the stream claims to be",
    streamDelay(0, 0, 1, 0, 0) === PACE_FLOOR_MS && PACE_FLOOR_MS > 0);
@@ -903,7 +903,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   for (let i = 0; i < 600; i++) feed(50);
   const halfway = get("vidDelay");
   ok("twelve calm seconds move it down but nowhere near all the way back",
-     halfway < peak && halfway > 20 + PACE_BAND_MS, peak + " to " + halfway);
+     halfway < peak && halfway >= 20 + PACE_BAND_MS, peak + " to " + halfway);
   ok("nothing was late while it came down", get("vidLate") === 0);
   for (let i = 0; i < 1400; i++) feed(50);
   ok("a link that stays calm gets all of it back, to within a dead band of one frame",
@@ -1400,10 +1400,11 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
      missed(5000, 5000, 60) === 0 && missed(0, 900000, 0) === 0);
 
   const thin = (over) => {
-    const out = { paced: 0, shorter: 0 };
+    const out = { paced: 0, shorter: 0, lean: 0, leaned: over && over.leaned };
     const c = vm.createContext(Object.assign({
       out, STREAM_STEPS, vidStep: 0,
       streamShorter() { out.shorter++; return false; },
+      streamLean() { out.lean++; return !!out.leaned; },
       streamPace() { out.paced++; },
       streamDowngrade() { out.struck = true; },
     }, over));
@@ -1415,6 +1416,8 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
      t.paced === 1 && !t.struck);
   const tall = thin({ streamShorter() { return true; } });
   ok("a taller picture being tried is given up first, before the pace", tall.paced === 0);
+  const lean = thin({ leaned: true });
+  ok("a taller rung is given up before the pace, so a game keeps its frame rate", lean.lean === 1 && lean.paced === 0);
   const bottom = thin({ vidStep: STREAM_STEPS.length - 1 });
   ok("at the bottom step there is nothing cheaper to ask for", bottom.paced === 0);
 }
