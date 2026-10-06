@@ -40,6 +40,7 @@ import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { createVideoSource, validateVideoSettings, CODECS } from "./video.mjs";
 import { createAudioSource, DEFAULT_MIC } from "./audio.mjs";
+import { createMouse } from "./mouse.mjs";
 import { selectServer, shareArgv, pushesUpdates, defaultPort } from "./vnc-server.mjs";
 
 /* ---------------------------------------------------------------- config -- */
@@ -341,6 +342,11 @@ function onUpgrade(req, socket, head) {
                "Content-Type: text/plain\r\n\r\nvideo off\n");
     return;
   }
+  if (url.pathname === "/mouse" && !mouse.available && url.searchParams.get("k") === SESSION_KEY) {
+    socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n" +
+               "Content-Type: text/plain\r\n\r\nmouse off\n");
+    return;
+  }
   if (url.pathname === "/audio" && !audio && url.searchParams.get("k") === SESSION_KEY) {
     socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n" +
                "Content-Type: text/plain\r\n\r\naudio off\n");
@@ -354,6 +360,7 @@ function onUpgrade(req, socket, head) {
   if (url.pathname === "/ping") pingProbe(socket, head);
   else if (url.pathname === "/video") videoRoute(socket, head, url);
   else if (url.pathname === "/audio") audioRoute(socket, head);
+  else if (url.pathname === "/mouse") mouseRoute(socket, head);
   // Which tab this socket belongs to, so /ctl can name it later. Not a
   // credential - the key above is - just an identifier, and an absent one means
   // an older page and the old whole-host behaviour.
@@ -587,6 +594,40 @@ function videoRoute(ws, head, url) {
 }
 
 /* ----------------------------------------------------------------- audio -- */
+
+// Relative mouse for games, shared by every /mouse socket. See mouse.mjs.
+const mouse = createMouse({ log });
+
+// A /mouse socket: the page's pointer-lock movement, replayed on this machine as
+// real mouse input. The page waits for the one byte sent here before it uses the
+// route at all, so a helper that is slow to start, or never does, leaves the
+// page on the VNC path it already had.
+function mouseRoute(ws, head) {
+  let done = false;
+  let missedPongs = 0;
+  const shut = () => {
+    if (done) return;
+    done = true;
+    clearInterval(keepalive);
+    session && session.close();
+    if (!ws.destroyed) ws.destroy();
+  };
+  const session = mouse.attach(() => { if (!ws.destroyed) frame(ws, 0x02, Buffer.from([1])); }, shut);
+  if (!session) return ws.destroy();
+  // A viewer that vanishes mid-click must release the button; a dead peer is
+  // found by ping rather than waited for.
+  const keepalive = setInterval(() => {
+    if (ws.destroyed) return shut();
+    if (++missedPongs >= 3) return shut();
+    frame(ws, 0x9, Buffer.alloc(0));
+  }, KEEPALIVE_MS);
+  const feed = wsReader(ws, (p) => session.send(p), shut, () => { missedPongs = 0; });
+  ws.on("error", shut);
+  ws.on("end", shut);
+  ws.on("close", shut);
+  ws.on("data", (c) => { missedPongs = 0; feed(c); });
+  if (head && head.length) feed(head);
+}
 
 // The host microphone, shared by every listener. null when there is no ffmpeg
 // or CAST_MIC=off, and then /audio answers 404 like /video does.
@@ -1805,4 +1846,4 @@ main().catch((e) => {
 // wrong. Every deliberate exit path calls video.stop() itself; this catches the
 // ones that are not deliberate. stop() is synchronous, which is the only kind of
 // work an 'exit' handler can do.
-process.on("exit", () => { if (video) video.stop(); if (audio) audio.stop(); });
+process.on("exit", () => { if (video) video.stop(); if (audio) audio.stop(); mouse.stop(); });

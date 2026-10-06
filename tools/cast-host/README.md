@@ -583,7 +583,17 @@ with it: the keyboard claim that lives there is what lets Escape reach the game,
 and holding Escape is then how you get the pointer back. Clicking the picture
 takes the lock again after any release.
 
-Its one limit is the edge of the remote screen. The position clamps there, so a
+Where the host can, movement does not go through RFB at all. The page opens a
+second socket, `/mouse` (`mouse.mjs`), and under pointer lock sends it relative
+movement, buttons and wheel as 5-byte records; a long-lived PowerShell helper
+replays them with `SendInput`, which a game reads as a real mouse. That is what
+lets a game that re-centres the cursor itself (Unity, most others) turn at all.
+The host sends one byte when the helper is up and the page uses the route only
+after it, so a host without it, or a helper that fails, leaves the absolute-position
+behaviour below. A button held when the viewer vanishes is released. It cannot
+reach a window running as administrator, or the UAC prompt.
+
+On the absolute path, the one limit is the edge of the remote screen. The position clamps there, so a
 game that keeps turning while the pointer pushes against the edge stops turning,
 and games that recentre the cursor themselves will fight it. Games played inside
 a window, and anything driven by clicking rather than turning, do not meet that

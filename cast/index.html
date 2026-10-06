@@ -1834,9 +1834,62 @@ function lockTarget() {
 // and a click on the screen is the only shape that survives that.
 function armed() { return $("grab").classList.contains("on"); }
 
+// Real relative mouse for games, on its own socket to the host (/mouse, see
+// tools/cast-host/mouse.mjs). RFB can only say where the pointer is, and a game
+// that re-centres the cursor every frame turns on movement, not on positions, so
+// under pointer lock the movement goes here and is replayed on the host as a
+// real mouse. novnc.js uses it only while ready() - the host says so with one
+// byte once its helper is up - and otherwise sends positions as it always did.
+// Records are 5 bytes: type, a, b as big-endian int16; mouse.mjs documents them.
+const mouseRelay = (() => {
+  let ws = null, up = false, carry = { x: 0, y: 0 }, wheel = { x: 0, y: 0 };
+  const send = (type, a, b) => {
+    if (!up) return;
+    const r = new Uint8Array(5), v = new DataView(r.buffer);
+    r[0] = type; v.setInt16(1, a); v.setInt16(3, b);
+    try { ws.send(r); } catch (_) {}
+  };
+  const clamp = (n) => Math.max(-32767, Math.min(32767, n));
+  return {
+    ready: () => up,
+    open() {
+      if (ws || !endpoint) return;
+      let sock;
+      try { sock = new WebSocket(endpoint.replace("/ws?", "/mouse?")); } catch (_) { return; }
+      sock.binaryType = "arraybuffer";
+      ws = sock;
+      sock.onmessage = () => { if (ws === sock) up = true; };
+      sock.onclose = sock.onerror = () => { if (ws === sock) { ws = null; up = false; } };
+    },
+    close() {
+      const s = ws;
+      ws = null; up = false;
+      if (s) try { s.close(); } catch (_) {}
+    },
+    // Some browsers report fractions of a pixel; the remainder is carried so a
+    // slow drag is not rounded to a standstill.
+    move(dx, dy) {
+      carry.x += dx; carry.y += dy;
+      const ix = Math.trunc(carry.x), iy = Math.trunc(carry.y);
+      carry.x -= ix; carry.y -= iy;
+      if (ix || iy) send(0, clamp(ix), clamp(iy));
+    },
+    button(b, down) { send(1, b, down ? 1 : 0); },
+    // 100 px of scroll is one notch; down is negative on Windows.
+    wheel(dx, dy) {
+      wheel.x += dx; wheel.y += dy;
+      const nx = Math.trunc(wheel.x / 100), ny = Math.trunc(wheel.y / 100);
+      wheel.x -= nx * 100; wheel.y -= ny * 100;
+      if (nx || ny) send(2, -ny, nx);
+    },
+  };
+})();
+
 function takeLock() {
   const canvas = lockTarget();
   if (!canvas || $("veil") || !armed()) return;
+  mouseRelay.open();
+  if (rfb) rfb.mouseRelay = mouseRelay;
   if (document.pointerLockElement === canvas) return;
   const p = canvas.requestPointerLock();
   if (p && p.catch) p.catch(() => {});
@@ -1845,7 +1898,10 @@ function takeLock() {
 function setGrab(on) {
   $("grab").classList.toggle("on", on);
   if (on) takeLock();
-  else if (document.pointerLockElement) document.exitPointerLock();
+  else {
+    mouseRelay.close();
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
 }
 
 $("grab").addEventListener("click", () => { setGrab(!armed()); refocus(); });

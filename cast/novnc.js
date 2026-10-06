@@ -15426,6 +15426,8 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
     _this._viewOnly = false;
     // LOCAL CHANGE (instellar /cast): see the relativePointer property below.
     _this._relativePointer = false;
+    // LOCAL CHANGE (instellar /cast): see _relayed. Null until the page hands one in.
+    _this.mouseRelay = null;
     _this._relPos = null;
     _this._clipViewport = false;
     _this._clippingViewport = false;
@@ -16388,6 +16390,15 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
       return { 'x': Math.round(this._relPos.x), 'y': Math.round(this._relPos.y) };
     }
   }, {
+    // LOCAL CHANGE (instellar /cast): true when real relative mouse input is
+    // available on the host for a pointer-locked page. The relay is the page's
+    // /mouse socket, and it says ready only once the host can use it; until then,
+    // and whenever it drops, everything below is the absolute path as before.
+    key: "_relayed",
+    value: function _relayed() {
+      return !!(this._relativePointer && this.mouseRelay && this.mouseRelay.ready());
+    }
+  }, {
     key: "_handleMouse",
     value: function _handleMouse(ev) {
       /*
@@ -16411,6 +16422,11 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
       ev.stopPropagation();
       ev.preventDefault();
       if (ev.type === 'click' || ev.type === 'contextmenu') {
+        return;
+      }
+      if (this._relayed()) {
+        if (ev.type === 'mousemove') this.mouseRelay.move(ev.movementX || 0, ev.movementY || 0);
+        else if (ev.type === 'mousedown' || ev.type === 'mouseup') this.mouseRelay.button(ev.button, ev.type === 'mousedown');
         return;
       }
       var pos = this._pointerPos(ev);
@@ -16552,6 +16568,11 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
 
       ev.stopPropagation();
       ev.preventDefault();
+      if (this._relayed()) {
+        var k = ev.deltaMode !== 0 ? WHEEL_LINE_HEIGHT : 1;
+        this.mouseRelay.wheel(ev.deltaX * k, ev.deltaY * k);
+        return;
+      }
       var pos = this._pointerPos(ev);
       var bmask = RFB._convertButtonMask(ev.buttons);
       var dX = ev.deltaX;
