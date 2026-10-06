@@ -1,0 +1,12 @@
+# Instellar
+
+> Instellar is a Minecraft gens server on Minehut. Join at ragehub.minehut.gg, click Gens in the lobby, and start building your generator empire.
+
+Server address: ragehub.minehut.gg (Minecraft Java Edition, Minehut). Also known as Instellar Gens and Instellar Minecraft.
+
+## Pages
+
+- [Home](https://instellar.net/): what the server is and how to join
+- [Rules](https://instellar.net/rules): server rules
+- [Apply](https://instellar.net/apply): staff applications
+- [Punishment](https://instellar.net/punishment): punishment lookup and appeals info
