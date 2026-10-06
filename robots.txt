@@ -1,0 +1,10 @@
+# Instellar - Minecraft gens server. Public pages are open to search and AI crawlers.
+# /cast is private and is kept out of every index.
+User-agent: *
+Allow: /
+Disallow: /cast
+Disallow: /panel
+Disallow: /room
+Disallow: /api/
+
+Sitemap: https://instellar.net/sitemap.xml
