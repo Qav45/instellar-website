@@ -601,6 +601,7 @@ const hud = {
 let pingSock = null;
 let pingTimer = null;
 let pingRetryAt = 0;
+const pingWin = [];
 
 function openPing() {
   if (!endpoint) return;
@@ -609,6 +610,7 @@ function openPing() {
   // it is exactly the shape of traffic a tunnel throttles. The probe is a
   // readout; it can wait five seconds.
   pingRetryAt = performance.now() + 5000;
+  pingWin.length = 0;
   closePing();
   try {
     pingSock = new WebSocket(endpoint.replace("/ws?", "/ping?"), ["binary"]);
@@ -621,15 +623,19 @@ function openPing() {
   // with it the auto tier, which is driven by that number.
   const sock = pingSock;
   let timer = null;
-  const stop = () => clearInterval(timer);
+  const stop = () => clearTimeout(timer);
 
-  sock.addEventListener("open", () => {
-    timer = setInterval(() => {
-      if (sock.readyState !== 1) return;
-      sock.send(new Float64Array([performance.now()]).buffer);
-    }, 1000);
+  // Not a fixed second: the host's keyframe is a fixed second too, and a probe
+  // that keeps landing in the same phase of it reads the burst every time (or
+  // never), so the readout sits high or swings. A jittered period walks the
+  // probe across the whole GOP.
+  const tick = () => {
+    if (sock.readyState !== 1) return;
+    sock.send(new Float64Array([performance.now()]).buffer);
+    timer = setTimeout(tick, 700 + Math.random() * 600);
     if (sock === pingSock) pingTimer = timer;
-  });
+  };
+  sock.addEventListener("open", tick);
 
   sock.addEventListener("message", (e) => {
     // A reconnect builds a new probe, and the old socket can still be open and
@@ -641,7 +647,12 @@ function openPing() {
     if (!(e.data instanceof ArrayBuffer) || e.data.byteLength !== 8) return;
     const sample = performance.now() - new Float64Array(e.data)[0];
     // Smoothed, so one scheduling hiccup does not swing the readout or the tier.
-    stats.rtt = stats.rtt ? stats.rtt * 0.7 + sample * 0.3 : sample;
+    // A median of the last five first, so one keyframe-delayed echo is thrown
+    // away rather than averaged in, then a gentler average over those.
+    pingWin.push(sample);
+    if (pingWin.length > 5) pingWin.shift();
+    const med = pingWin.slice().sort((a, b) => a - b)[pingWin.length >> 1];
+    stats.rtt = stats.rtt ? stats.rtt * 0.8 + med * 0.2 : med;
     // The lowest round trip seen is this link's own floor - distance and tunnel,
     // nothing we can spend our way out of. What the tier cares about is delay on
     // top of that, so keep the floor to subtract from later.
@@ -1395,6 +1406,7 @@ function problem(title, detail, final, extra, onReady) {
 // for as long as the tab is open.
 let backoff = 4000;
 let attempts = 0;             // retries since the link last worked
+let silentRetried = false;    // one quiet retry after a security failure on a saved password
 
 const nextBackoff = (ms) => Math.min(Math.round(ms * 1.6), 30000);
 const retryFoot = (left, n) =>
@@ -1631,6 +1643,7 @@ function connect() {
 
   me.addEventListener("connect", () => {
     if (!current()) return;
+    silentRetried = false;
     hideVeil();
     state("live", "VNC+");
     backoff = 4000;          // this link works; the next blip starts patient again
@@ -1673,6 +1686,14 @@ function connect() {
   // "Connection dropped" and start retrying - leaving nowhere to type.
   me.addEventListener("securityfailure", (e) => {
     if (!current()) return;
+    // One failed handshake on a saved password is usually TightVNC still
+    // draining the previous session, not a wrong password: retry once quietly.
+    if (password && !silentRetried) {
+      silentRetried = true;
+      clearTimeout(retry);
+      retry = setTimeout(start, 2500);
+      return;
+    }
     store.drop("castPass");
     password = "";
     needPassword = true;
