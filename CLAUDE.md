@@ -1,5 +1,52 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this repo is
+
+A static website with no build step and no root `package.json`. Every directory
+with an `index.html` is a page served as-is: `/rules`, `/punishment`, `/apply`,
+`/panel` (staff moderation panel), `/cast` (remote desktop viewer), `/room`
+(room camera), `/cool-things`, `/desktop`. The serverless functions live in `api/`
+(Vercel, `*.mjs`), and `vercel.json` sends every path that isn't under `/api/`
+through `api/px.mjs` (the path-prefix proxy). Deploying means pushing to `main`.
+
+- `panel/`: plain scripts on `window.P`, not modules, loaded in a fixed order.
+  The screen-module contract is at the top of `panel/js/core.js`. It talks to
+  Supabase directly. `panel/legacy/`, `extracted/` and the root `*.dc.html`
+  files are the old bundled build: they are stale, so don't edit them.
+- `supabase/*.sql`: schema and RLS changes. These are **not** applied
+  automatically. The owner runs each one by hand in Supabase, so say so
+  whenever a change depends on one.
+- `tools/cast-host/`: Node 18+ with no dependencies (do not add an
+  `npm install`). This is the host side of `/cast`: a TightVNC bridge (VNC+),
+  a GPU video path via ffmpeg (DECODER+), and a cloudflared tunnel.
+  `api/cast.mjs` is only a registry of the tunnel URL, backed by Upstash KV,
+  because Vercel can't hold a WebSocket. Pixels go straight from the browser to
+  the host's tunnel. Its README explains the design in depth, so read it before
+  changing the stream.
+- `tools/room-host/`: the host side of `/room` (`api/room.mjs`). It uses a Wyze
+  bridge, MediaMTX HLS and go2rtc via `docker-compose.yml`, plus Python helpers
+  (`requirements.txt`: faster-whisper, MediaPipe) for speech-to-text and palm
+  lock. It reads a gitignored `.env` (see `.env.example`). Never tunnel the
+  go2rtc API on :1984.
+- `tools/panel-qa/`: runs the panel against a fake Supabase (see its README;
+  the mock password is `test`).
+
+## Commands
+
+```
+node --test tools/cast-host/test/*.test.mjs             # cast-host suite (node:test, fakes for ffmpeg/tunnel/mic)
+node --test tools/cast-host/test/video.test.mjs         # a single file
+node --test tools/room-host/test/*.test.mjs             # room-host suite
+node tools/panel-qa/check.js                            # static panel checks; exits 1 on failure
+tools\cast-host\cast.cmd [--lan]                        # run the cast host
+node tools/room-host/room-host.mjs [--no-stt] [--no-say] # run the room host
+```
+
+For the panel, open `tools/panel-qa/dev.html?as=qav45#<screen>` from a static
+server at the repo root. The README lists the query parameters.
+
 ## The room camera
 
 Never take a screenshot, still, recording, or any other image out of the room
