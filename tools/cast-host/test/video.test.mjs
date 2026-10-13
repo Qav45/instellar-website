@@ -447,10 +447,6 @@ const S60 = { fps: 60, mbps: 8, maxh: 720, display: "primary", codecs: ["h264"] 
   ok("the buffer is a quarter second of the ceiling", at("-bufsize") === "2000k");
   ok("no B-frames and a keyframe every second",
     at("-bf") === "0" && at("-g") === "60");
-  ok("nvenc sweeps an intra band instead of sending the keyframe whole",
-    at("-intra-refresh") === "1");
-  ok("and still forces a real IDR every four seconds for joiners",
-    at("-force_key_frames") === "expr:gte(t,n_forced*4)" && at("-forced-idr") === "1");
   ok("still a low latency tuning with zero latency on",
     at("-tune") === "ll" && at("-zerolatency") === "1");
   ok("nvenc hands each packet out as it is encoded, not frames later", at("-delay") === "0");
@@ -1001,7 +997,7 @@ ok("the recorded option lists reject the cap that shipped and never ran",
   let argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").pop());
   ok("av1_nvenc argv: nvenc low-latency flags, forced IDR, no h264 profile, obu muxer",
     argv.join(" ").includes("-c:v av1_nvenc -preset p4 -tune ll -zerolatency 1 -delay 0 -rc vbr -spatial-aq 1 -b:v 0 -cq 26 -maxrate 8M") &&
-    argv.join(" ").includes("-bf 0 -forced-idr 1 -intra-refresh 1 -force_key_frames expr:gte(t,n_forced*4) -level 4.0 -flush_packets 1 -f obu pipe:1") && !argv.includes("-profile:v"), argv.join(" "));
+    argv.join(" ").includes("-bf 0 -forced-idr 1 -level 4.0 -flush_packets 1 -f obu pipe:1") && !argv.includes("-profile:v"), argv.join(" "));
   ok("first av1 unit is a key with the delimiter, sequence header and frame",
     (a.aus[0].flags & 1) === 1 && obusOf(a.aus[0].bytes).length === 3 && obusOf(a.aus[1].bytes).length === 2);
 

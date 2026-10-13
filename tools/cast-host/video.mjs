@@ -570,17 +570,6 @@ const STANDING_MS = 1000;
 // the next key, and the replay cache a joining viewer gets is at most this
 // many seconds of frames.
 const GOP_SECONDS = 1;               // recover dropped frames within one second
-// NVENC does not send that keyframe whole. With -intra-refresh a band of intra
-// blocks sweeps the picture once per GOP_SECONDS instead, so every frame
-// carries a slice of the refresh and none of them is the burst. Measured here,
-// 1080p60 desktop, ten seconds each: an IDR every second put the 99th
-// percentile frame at 232KB, intra refresh with an IDR every four seconds put
-// it at 19KB, and the rate fell from 3.7 to 3.1 mbps. A real IDR is still
-// forced this often, because a joining viewer and one skipped for its backlog
-// need a picture that depends on nothing they missed, and WebCodecs only
-// starts a decoder on an IDR. Temporal AQ was measured alongside and cost
-// bytes (4.4 mbps), so it is not on.
-const IDR_SECONDS = 4;
 // What NVENC aims for when it is free to choose: a quantiser, not a bitrate.
 // Per codec, because -cq is not a shared scale: the same number asked of
 // hevc_nvenc or av1_nvenc means a higher quality and costs more bytes, not
@@ -897,8 +886,7 @@ export function ffmpegArgs(encoder, s, scale = true) {
   if (scale && TAKES_LEVEL.has(encoder)) {
     bound.push("-level", levelFor(codecOf(encoder), capW, capH, s.fps, s.mbps));
   }
-  const after = (vendor === "nvenc" ? ["-forced-idr", "1", "-intra-refresh", "1",
-    "-force_key_frames", "expr:gte(t,n_forced*" + IDR_SECONDS + ")"] : []).concat(bound);
+  const after = (vendor === "nvenc" ? ["-forced-idr", "1"] : []).concat(bound);
   const mux = { av1: "obu", hevc: "hevc", h264: "h264" }[codecOf(encoder)];
   return ["-hide_banner", "-loglevel", "error", "-nostdin", "-fflags", "nobuffer",
     "-flags", "low_delay", "-init_hw_device", "d3d11va", "-filter_complex", filter,
@@ -1107,8 +1095,7 @@ export function createVideoSource(opts) {
       for (const e of sinks) { try { e.sink.config(config); } catch (_) {} }
     }
     const au = { flags: parsed.key ? 1 : 0, ts: stamp(), bytes: parsed.bytes };
-    // The cache is one GOP whatever its length - up to fps * GOP_SECONDS AUs,
-    // or fps * IDR_SECONDS on NVENC, where intra refresh spaces the IDRs out.
+    // The cache is one GOP whatever its length - up to fps * GOP_SECONDS AUs.
     if (parsed.key) { gop = [au]; gopBytes = 0; } else gop.push(au);
     gopBytes += au.bytes.length;
     // One viewer per iteration, and a throw from one of them is that viewer's
