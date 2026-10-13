@@ -392,14 +392,16 @@ ok("a browser with only h264 has nowhere to fall from the start",
 ok("no probe answers at all is nowhere to fall", streamNext([], [], "h264") === "");
 
 // The demand ladder the downgrade walks down once the codecs run out.
-ok("three steps, each asking for fewer frames and fewer bytes than the last",
-   STREAM_STEPS.length === 3 &&
+ok("four steps, each asking for fewer bytes than the last and never more frames",
+   STREAM_STEPS.length === 4 &&
    STREAM_STEPS.every((s, i) => i === 0 ||
-     (s.fps < STREAM_STEPS[i - 1].fps && s.mbps < STREAM_STEPS[i - 1].mbps)));
+     (s.fps <= STREAM_STEPS[i - 1].fps && s.mbps < STREAM_STEPS[i - 1].mbps)));
+ok("sixty frames hold until the last step; only the bottom one halves them",
+   STREAM_STEPS.slice(0, -1).every((s) => s.fps === 60) && STREAM_STEPS[STREAM_STEPS.length - 1].fps === 30);
 ok("the top step is the full ask, unchanged",
    STREAM_STEPS[0].fps === 60 && STREAM_STEPS[0].mbps === 1);
 ok("the bottom step still clears the host's floor of one frame and one megabit",
-   STREAM_STEPS[2].fps >= 1 && STREAM_STEPS[2].mbps * 8 >= 1);
+   STREAM_STEPS[3].fps >= 1 && STREAM_STEPS[3].mbps * 8 >= 1);
 
 // The decision itself: strike a codec while there is one left, pace the ask
 // when there is not, and give up only at the bottom step or on a decoder that
@@ -429,6 +431,7 @@ ok("the bottom step still clears the host's floor of one frame and one megabit",
       streamOff(w, code, reason) { out.off = reason; },
     });
     vm.runInContext(grab("function streamShorter(what) {", "\n}\n") +
+      grab("function stepLabel(step) {", "\n}\n") +
       grab("function streamPace(why) {", "\n}\n") +
       grab("function streamDowngrade(why, detail) {", "\n}\n") +
       "streamDowngrade(" + JSON.stringify(why) + ", " + JSON.stringify(detail || "") + ");", ctx);
@@ -462,15 +465,15 @@ ok("the bottom step still clears the host's floor of one frame and one megabit",
   r = run("avc1.64002a", [], [false, false, true], 0, "dropping frames");
   ok("h264 alone is paced down rather than losing Stream for the session",
      r.off === null && r.step === 1 && r.opened === 1 && r.bad === "", JSON.stringify(r));
-  ok("the note says what it came back at", /30 fps/.test(r.note), r.note);
+  ok("the note says what it came back at", /60 fps \/ 60% bitrate/.test(r.note), r.note);
 
   r = run("avc1.64002a", ["av1", "hevc"], ALL, 1, "decoding too slowly");
   ok("the last codec keeps stepping down while there are steps left",
      r.off === null && r.step === 2 && r.opened === 1, JSON.stringify(r));
 
-  r = run("avc1.64002a", ["av1", "hevc"], ALL, 2, "dropping frames");
+  r = run("avc1.64002a", ["av1", "hevc"], ALL, 3, "dropping frames");
   ok("the bottom step is where it finally gives up",
-     r.off === "dropping frames" && r.opened === 0 && r.step === 2, JSON.stringify(r));
+     r.off === "dropping frames" && r.opened === 0 && r.step === 3, JSON.stringify(r));
 
   r = run("avc1.64002a", [], [false, false, true], 0, "decoder error", "Unsupported codec");
   ok("a decoder that errored outright is reported, not paced",
@@ -517,11 +520,11 @@ ok("the bottom step still clears the host's floor of one frame and one megabit",
     state(_, line) { out.line = line; },
     openVideo() { out.opened++; },
   });
-  vm.runInContext(grab("function streamRecover() {", "\n}\n") + "streamRecover();", ctx);
+  vm.runInContext(grab("function stepLabel(step) {", "\n}\n") + grab("function streamRecover() {", "\n}\n") + "streamRecover();", ctx);
   ok("a calm stretch buys one step back, not the whole ladder",
      ctx.vidStep === 1 && out.opened === 1);
   ok("the climb starts a probation", ctx.vidUp === NOW);
-  ok("the state line names the pace it went back to", /30 fps/.test(out.line), out.line);
+  ok("the state line names the pace it went back to", /60 fps \/ 60% bitrate/.test(out.line), out.line);
 }
 
 /* ---------------------------------------------------- presentation clock -- */
@@ -638,7 +641,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
     let vidSince = 0, vidCalm = 0, vidCodecSince = 0, vidFamily = '', vidWaitKey = true, vidHz = 0, vidEncoder = '', vidCodec = '', vidNote = '';
     let streamWant = 30, vidSock = null, vidSoft = false;
     let vidStep = 0, vidCeil = 0, vidUp = 0;
-    let vidPaint = [], vidClock = [], vidBase = 0, vidDelay = 0, vidRaf = 0;
+    let vidPaint = [], vidClock = [], vidBase = 0, vidDelay = 0, vidRaf = 0, hiConn = false;
     let vidLate = 0, vidDecided = 0, vidSteady = 0, vidCtxEl = null, vidCtx = null;
     let vidSaved = false, vidUpgraded = false, vidWant = '';
     let vidMaxh = 0, vidMaxhOk = 0, vidMaxhWant = 0, vidMaxhBad = 0;
@@ -653,6 +656,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
     grab("function streamHold(frame, now) {", "\n}\n") +
     grab("function streamPaint() {", "\n}\n") +
     grab("function videoConfig(codec) {", "\n}\n") +
+    grab("function stepLabel(step) {", "\n}\n") +
     grab("function streamPace(why) {", "\n}\n") +
     grab("function streamShorter(what) {", "\n}\n") +
     grab("function streamRefused(detail) {", "\n}\n") +
@@ -943,8 +947,10 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   configure();
   ok("and again at the next step down", get("vidStep") === 2 && opened === 2);
   configure();
+  ok("and again at the bottom step", get("vidStep") === 3 && opened === 3);
+  configure();
   ok("only at the bottom of the ladder does it drop the hardware preference",
-    get("vidSoft") === true && get("vidStep") === 2 && opened === 3);
+    get("vidSoft") === true && get("vidStep") === 3 && opened === 4);
   const d = instances[instances.length - 1];
   ok("every attempt on the way down asked for hardware",
     d.configs.length === 1 && d.configs[0].hardwareAcceleration === "prefer-hardware");
@@ -1079,8 +1085,12 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
      streamHeight(1440, STREAM_BASE_HEIGHT, 0) === 720);
   ok("a machine that proved 1080 gets 1080 of its 1440p screen, not 1440",
      streamHeight(1440, 1080, 0) === 1080);
-  ok("an allowed value from nowhere cannot drop the ask below the base",
-     streamHeight(1440, 0, 0) === 720 && streamHeight(1440, 240, 0) === 720);
+  ok("no allowed value at all asks for the base",
+     streamHeight(1440, 0, 0) === 720);
+  ok("an allowed value from nowhere cannot drop the ask below the bottom rung",
+     streamHeight(1440, 240, 0) === 540);
+  ok("a link that leaned to 540 is asked for 540, not lifted back to the base",
+     streamHeight(1080, 540, 720) === 540);
   ok("nor raise it above the ladder", streamHeight(2160, 4320, 0) === 1440);
 
   // The cap is part of what the host joins two viewers on, so every change to
@@ -1120,6 +1130,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   // when it names a rung.
   ok("a remembered rung is believed", streamProven("1080") === 1080 && streamProven(1440) === 1440);
   ok("nothing remembered is the base", streamProven("") === 720 && streamProven(null) === 720);
+  ok("a leaned-to 540 is not where the next visit starts", streamProven("540") === 720);
   ok("a value that is not a rung is not believed",
      streamProven("2160") === 720 && streamProven("900") === 720 && streamProven("yes") === 720);
 }
@@ -1153,8 +1164,9 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
     }
   }
   ok("every rung of the new cap passes the rectangle guard on every shape", allOk);
+  // 540 is the coarsest rung, and truncating 960x540 to even is what sets it.
   ok("and the worst shape error is well inside the tolerance",
-     worst < RECT_SKEW / 5, worst.toFixed(5) + " vs " + RECT_SKEW);
+     worst < RECT_SKEW / 4, worst.toFixed(5) + " vs " + RECT_SKEW);
   ok("a taller cap can only shrink that error, so growing cannot trip the guard", shrinks);
   ok("the guard still refuses a picture of one monitor drawn over two, at any rung",
      STREAM_HEIGHTS.every((cap) => {

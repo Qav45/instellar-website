@@ -367,6 +367,7 @@
         <option value="-8">Sharpest</option>
       </select>
     </label>
+    <button id="hiConn" title="Higher Connectivity: every picture goes up the moment it is decoded, with no smoothing buffer in front of it. Up to 50 ms less delay, for games; motion can look less even on jittery wifi.">Higher Connectivity</button>
   </span>
   <div class="grp">
     <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
@@ -2090,6 +2091,17 @@ for (const id of ["vidMbps", "vidSize", "vidCq"]) {
   });
 }
 
+// Higher Connectivity only changes how the page paints, so unlike the knobs
+// above it costs no encoder restart. Kept per browser.
+let hiConn = false;      // paint on decode, no smoothing buffer
+try { hiConn = localStorage.getItem("cast.hiConn") === "1"; } catch (_) {}
+$("hiConn").classList.toggle("on", hiConn);
+$("hiConn").addEventListener("click", () => {
+  hiConn = $("hiConn").classList.toggle("on");
+  try { localStorage.setItem("cast.hiConn", hiConn ? "1" : "0"); } catch (_) {}
+  refocus();
+});
+
 // Switching monitors is a host-side change, so it goes to the bridge's control
 // endpoint. The session key already in the endpoint URL is what authorises it.
 $("share").addEventListener("change", async () => {
@@ -2304,8 +2316,10 @@ const STALL_MS = 5000;
 // What to ask the host for, most demanding first. A viewer that keeps up with
 // no codec at all does not have a codec problem: it has more frames and more
 // bytes arriving than it or its link can carry. `mbps` is a share of what the
-// Video toggle would have asked for.
-const STREAM_STEPS = [{ fps: 60, mbps: 1 }, { fps: 30, mbps: 0.5 }, { fps: 20, mbps: 0.25 }];
+// Video toggle would have asked for. Sixty frames are held while there are
+// bytes left to give: two steps take bitrate alone, and the frame rate is only
+// halved at the bottom, as the last thing before giving up on the stream.
+const STREAM_STEPS = [{ fps: 60, mbps: 1 }, { fps: 60, mbps: 0.6 }, { fps: 60, mbps: 0.35 }, { fps: 30, mbps: 0.3 }];
 const STEP_UP_MS = 30000;      // this long without strain and the pace is asked for back
 const CEIL_FORGET_MS = 120000; // a step this session could not hold is tried again after this long, not never
 const PROBATION_MS = 60000;    // strain this soon after a step up puts that step out of reach
@@ -2334,7 +2348,11 @@ const STREAM_PROVE_MS = 15000;
 // at 2160 and would encode it, but the ask is 8-12 mbps through a tunnel, and
 // at that budget the bitrate is what limits the picture long before the rows
 // are - 2160 rows of it would be a softer picture, not a sharper one.
-const STREAM_HEIGHTS = [720, 1080, 1440];
+//
+// 540 sits under the floor below on purpose: no window is ever sized to it and
+// nothing remembers it, it is only the rung streamLean steps down to on a link
+// too weak for 720, so the frame rate is not what gives first.
+const STREAM_HEIGHTS = [540, 720, 1080, 1440];
 // What a viewer asks for before it has decoded anything here, and the floor:
 // below 720 the bytes saved are small and the text stops being readable.
 //
@@ -2586,9 +2604,9 @@ function streamRows(cssH, screenH, dpr, fbH) {
 // a 720p decoder on 720.
 function streamHeight(rows, allowed, current) {
   const top = STREAM_HEIGHTS[STREAM_HEIGHTS.length - 1];
-  let want = STREAM_HEIGHTS.filter((h) => h <= rows).pop() || STREAM_BASE_HEIGHT;
+  let want = STREAM_HEIGHTS.filter((h) => h >= STREAM_BASE_HEIGHT && h <= rows).pop() || STREAM_BASE_HEIGHT;
   if (current && want < current && rows >= current * (1 - HEIGHT_SLACK)) want = current;
-  return Math.min(want, Math.max(STREAM_BASE_HEIGHT, Math.min(top, allowed || 0)));
+  return Math.min(want, Math.max(allowed ? STREAM_HEIGHTS[0] : STREAM_BASE_HEIGHT, Math.min(top, allowed || 0)));
 }
 
 // The next cap worth one encoder restart: one rung above what is running,
@@ -2608,7 +2626,7 @@ function streamTaller(rows, current, bad) {
 // value, a key from some other page - is not believed.
 function streamProven(saved) {
   const h = Math.round(Number(saved) || 0);
-  return STREAM_HEIGHTS.includes(h) ? h : STREAM_BASE_HEIGHT;
+  return STREAM_HEIGHTS.includes(h) && h >= STREAM_BASE_HEIGHT ? h : STREAM_BASE_HEIGHT;
 }
 
 // The list to ask the host for now, from the probe, the session's bad list
@@ -2896,8 +2914,10 @@ function streamPaint() {
   // not from arrival, two frames landing in the same millisecond still get
   // slots a frame period apart and go up one per refresh - which is the whole
   // mechanism.
+  // Higher Connectivity skips the slots: the newest decoded picture goes up at
+  // this vsync whatever its timestamp, and nothing is held for evenness.
   let show = null;
-  while (vidPaint.length && vidPaint[0].ms + vidBase + vidDelay <= now) {
+  while (vidPaint.length && (hiConn || vidPaint[0].ms + vidBase + vidDelay <= now)) {
     if (show) streamDrop(show.frame);
     show = vidPaint.shift();
   }
@@ -2909,7 +2929,7 @@ function streamPaint() {
         vidPainted++;
       }
     } finally { streamDrop(show.frame); }
-    if (streamLate(show.ms + vidBase + vidDelay, now, frameMs)) vidLate++;
+    if (!hiConn && streamLate(show.ms + vidBase + vidDelay, now, frameMs)) vidLate++;
   }
   // Resize the buffer once a second, on the clock the frames themselves set.
   if (now - vidDecided >= PACE_STEP_MS) {
@@ -2919,7 +2939,7 @@ function streamPaint() {
     // period a second is four orders of magnitude more than crystal drift
     // between two machines needs and still invisible.
     if (vidClock.length) vidBase += Math.max(-frameMs, Math.min(frameMs, k.base - vidBase));
-    vidDelay = streamDelay(vidDelay, k.jitter, frameMs, vidLate, vidSteady);
+    vidDelay = hiConn ? 0 : streamDelay(vidDelay, k.jitter, frameMs, vidLate, vidSteady);
     vidSteady = vidLate ? 0 : vidSteady + 1;
     vidLate = 0;
     vidDecided = now;
@@ -3235,6 +3255,12 @@ function streamDowngrade(why, detail) {
   streamPace(why);
 }
 
+// A step as the status line says it: steps that keep sixty frames differ only
+// in their bitrate, so that is named too.
+function stepLabel(step) {
+  return step.fps + " fps" + (step.mbps < 1 ? " / " + Math.round(step.mbps * 100) + "% bitrate" : "");
+}
+
 // One step down the ladder and round again. The hardware preference comes back
 // with it: a decoder that would not take the last pace may well take this one,
 // and that is the whole reason to step rather than reach for software.
@@ -3244,8 +3270,8 @@ function streamPace(why) {
   if (vidUp && performance.now() - vidUp < PROBATION_MS) { vidCeil = vidStep + 1; vidCeilAt = performance.now(); }
   vidStep++;
   vidSoft = false;
-  vidNote = " at " + STREAM_STEPS[vidStep].fps + " fps after " + why;
-  state("live", "DECODER+: " + why + ", retrying at " + STREAM_STEPS[vidStep].fps + " fps");
+  vidNote = " at " + stepLabel(STREAM_STEPS[vidStep]) + " after " + why;
+  state("live", "DECODER+: " + why + ", retrying at " + stepLabel(STREAM_STEPS[vidStep]));
   openVideo();
 }
 
@@ -3374,8 +3400,8 @@ function streamGrow() {
 function streamRecover() {
   vidStep--;
   vidUp = performance.now();
-  vidNote = " at " + STREAM_STEPS[vidStep].fps + " fps";
-  state("live", "DECODER+: steady, back to " + STREAM_STEPS[vidStep].fps + " fps");
+  vidNote = " at " + stepLabel(STREAM_STEPS[vidStep]);
+  state("live", "DECODER+: steady, back to " + stepLabel(STREAM_STEPS[vidStep]));
   openVideo();
 }
 
