@@ -1317,7 +1317,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
     document: { hidden: false }, $: () => ({ value: "0" }), STREAM_STEPS,
   });
   vm.runInContext(`let stream = true, endpoint = "wss://h/ws?t=1", video = false;
-    let vidCodecs = "avc1", vidStep = 0, vidMaxh = 720, vidSock = null, vidTimer = 0, vidProbe = null;
+    let vidCodecs = "avc1", vidStep = 0, vidMaxh = 720, vidSock = null, vidTimer = 0, vidProbe = null, hiConn = false;
     let rfb = { pixels: true, _rfbConnectionState: "connecting" };`, ctx);
   vm.runInContext(grab("function openVideo() {", "\n}\n"), ctx);
   vm.runInContext("openVideo()", ctx);
@@ -1346,7 +1346,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
     streamStrain, streamDowngrade() {},
   });
   vm.runInContext(`let stream = true, endpoint = "wss://h/ws?t=1", video = false;
-    let vidCodecs = "avc1", vidStep = 0, vidMaxh = 720, vidSock = null, vidTimer = 0, vidProbe = null;
+    let vidCodecs = "avc1", vidStep = 0, vidMaxh = 720, vidSock = null, vidTimer = 0, vidProbe = null, hiConn = false;
     let rfb = { pixels: true, _rfbConnectionState: "connected" };
     let decoder = { state: "configured", decodeQueueSize: 0, decode() {} };
     let vidWaitKey = true, vidReady = false, vidDrained = false, vidOver = 0, vidDelivered = 0;

@@ -555,7 +555,7 @@
         </select>
       </label>
       <button id="video" title="For watching a video playing on the host: a quality pair chosen for moving pictures, the rate as the only thing that gives, the toolbar out of the way and the screen kept awake.">Video</button>
-      <button id="hiConn" title="Higher Connectivity: every picture goes up the moment it is decoded, with no smoothing buffer in front of it. Up to 50 ms less delay, for games; motion can look less even on jittery wifi.">Higher Connectivity</button>
+      <button id="hiConn" title="Higher Connectivity: every picture goes up the moment it is decoded, with no smoothing buffer in front of it. Up to 50 ms less delay, for games; also a lighter stream (720p, Normal text) so a far link keeps its frame rate.">Higher Connectivity</button>
       <button id="look" title="Ignore my mouse and keyboard">Watch only</button>
       <button id="cad" title="Send Ctrl+Alt+Delete to the remote machine">Ctrl+Alt+Del</button>
       <hr>
@@ -2260,14 +2260,18 @@ for (const id of ["vidMbps", "vidSize", "vidCq"]) {
   });
 }
 
-// Higher Connectivity only changes how the page paints, so unlike the knobs
-// above it costs no encoder restart. Kept per browser.
-let hiConn = false;      // paint on decode, no smoothing buffer
+// Higher Connectivity trades picture for pace: it paints on decode, and it asks
+// for a lighter stream, because on a far link the one-a-second keyframe of a
+// sharp 1080p picture lands as a clump that holds every frame behind it - 162 ms
+// of arrival spread measured, against a 50 ms buffer. So it is a new ask and
+// restarts the encoder, like the knobs above. Kept per browser.
+let hiConn = false;      // paint on decode, no smoothing buffer, lighter stream
 try { hiConn = localStorage.getItem("cast.hiConn") === "1"; } catch (_) {}
 $("hiConn").classList.toggle("on", hiConn);
 $("hiConn").addEventListener("click", () => {
   hiConn = $("hiConn").classList.toggle("on");
   try { localStorage.setItem("cast.hiConn", hiConn ? "1" : "0"); } catch (_) {}
+  if (rfb && decoder) openVideo();
   refocus();
 });
 
@@ -3167,9 +3171,13 @@ function openVideo() {
   // ladder still takes its share off a picked bitrate. A host too old for cq
   // ignores it, as with maxh.
   const picked = Number($("vidMbps").value) || (video ? 20 : 16);
+  // Higher Connectivity: no taller than 720p and no sharper than Normal, which
+  // makes a keyframe several times smaller and the clump behind it with it.
+  const maxh = hiConn ? Math.min(vidMaxh, 720) : vidMaxh;
+  const cq = hiConn ? Math.max(0, Number($("vidCq").value)) : $("vidCq").value;
   const url = endpoint.replace("/ws?", "/video?") + "&fps=" + step.fps +
               "&mbps=" + Math.round(picked * step.mbps * 10) / 10 +
-              "&maxh=" + vidMaxh + "&cq=" + $("vidCq").value +
+              "&maxh=" + maxh + "&cq=" + cq +
               "&display=" + encodeURIComponent($("share").value) + "&codecs=" + vidCodecs;
   let sock;
   try {
