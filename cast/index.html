@@ -956,7 +956,8 @@ function tick() {
   const vidIn = decoder && dt > 0 ? vidDelivered / dt : 0;
   const vidOut = decoder && dt > 0 ? vidPainted / dt : 0;
   const vidMiss = decoder && dt > 0 ? vidMissed / dt : 0;
-  vidFrames = vidDelivered = vidPainted = vidMissed = 0;
+  const vidVsync = decoder && dt > 0 ? vidTicks / dt : 0;
+  vidFrames = vidDelivered = vidPainted = vidMissed = vidTicks = 0;
   // A decoder putting out well under what arrives is one that cannot keep up
   // - a Chromebook decoding AV1 in software, typically. Two seconds of it and
   // the codec is swapped for the next one, below.
@@ -1041,7 +1042,8 @@ function tick() {
   // per-second DOM work.
   const title = (vidEncoder ? vidCodec + " via " + vidEncoder + " · " : "") +
     (decoder ? "decoded " + Math.round(vidFps) + " · delivered " + Math.round(vidIn) +
-               " · buffer " + Math.round(vidDelay) + " ms · " : "") +
+               " · buffer " + Math.round(vidDelay) + " ms · jitter " + Math.round(vidJitter) +
+               " ms · vsync " + Math.round(vidVsync) + " · " : "") +
     "decode duty " + Math.round(metrics.duty * 100) + "%" +
     " · backlog " + Math.round(metrics.backlogBytes / 1024) + " KB" +
     " · stream " + (want ? Math.round(want) + " Hz" : "not set") +
@@ -2608,6 +2610,8 @@ let vidLate = 0;         // pictures that went up after their slot, this decisio
 let vidDecided = 0;      // when the buffer was last resized
 let vidSteady = 0;       // decisions in a row with nothing late
 let vidPainted = 0;      // pictures actually put on the canvas since the last tick
+let vidTicks = 0;        // paint-loop callbacks since the last tick: the display's own rate
+let vidJitter = 0;       // the arrival spread the buffer last measured, in ms
 let vidCtxEl = null;     // the canvas the context below belongs to
 let vidCtx = null;       // and the context itself, looked up once instead of per frame
 let vidSaved = false;    // this codec has been believed long enough to be remembered
@@ -3073,6 +3077,7 @@ function streamHold(frame, now) {
 function streamPaint() {
   vidRaf = 0;
   if (!decoder) { streamFlush(); return; }
+  vidTicks++;
   const now = performance.now();
   const frameMs = vidHz ? 1000 / vidHz : 1000 / 60;
   // Everything whose slot has come. The newest of them is the picture; any
@@ -3101,6 +3106,7 @@ function streamPaint() {
   // Resize the buffer once a second, on the clock the frames themselves set.
   if (now - vidDecided >= PACE_STEP_MS) {
     const k = streamClock(vidClock);
+    vidJitter = k.jitter;
     // The zero of the clock is slewed, not jumped: a base that moved in one go
     // would drag every queued slot with it and show as a lurch. One frame
     // period a second is four orders of magnitude more than crystal drift

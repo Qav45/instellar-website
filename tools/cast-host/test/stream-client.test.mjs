@@ -642,6 +642,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
     let streamWant = 30, vidSock = null, vidSoft = false;
     let vidStep = 0, vidCeil = 0, vidUp = 0;
     let vidPaint = [], vidClock = [], vidBase = 0, vidDelay = 0, vidRaf = 0, hiConn = false;
+    let vidTicks = 0, vidJitter = 0;
     let vidLate = 0, vidDecided = 0, vidSteady = 0, vidCtxEl = null, vidCtx = null;
     let vidSaved = false, vidUpgraded = false, vidWant = '';
     let vidMaxh = 0, vidMaxhOk = 0, vidMaxhWant = 0, vidMaxhBad = 0;
@@ -1414,7 +1415,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   const thin = (over) => {
     const out = { paced: 0, shorter: 0, lean: 0, leaned: over && over.leaned };
     const c = vm.createContext(Object.assign({
-      out, STREAM_STEPS, vidStep: 0,
+      out, STREAM_STEPS, vidStep: 0, vidMaxh: 720, $: () => ({ value: "auto" }),
       streamShorter() { out.shorter++; return false; },
       streamLean() { out.lean++; return !!out.leaned; },
       streamPace() { out.paced++; },
@@ -1432,6 +1433,8 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   ok("a taller rung is given up before the pace, so a game keeps its frame rate", lean.lean === 1 && lean.paced === 0);
   const bottom = thin({ vidStep: STREAM_STEPS.length - 1 });
   ok("at the bottom step there is nothing cheaper to ask for", bottom.paced === 0);
+  const pinned = thin({ vidMaxh: 1080, $: () => ({ value: "1080" }), streamShorter() { out.shorter++; return true; } });
+  ok("a size picked by hand is kept: the pace goes, not the rows", pinned.shorter === 0 && pinned.lean === 0 && pinned.paced === 1);
 }
 
 console.log(failed ? "\n" + failed + " FAILED" : "\nall passed");
