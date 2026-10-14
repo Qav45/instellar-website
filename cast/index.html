@@ -3461,8 +3461,12 @@ function streamShorter(what) {
 // for fewer frames and fewer bits; the codec did nothing wrong and is not
 // struck. At the bottom step there is nothing cheaper to ask for, and the
 // strain goes on holding off every step up and upgrade.
+// A size picked by hand is kept, though: text loses far more to fewer rows
+// than to fewer bits, and striking 1080p here is what turned Sharpest sharp
+// for a few seconds and then soft.
 function streamThin(why) {
-  if (streamShorter(why) || streamLean(why)) return;
+  const pinned = Number($("vidSize").value) === vidMaxh;
+  if (!pinned && (streamShorter(why) || streamLean(why))) return;
   if (vidStep + 1 < STREAM_STEPS.length) streamPace(why);
 }
 
