@@ -49,6 +49,12 @@
   .logrow .q { color:#8fe3b4; }
   a.toggle { color:#6ea8fe; font-size:12.5px; cursor:pointer; text-decoration:none; }
   .empty { color:#8a90a0; padding:30px 0; }
+  h2 { font-size:16px; font-weight:600; margin:30px 0 4px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:#8a90a0; font-weight:500; padding:6px 8px; border-bottom:1px solid #202838; }
+  td { padding:6px 8px; border-bottom:1px solid #161b26; vertical-align:top; }
+  td.mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; }
+  .stage-door { color:#8fe3b4; } .stage-wrong { color:#ffb3bd; }
 </style>
 </head>
 <body>
@@ -74,6 +80,12 @@
     </div>
     <div id="list"></div>
     <div id="empty" class="empty" hidden>No one has used the proxy yet.</div>
+
+    <h2>Cast visits</h2>
+    <div class="sub">Everyone who opened /cast, on go.instellar.net or through instellar.net. Newest first, last 1,000 kept.</div>
+    <table><thead><tr><th>When</th><th>IP</th><th>Where</th><th>Device</th><th>From</th><th>What</th><th></th></tr></thead>
+    <tbody id="casts"></tbody></table>
+    <div id="castEmpty" class="empty" hidden>No cast visits logged yet.</div>
   </div>
 </div>
 
@@ -153,9 +165,40 @@
     }).join("");
   }
 
+  function device(ua) {
+    ua = ua || "";
+    const os = /CrOS/.test(ua) ? "Chromebook" : /iPhone|iPad/.test(ua) ? "iPhone/iPad" : /Android/.test(ua) ? "Android"
+      : /Windows/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "Mac" : /Linux/.test(ua) ? "Linux" : "";
+    const br = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox"
+      : /Safari\//.test(ua) ? "Safari" : "";
+    return [os, br].filter(Boolean).join(" · ") || ua.slice(0, 40) || "Unknown";
+  }
+
+  function renderCasts(data) {
+    const blocked = new Set(data.blockedIps || []);
+    const rows = data.visits || [];
+    $("castEmpty").hidden = rows.length > 0;
+    $("casts").innerHTML = rows.map(function (v) {
+      let from = "direct";
+      try { if (v.ref) from = new URL(v.ref).hostname; } catch (_) {}
+      const ip = esc(v.ip || "");
+      const what = { open: "opened", door: "opened the door", wrong: "wrong code" }[v.stage] || esc(v.stage);
+      return "<tr><td title=\"" + esc(new Date(v.t).toLocaleString()) + "\">" + ago(v.t) + "</td>" +
+        '<td class="mono">' + (ip || "?") + "</td>" +
+        "<td>" + esc([v.city, v.country].filter(Boolean).join(", ") || "?") + "</td>" +
+        '<td title="' + esc(v.ua) + '">' + esc(device(v.ua)) + "</td>" +
+        "<td>" + esc(from) + "</td>" +
+        '<td class="stage-' + esc(v.stage) + '">' + what + "</td>" +
+        "<td>" + (!ip ? "" : blocked.has(v.ip)
+          ? '<button type="button" class="ghost" data-unblockip="' + ip + '">Unblock</button>'
+          : '<button type="button" class="ghost danger" data-blockip="' + ip + '">Block</button>') + "</td></tr>";
+    }).join("");
+  }
+
   async function load() {
     try {
       render((await api("GET")).visitors);
+      renderCasts(await api("GET", "?cast=1"));
       $("gate").hidden = true; $("panel").hidden = false;
       sessionStorage.setItem("pxadmin", token);
       if (location.hash) history.replaceState(null, "", location.pathname);
@@ -171,6 +214,17 @@
   $("auto").addEventListener("change", function (e) {
     clearInterval(timer);
     if (e.target.checked) timer = setInterval(load, 5000);
+  });
+
+  $("casts").addEventListener("click", async function (e) {
+    const b = e.target.getAttribute("data-blockip"), u = e.target.getAttribute("data-unblockip");
+    if (!b && !u) return;
+    try {
+      if (b && !confirm("Block " + b + "? It is shut out of /cast and the proxy.")) return;
+      await api("POST", b ? "?blockip=" + encodeURIComponent(b) : "?unblockip=" + encodeURIComponent(u));
+      renderCasts(await api("GET", "?cast=1"));
+      say(b ? "Blocked." : "Unblocked.", "ok");
+    } catch (err) { say(err.message, "err"); }
   });
 
   list.addEventListener("click", async function (e) {

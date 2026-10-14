@@ -3,34 +3,28 @@
 <head>
 <meta charset="utf-8">
 <!-- This page holds two secrets in sessionStorage - the access key that opens
-     this machine, and the VNC screen password - and it also runs four megabytes
-     of somebody else's JavaScript in the same document, where any script can
-     read both of them. The integrity= hash on the Desmos tag says that bundle is
-     the one that was pinned. This says that even if it were not, there is
-     nowhere for it to send what it read.
+     this machine, and the VNC screen password - and anything that ever gets a
+     script into this document can read both of them. This says that even then,
+     there is nowhere for it to send what it read.
 
      connect-src is the directive doing that work: fetch, XMLHttpRequest,
      sendBeacon and WebSocket all answer to it, and the only origins named are
      this site and the tunnel hostnames the host script can actually publish.
      img-src is the other easy way out, because an img whose src is
      https://somewhere/?key=... is a POST in all but name; the page loads no
-     images of its own at all, so it is shut to everything but the data: URIs
-     Desmos inlines its own sprites and fonts as. form-action and frame-src close
-     the last two beacons, and default-src 'none' means a directive nobody
-     thought of defaults to refusing rather than to allowing.
+     images of its own at all, so it is shut to everything but data: and blob:
+     URIs. form-action and frame-src close the last two beacons, and default-src
+     'none' means a directive nobody thought of defaults to refusing rather than
+     to allowing.
 
      Run the host behind ngrok on a reserved domain, or publish a tunnel with
      --url, and that hostname has to be added to connect-src or the stream will
      not connect. That is the cost of the list being a list.
 
-     'unsafe-eval' is not optional here: the Desmos bundle eval()s its own chunk
-     table the moment it loads and compiles every graphed expression with new
-     Function, so without it the calculator does not run at all. 'unsafe-inline'
-     is not optional either - this page's own script is inline, and a static host
-     has no way to mint a nonce. Neither gives away the part that matters:
-     script-src still says a script may come only from here or from desmos.com,
-     so a hostile bundle cannot pull a second stage down, and connect-src still
-     says that what it read does not leave.
+     'unsafe-inline' is not optional - this page's own script is inline, and a
+     static host has no way to mint a nonce. It does not give away the part that
+     matters: script-src still says a script may come only from here, and
+     connect-src still says that what it read does not leave.
 
      Delivered as a meta tag rather than as a real header on purpose. The same
      file is served three ways - Vercel at go.instellar.net, GitHub Pages, and
@@ -42,15 +36,15 @@
      beside this one is worth adding. That is another worker's file, so it is
      written down here rather than done.
 
-     What none of this closes: CSP has no say over navigation. A hostile bundle
+     What none of this closes: CSP has no say over navigation. A hostile script
      that sets location.href to an attacker URL with the key in the query string
      walks straight out, and no directive in the list below stops it - the
      navigate-to directive that would have was dropped from the spec and shipped
      nowhere. The only thing that stops that one is not keeping the secrets
-     somewhere the bundle can reach at all. -->
+     somewhere a script can reach at all. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
-  script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.desmos.com;
+  script-src 'self' 'unsafe-inline';
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob:;
   font-src 'self' data:;
@@ -240,88 +234,129 @@
   @media (prefers-reduced-motion:reduce) { .pwField.bad { animation:none; } }
 
   /* ---- the way in ---- */
-  /* Light, because every calculator is, and because a dark panel in front of a
-     dark page reads as part of the page rather than instead of it. */
-  #lock { position:fixed; inset:0; z-index:100; display:flex; align-items:center;
-          justify-content:center; background:#f6f7f9; padding:18px; overflow:auto; }
-  #calc { width:100%; max-width:392px; background:#fff; border:1px solid #dcdfe4;
-          border-radius:12px; overflow:hidden; box-shadow:0 10px 34px rgba(16,24,40,.10);
-          color:#1b1b1b; }
-  #calcHead { display:flex; align-items:center; justify-content:space-between;
-          padding:9px 13px; border-bottom:1px solid #e6e8ec; font-size:13px; color:#55595f; }
-  #calcDeg { border:1px solid #d3d7dd; background:#fff; color:#2d70b3; border-radius:6px;
-          padding:3px 9px; font-size:11.5px; font-family:inherit; cursor:pointer; font-weight:600; }
-  #calcDeg:hover { background:#f2f6fa; }
-  #calcOut { padding:14px 14px 16px; text-align:right; background:#fff; }
-  #calcPrev { color:#9aa0a6; font-size:13px; min-height:17px; font-variant-numeric:tabular-nums;
-          overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  #calcNow { color:#101317; font-size:31px; line-height:1.15; font-variant-numeric:tabular-nums;
-          overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:3px; }
-  #calcPads { display:flex; gap:9px; padding:0 12px 13px; }
-  #calcFn { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; flex:3; }
-  #calcNum { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; flex:4; }
-  #calcPads button { height:44px; border:1px solid #dfe2e7; border-radius:8px; background:#fff;
-          color:#1b1b1b; font-size:16px; font-family:inherit; cursor:pointer; padding:0;
-          transition:background .12s, border-color .12s; }
-  #calcPads button:hover { background:#f2f4f7; border-color:#cdd2d9; }
-  #calcPads button:active { background:#e8ebef; }
-  #calcFn button { font-size:14px; color:#2d70b3; background:#fbfcfd; }
-  #calcNum .op { color:#2d70b3; font-size:18px; }
-  #calcNum .fn { color:#70757a; font-size:13px; }
-  #calcNum .eq { background:#2d70b3; border-color:#2d70b3; color:#fff; font-size:18px; }
-  #calcNum .eq:hover { background:#28629c; border-color:#28629c; }
-  #calcNum .wide { grid-column:span 2; }
-  #calcFoot { padding:0 14px 13px; color:#9aa0a6; font-size:11.5px; text-align:center; }
-  /* The graphing calculator wants room to be one; the keypad behind it does not,
-     which is why the two cards are sized apart rather than sharing a width. The
-     plot needs a height in pixels - Desmos measures its container and a flex
-     child with no height measures zero, which renders a calculator one pixel
-     tall and no error anywhere. */
-  #graph { width:100%; max-width:920px; background:#fff; border:1px solid #dcdfe4;
-          border-radius:12px; overflow:hidden; box-shadow:0 10px 34px rgba(16,24,40,.10);
-          color:#1b1b1b; }
-  #graphHead { display:flex; align-items:center; justify-content:space-between;
-          padding:9px 13px; border-bottom:1px solid #e6e8ec; font-size:13px; color:#55595f; }
-  #graphBasic { border:1px solid #d3d7dd; background:#fff; color:#2d70b3; border-radius:6px;
-          padding:3px 9px; font-size:11.5px; font-family:inherit; cursor:pointer; font-weight:600; }
-  #graphBasic:hover { background:#f2f6fa; }
-  #graphBox { height:min(72vh, 600px); min-height:360px; position:relative; }
-  #graphWait { position:absolute; inset:0; display:flex; align-items:center;
-          justify-content:center; color:#9aa0a6; font-size:13px; }
+  /* A server that is down, a white room behind it, and a door with a keypad.
+     Light, because an error page is, and so the room reads as a place rather
+     than as part of the dark viewer behind it. */
+  #lock { position:fixed; inset:0; z-index:100; background:#f4f5f7; overflow:hidden;
+          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:#1d2129; }
+  #down { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+          justify-content:center; text-align:center; padding:24px; transition:opacity .5s, transform .7s; }
+  #down.zoom { opacity:0; transform:scale(3.2); pointer-events:none; }
+  #srv { width:118px; height:118px; cursor:default; -webkit-tap-highlight-color:transparent; }
+  #srv .led { animation:ledBlink 1.1s steps(2, start) infinite; }
+  @keyframes ledBlink { to { visibility:hidden; } }
+  #down h1 { font-size:52px; font-weight:300; letter-spacing:-.02em; margin:18px 0 2px; color:#3a3f4a; }
+  #down h2 { font-size:19px; font-weight:600; margin-bottom:10px; }
+  #down p { color:#6b717e; font-size:14px; max-width:420px; line-height:1.55; }
+  #downMeta { color:#9aa0aa; font-size:12px; margin-top:16px; font-family:ui-monospace,Menlo,Consolas,monospace; }
+  #downRetry { margin-top:20px; border:1px solid #cfd4dc; background:#fff; color:#3a3f4a; border-radius:7px;
+          padding:8px 18px; font:inherit; font-size:13.5px; cursor:pointer; }
+  #downRetry:hover { background:#f7f8fa; }
+  #downFoot { position:absolute; bottom:16px; color:#b3b8c0; font-size:12px; }
+
+  #room { position:absolute; inset:0; perspective:620px; perspective-origin:50% 46%;
+          background:#e9ecf0; opacity:0; transition:opacity .6s; cursor:pointer; }
+  #room.on { opacity:1; }
+  #room.shake { animation:roomShake .15s linear 6; }
+  @keyframes roomShake { 25% { transform:translate(7px,-5px); } 50% { transform:translate(-8px,4px); }
+          75% { transform:translate(5px,6px); } }
+  #world { position:absolute; left:50%; top:50%; width:0; height:0; transform-style:preserve-3d; }
+  #world > div { position:absolute; left:0; top:0; }
+  .rFloor { width:800px; height:1600px; transform:translate(-50%,-50%) translate3d(0,250px,-800px) rotateX(90deg);
+          background:repeating-linear-gradient(0deg, rgba(0,0,0,.035) 0 2px, transparent 2px 100px),
+                     repeating-linear-gradient(90deg, rgba(0,0,0,.035) 0 2px, transparent 2px 100px),
+                     linear-gradient(#fdfdfe, #dfe3e8); }
+  .rCeil { width:800px; height:1600px; transform:translate(-50%,-50%) translate3d(0,-250px,-800px) rotateX(-90deg);
+          background:repeating-linear-gradient(0deg, transparent 0 260px, rgba(255,255,255,.95) 260px 300px),
+                     linear-gradient(#f2f4f7, #e3e6eb); }
+  .rLeft, .rRight { width:1600px; height:500px; background:linear-gradient(90deg, #f7f8fa, #e4e7ec); }
+  .rLeft { transform:translate(-50%,-50%) translate3d(-400px,0,-800px) rotateY(90deg); }
+  .rRight { transform:translate(-50%,-50%) translate3d(400px,0,-800px) rotateY(-90deg) scaleX(-1); }
+  .rBack { width:800px; height:500px; transform:translate(-50%,-50%) translate3d(0,0,-1600px);
+          background:radial-gradient(ellipse at 50% 60%, #ffffff, #e6e9ee 75%); }
+  #dGlow { position:absolute; left:320px; top:200px; width:160px; height:300px; background:#fff;
+          transition:box-shadow 1s ease-in; }
+  #dGlow.lit { box-shadow:0 0 120px 70px #fff, 0 0 260px 140px #cfe8ff; }
+  .dLeaf { position:absolute; top:200px; width:80px; height:300px; transition:transform .9s cubic-bezier(.7,0,.3,1);
+          background:linear-gradient(90deg, #d7dbe1, #eef0f3 45%, #d3d7de); box-shadow:inset 0 0 0 1px #c3c8d0; }
+  #dL { left:320px; } #dR { left:400px; }
+  #dL.open { transform:translateX(-82px); } #dR.open { transform:translateX(82px); }
+  #dFrame { position:absolute; left:312px; top:192px; width:176px; height:308px; border:8px solid #c9ced6;
+          border-bottom:0; box-sizing:border-box; pointer-events:none; }
+  #dPanel { position:absolute; left:505px; top:320px; width:34px; height:52px; border-radius:4px;
+          background:linear-gradient(#3a3f4a, #23272f); box-shadow:0 2px 6px rgba(0,0,0,.25); }
+  #dPanel::after { content:""; position:absolute; left:13px; top:6px; width:8px; height:8px; border-radius:50%;
+          background:#e5484d; box-shadow:0 0 8px #e5484d; }
+  #dPanel.ok::after { background:#30c26b; box-shadow:0 0 10px #30c26b; }
+  #roomHint { position:absolute; left:0; right:0; bottom:22px; text-align:center; color:#7a808c; font-size:13px;
+          pointer-events:none; transition:opacity .4s; }
+
+  #pad { position:absolute; left:50%; top:50%; width:236px; transform:translate(-50%,-50%) scale(.6); opacity:0;
+          pointer-events:none; transition:transform .3s, opacity .3s; background:linear-gradient(#3a3f4a, #1f232a);
+          border-radius:16px; padding:16px; box-shadow:0 24px 60px rgba(0,0,0,.35); cursor:default; }
+  #pad.on { opacity:1; transform:translate(-50%,-50%) scale(1); pointer-events:auto; }
+  #pad.bad { animation:padShake .4s; }
+  #pad.bad #padOut { color:#ff6b70; border-color:#e5484d; }
+  #pad.good #padOut { color:#30c26b; border-color:#30c26b; }
+  @keyframes padShake { 20%, 60% { margin-left:-10px; } 40%, 80% { margin-left:10px; } }
+  #padTitle { color:#9ba3b1; font-size:11px; letter-spacing:.14em; text-transform:uppercase; text-align:center; }
+  #padOut { margin:10px 0 14px; height:46px; border:1px solid #4a505c; border-radius:8px; background:#14171c;
+          color:#cfe3ff; font:600 26px/44px ui-monospace,Menlo,Consolas,monospace; letter-spacing:.4em;
+          text-align:center; }
+  #padKeys { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  #padKeys button { height:46px; border:0; border-radius:9px; background:#4a505c; color:#fff; font-size:18px;
+          font-family:inherit; cursor:pointer; box-shadow:0 2px 0 #2a2e36; }
+  #padKeys button:active { transform:translateY(2px); box-shadow:none; }
+  #padKeys .k-ok { background:#2f7d4f; } #padKeys .k-clr { background:#6b3b3e; }
+
+  #boom { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  #flash { position:fixed; inset:0; z-index:200; background:#fff; opacity:0; pointer-events:none;
+          transition:opacity .35s ease-in; }
+  #flash.out { transition:opacity .9s ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    #down, #room, .dLeaf, #pad { transition:none; } #room.shake, #pad.bad { animation:none; }
+  }
 </style>
 </head>
 <body>
 
 <div id="lock">
-  <div id="graph">
-    <div id="graphHead"><span>Graphing Calculator</span><button id="graphBasic" type="button">Basic</button></div>
-    <div id="graphBox"><div id="graphWait">Loading&hellip;</div></div>
+  <div id="down">
+    <svg id="srv" viewBox="0 0 120 120" aria-hidden="true">
+      <rect x="18" y="14" width="84" height="26" rx="4" fill="#d9dde3" stroke="#aeb4bd" stroke-width="2"/>
+      <rect x="18" y="47" width="84" height="26" rx="4" fill="#d9dde3" stroke="#aeb4bd" stroke-width="2"/>
+      <rect x="18" y="80" width="84" height="26" rx="4" fill="#d9dde3" stroke="#aeb4bd" stroke-width="2"/>
+      <g fill="#9aa1ab"><rect x="28" y="24" width="34" height="5" rx="2"/><rect x="28" y="57" width="34" height="5" rx="2"/><rect x="28" y="90" width="34" height="5" rx="2"/></g>
+      <circle cx="90" cy="27" r="4" fill="#9aa1ab"/><circle cx="90" cy="60" r="4" fill="#9aa1ab"/>
+      <circle class="led" cx="90" cy="93" r="4.5" fill="#e5484d"/>
+    </svg>
+    <h1>503</h1>
+    <h2>Service Unavailable</h2>
+    <p>The server is down for maintenance and cannot handle your request right now. Please try again later.</p>
+    <div id="downMeta"></div>
+    <button id="downRetry" type="button">Retry</button>
+    <div id="downFoot">nginx</div>
   </div>
-  <div id="calc" hidden>
-    <div id="calcHead"><span>Scientific Calculator</span><button id="calcDeg" type="button">DEG</button></div>
-    <div id="calcOut"><div id="calcPrev"></div><div id="calcNow">0</div></div>
-    <div id="calcPads">
-      <div id="calcFn">
-        <button data-k="sq">x&sup2;</button><button data-k="pow">x&#8319;</button><button data-k="sqrt">&radic;</button>
-        <button data-k="ln">ln</button><button data-k="log">log</button><button data-k="abs">|x|</button>
-        <button data-k="sin">sin</button><button data-k="cos">cos</button><button data-k="tan">tan</button>
-        <button data-k="pi">&pi;</button><button data-k="e">e</button><button data-k="fact">n!</button>
-        <button data-k="(">(</button><button data-k=")">)</button><button data-k="neg">(&minus;)</button>
-      </div>
-      <div id="calcNum">
-        <button class="fn" data-k="ac">AC</button><button class="fn" data-k="del">&#9003;</button>
-        <button class="op" data-k="%">%</button><button class="op" data-k="/">&divide;</button>
-        <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
-        <button class="op" data-k="*">&times;</button>
-        <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
-        <button class="op" data-k="-">&minus;</button>
-        <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
-        <button class="op" data-k="+">+</button>
-        <button class="wide" data-k="0">0</button><button data-k=".">.</button>
-        <button class="eq" data-k="=">=</button>
+  <div id="room" hidden>
+    <div id="world">
+      <div class="rFloor"></div><div class="rCeil"></div><div class="rLeft"></div><div class="rRight"></div>
+      <div class="rBack">
+        <div id="dGlow"></div><div class="dLeaf" id="dL"></div><div class="dLeaf" id="dR"></div>
+        <div id="dFrame"></div><div id="dPanel"></div>
       </div>
     </div>
-    <div id="calcFoot">Enter a value and press =</div>
+    <div id="roomHint">W / &uarr; to walk &middot; or click the door</div>
+    <div id="pad">
+      <div id="padTitle">Access code</div>
+      <div id="padOut"></div>
+      <div id="padKeys">
+        <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+        <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+        <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+        <button class="k-clr" data-k="clr">&#9003;</button><button data-k="0">0</button><button class="k-ok" data-k="ok">&#10003;</button>
+      </div>
+    </div>
+    <canvas id="boom"></canvas>
   </div>
 </div>
 
@@ -455,7 +490,7 @@ const store = {
 };
 
 // The code that takes the cover down. It lives up here rather than beside the
-// calculator that asks for it, because the hash is read on the line below and a
+// door keypad that asks for it, because the hash is read on the line below and a
 // const declared further down the file is not yet in scope when that runs.
 const ENTRY = "1234";
 
@@ -463,7 +498,7 @@ const ENTRY = "1234";
 // deliberate, and it is a reversal: for a while this line read the entry code as
 // "skip the cover" and refused to let it be an access key too. It broke the only
 // watch link that matters. https://go.instellar.net/cast#1234 has to do both
-// things in one go - hand the host a key it accepts and land past the calculator
+// things in one go - hand the host a key it accepts and land past the cover
 // on the screen-password prompt - and refusing the key half meant the cover came
 // down and the page then asked for a key it had just been handed. So the hash is
 // the access key again, the way it was before, and SKIP_COVER governs the cover
@@ -477,7 +512,7 @@ const ENTRY = "1234";
 // Say the cost of that out loud rather than leaving it to be discovered: with
 // the key set to 1234 the access key is four guessable digits, and the access
 // key is the whole of what stands between a stranger and this machine's screen
-// password prompt. The calculator is a disguise, not security - the "the way in"
+// password prompt. The cover is a disguise, not security - the "the way in"
 // section below says so at more length - so it adds nothing here. The person
 // whose machine this is was told that plainly and chose it anyway.
 const hash = hashToken();
@@ -3636,327 +3671,200 @@ document.addEventListener("keydown", (e) => {
 
 /* ------------------------------------------------------------- the way in -- */
 
-// A calculator with a door in it. None of this is security, and it should not be
-// mistaken for any: the access key in the watch link is what stands between a
+// A server that is down, with a door behind it. None of this is security, and it
+// should not be mistaken for any: the access key is what stands between a
 // stranger and this machine, and by the time a line of this runs that key has
 // already been read out of the hash. What it buys is that a screen somebody
-// glances over reads as a calculator rather than as a way into a desktop. So the
-// calculator genuinely works - a prop whose buttons do nothing is a prop anyone
-// spots - and the code (ENTRY, declared at the top of this file because the hash
-// is read there) is never written down anywhere, so every load asks again.
+// glances over reads as a dead server rather than as a way into a desktop.
 //
-// There are two calculators here and only one of them is on screen at a time.
-// The face of the cover is a real Desmos graphing calculator, fetched from
-// Desmos at load. The keypad below it is the fallback: it is four megabytes
-// lighter, it is already written, and it is what the cover falls back to when
-// the third-party script is slow, blocked, offline or refused. A cover that
-// fails closed - a calculator that never arrives and no way past it - would be
-// worse than no cover at all, so the fallback is not optional and is reachable
-// three ways: automatically on error, automatically on a timeout, and by hand
-// from the Basic key in the graph's header.
+// The way through: double-click (or double-tap) the server icon, walk to the
+// door in the white room, and type the code (ENTRY, declared at the top of this
+// file because the hash is read there) on its keypad. The code is never written
+// down anywhere, so every load asks again.
 
-const CALC_FN = {
-  "sin(": (x) => Math.sin(calcAngle(x)),
-  "cos(": (x) => Math.cos(calcAngle(x)),
-  "tan(": (x) => Math.tan(calcAngle(x)),
-  "ln(": Math.log, "log(": Math.log10, "sqrt(": Math.sqrt, "abs(": Math.abs,
-};
+// The door's decisions, kept apart from the DOM so the tests can run them.
+const DOUBLE_MS = 350;   // two presses on the server icon this close are a double-click
+const DOOR_Z = 1350;     // how far into the room the door is, in world pixels
+function isDouble(prev, now) { return prev > 0 && now - prev <= DOUBLE_MS; }
+function codeOk(code) { return code === ENTRY; }
+// The code opening the door is also the access key when no key is saved yet, as
+// #1234 is, so the door lands on the screen-password prompt. A saved key that is
+// something else is left alone, for the reason the boot block gives.
+function doorToken(key) { return key || ENTRY; }
 
-// What each key writes into the expression. A multi-character token is one entry
-// in the list, which is what makes backspace land on the whole of "sin(" rather
-// than halfway through it.
-const CALC_KEYS = {
-  sq: "\u00b2", pow: "^", sqrt: "\u221a(", ln: "ln(", log: "log(", abs: "abs(",
-  sin: "sin(", cos: "cos(", tan: "tan(", pi: "\u03c0", e: "e", fact: "!",
-  "(": "(", ")": ")", neg: "\u2212", "%": "%", "/": "\u00f7", "*": "\u00d7",
-  "-": "\u2212", "+": "+", ".": ".",
-};
-
-// Typed keys that mean a pad key. Enter is =, Escape clears, and x is the
-// multiplication sign every calculator has let people type.
-const CALC_TYPED = {
-  Enter: "=", "=": "=", Escape: "ac", Backspace: "del", Delete: "ac",
-  x: "*", X: "*", "\u00d7": "*", "\u00f7": "/", ",": ".",
-};
-
-let calcDeg = true;   // degrees or radians, as the header key says
-let calcToks = [];    // the expression being typed, one key per entry
-let calcLast = "";    // the line above: the sum just worked out
-let calcFresh = true; // the next digit starts over rather than appending
-
-const calcAngle = (x) => calcDeg ? x * Math.PI / 180 : x;
-
-function calcFact(n) {
-  if (n < 0 || n > 170 || Math.floor(n) !== n) return NaN;
-  let r = 1;
-  for (let i = 2; i <= n; i++) r *= i;
-  return r;
-}
-
-// Twelve significant figures, which is where a double stops being able to back
-// up the digits it would print, and exponent form only where the plain one
-// would run off the display.
-function calcFmt(n) {
-  if (typeof n !== "number" || !isFinite(n)) return "Error";
-  if (Object.is(n, -0)) n = 0;
-  const a = Math.abs(n);
-  if (a !== 0 && (a >= 1e12 || a < 1e-9)) return n.toExponential(6);
-  return String(Number(n.toPrecision(12)));
-}
-
-// A real recursive-descent pass over the expression: precedence, right
-// associative powers, unary minus, the functions above, parentheses. Cheaper to
-// write than to explain why the calculator cannot add.
-function calcEval(text) {
-  const norm = text.replace(/\u00d7/g, "*").replace(/\u00f7/g, "/")
-    .replace(/\u2212/g, "-").replace(/\u00b2/g, "^2")
-    .replace(/\u221a\(/g, "sqrt(").replace(/\u03c0/g, "PI");
-  const ts = norm.match(
-    /\d+\.?\d*|\.\d+|sqrt\(|sin\(|cos\(|tan\(|ln\(|log\(|abs\(|PI|e|[+\-*/^()!%]/g) || [];
-  let i = 0;
-  const peek = () => ts[i];
-  const eat = (t) => ts[i] === t ? (i++, true) : false;
-  function expr() {
-    let v = term();
-    for (;;) { if (eat("+")) v += term(); else if (eat("-")) v -= term(); else return v; }
-  }
-  function term() {
-    let v = unary();
-    for (;;) {
-      if (eat("*")) v *= unary();
-      else if (eat("/")) { const d = unary(); v = d === 0 ? NaN : v / d; }
-      else return v;
-    }
-  }
-  function unary() { return eat("-") ? -unary() : power(); }
-  function power() { const b = postfix(); return eat("^") ? Math.pow(b, unary()) : b; }
-  function postfix() {
-    let v = primary();
-    for (;;) { if (eat("!")) v = calcFact(v); else if (eat("%")) v /= 100; else return v; }
-  }
-  function primary() {
-    const t = peek();
-    if (t === undefined) throw new Error("ran out");
-    if (t === "(") { i++; const v = expr(); if (!eat(")")) throw new Error("paren"); return v; }
-    if (CALC_FN[t]) { i++; const v = expr(); if (!eat(")")) throw new Error("paren"); return CALC_FN[t](v); }
-    if (t === "PI") { i++; return Math.PI; }
-    if (t === "e") { i++; return Math.E; }
-    if (/^[\d.]/.test(t)) { i++; return Number(t); }
-    throw new Error("token");
-  }
-  const v = expr();
-  if (i !== ts.length) throw new Error("trailing");
-  return v;
-}
-
-// Brackets a function key opened and nobody closed are closed here rather than
-// answered with an error, which is what every calculator does.
-function calcSolve() {
-  const text = calcToks.join("");
-  let open = 0;
-  for (const c of text) { if (c === "(") open++; else if (c === ")") open--; }
-  try { return calcFmt(calcEval(text + ")".repeat(Math.max(0, open)))); } catch (_) { return "Error"; }
-}
-
-function calcShow() {
-  $("calcPrev").textContent = calcLast;
-  $("calcNow").textContent = calcToks.length ? calcToks.join("") : "0";
-}
-
-function calcPress(k) {
-  if (k === "ac") { calcToks = []; calcLast = ""; calcFresh = true; }
-  else if (k === "del") { calcToks.pop(); calcFresh = calcToks.length === 0; }
-  else if (k === "deg") {
-    calcDeg = !calcDeg;
-    $("calcDeg").textContent = calcDeg ? "DEG" : "RAD";
-  } else if (k === "=") {
-    // The door. The code typed on its own and nothing else in the expression is
-    // the way through; a sum that merely happens to land on the same number is
-    // not, which is the difference between a code and an answer.
-    if (calcToks.join("") === ENTRY) { enter(); return; }
-    if (!calcToks.length) return;
-    const was = calcToks.join("");
-    const got = calcSolve();
-    calcLast = was + " =" + (got === "Error" ? " Error" : "");
-    calcToks = got === "Error" ? [] : [got];
-    calcFresh = true;
-  } else {
-    const digit = /^[0-9]$/.test(k);
-    const t = digit ? k : CALC_KEYS[k];
-    if (t === undefined) return;
-    if (calcFresh && (digit || k === ".")) calcToks = [];
-    calcFresh = false;
-    if (calcToks.join("").length < 40) calcToks.push(t);
-  }
-  calcShow();
-}
-
-function calcKey(e) {
-  if (!$("lock") || e.ctrlKey || e.altKey || e.metaKey) return;
-  const k = CALC_TYPED[e.key] || e.key;
-  if (!/^[0-9]$/.test(k) && k !== "=" && k !== "ac" && k !== "del" &&
-      !Object.prototype.hasOwnProperty.call(CALC_KEYS, k)) return;
-  e.preventDefault();
-  e.stopPropagation();
-  calcPress(k);
-}
-
-/* ---- the graphing calculator the cover actually wears ---- */
-
-// The Desmos calculator API rather than an iframe to desmos.com. The iframe does
-// embed - desmos.com sends no X-Frame-Options and no frame-ancestors - but it is
-// cross-origin, so this page could never see a key pressed inside it and the
-// door would be impossible to open. The API renders into an element of ours, in
-// our own document, which is what keeps the door workable at all.
-//
-// The key below is Desmos's public demo key, published in their own API docs. It
-// works and it is not a secret, but it is shared: whoever owns this site should
-// ask Desmos for their own, which is free, and swap it here.
-//
-// Pinned, not floating. /api/v1.11/ redirects to whatever the latest 1.11 build
-// is, which means the page silently changes under us; v1.11.4 is the build that
-// redirect resolved to on 2026-09-16 and the one this was written against. A
-// v1.12 line exists and serves too - if you move to it, the only calls this page
-// makes are GraphingCalculator(), getExpressions() and destroy(), all of which
-// have been in the API since long before either line.
-//
-// &lang=en is load-bearing and must not be dropped. Without it desmos.com
-// content-negotiates on Accept-Language: a browser that asks in fr-FR is
-// answered 302 to the same URL with &lang=fr, and that build is a different four
-// megabytes - 4348961 bytes against 4029588, both measured on 2026-09-16. A
-// hash only ever matches one of them, so a floating language would mean the
-// graph loads for an English viewer and is blocked for everybody else. Asking
-// for the English build by name makes the bytes the same for every viewer:
-// fetched under en-US, fr-FR and de-DE, gzipped and not, with an Origin header
-// and without, the response was byte-identical every time and carried no
-// redirect at all.
-//
-// The hash is the point of the exercise. Four megabytes of somebody else's
-// JavaScript run in this document, and this document has the access key and the
-// screen password sitting in sessionStorage where any script in the page can
-// read them. A bundle swapped at the CDN could post both anywhere it liked.
-// sha384 below is over the exact bytes that URL served on 2026-09-16; if what
-// arrives is anything else the browser refuses to run it, the script's error
-// handler fires, and the cover falls back to the keypad - which is the whole
-// reason the keypad is not optional. crossorigin="anonymous" goes with it and is
-// not decoration: an integrity= on a tag fetched in no-cors mode is a body the
-// browser cannot see, so it blocks the script outright instead of checking it.
-// desmos.com does send Access-Control-Allow-Origin: *, checked both with and
-// without an Origin header, so the CORS half of this holds.
-//
-// To re-pin after a version bump, twice, and compare the two:
-//   curl -s "<the new URL>" | openssl dgst -sha384 -binary | openssl base64 -A
-// A wrong hash is not a small mistake. The script then never loads for anyone.
-const DESMOS_SRC =
-  "https://www.desmos.com/api/v1.11.4/calculator.js" +
-  "?apiKey=dcb31709b452b1cf9dc26972add0fda6&lang=en";
-const DESMOS_SRI =
-  "sha384-IdnQ7U0//tPk18rk5uPy9VCfSgj6ttgHLylYI6TMKYHq7h0kn5MKD9Dr2m1fScCH";
-
-// Four megabytes over whatever link the viewer is on. Past this the cover gives
-// up on the graph and shows the keypad instead - a person staring at Loading…
-// with no way in is the one outcome this whole section exists to avoid.
-const DESMOS_WAIT_MS = 8000;
-
-let graphCalc = null;
-let graphTimer = 0;
-
-// The door, read off the expression list rather than off the keystrokes. A
-// keystroke log cannot tell 1234 typed on its own from the 1234 left behind
-// after backspacing 51234, and it cannot tell which row the digits landed in;
-// the expression list is the thing actually on the screen. It is compared as
-// latex and not as a value on purpose, and it is the same rule the keypad plays
-// by: the code typed on its own and nothing else is the way through. 617·2 is an
-// answer of 1234, not the code. y=1234x is a graph that contains it, not the
-// code. One row, holding exactly the four characters, is the code.
-function graphIsEntry() {
-  let rows;
-  try { rows = graphCalc.getExpressions(); } catch (_) { return false; }
-  const typed = rows.map((r) => String(r.latex || "").trim()).filter(Boolean);
-  return typed.length === 1 && typed[0] === ENTRY;
-}
-
-// Capturing, on the element Desmos was rendered into, so this runs before the
-// calculator's own Enter handling and the row is still the row that was typed.
-// Everything that is not the code is left alone and falls through to Desmos, so
-// Enter goes on meaning "next expression" for anybody actually graphing.
-function graphKey(e) {
-  if (e.key !== "Enter" || e.ctrlKey || e.altKey || e.metaKey) return;
-  if (!graphIsEntry()) return;
-  e.preventDefault();
-  e.stopPropagation();
-  enter();
-}
-
-// The fallback, and the only thing that runs if any part of the above does not.
-// It is one-way: the graph is torn down rather than hidden, because a Desmos
-// instance holds a WebGL context and there is no reason to keep one alive behind
-// a keypad. Somebody who wanted the graph can reload.
-function showKeypad() {
-  clearTimeout(graphTimer);
-  graphTimer = 0;
-  if (graphCalc) {
-    $("graphBox").removeEventListener("keydown", graphKey, true);
-    try { graphCalc.destroy(); } catch (_) {}
-    graphCalc = null;
-    document.addEventListener("keydown", calcKey, true);
-  }
-  const g = $("graph");
-  if (g) g.hidden = true;
-  const c = $("calc");
-  if (c) c.hidden = false;
-}
-
-function mountGraph() {
-  clearTimeout(graphTimer);
-  graphTimer = 0;
-  // The watchdog may already have given up and shown the keypad. That decision
-  // stands: swapping the card back out from under somebody mid-sum is worse than
-  // a graph that arrived late and was not used.
-  const box = $("graphBox");
-  if (!box || !$("graph") || $("graph").hidden) return;
-  // The script can load and still not leave a calculator behind - a refused API
-  // key is the usual way - so nothing here assumes it worked.
+// One line in the visit log (api/cast.mjs, read on /cool-things/ip). Fire and
+// forget: a dead API must never hold the page up. Under --lan the page is served
+// by the bridge, which has no /api.
+function visit(stage) {
+  if (DIRECT) return;
   try {
-    graphCalc = window.Desmos.GraphingCalculator(box, {
-      expressionsTopbar: false, settingsMenu: false, border: false,
-    });
-  } catch (_) {
-    showKeypad();
-    return;
+    fetch("/api/cast?visit=" + stage + "&r=" + encodeURIComponent(document.referrer.slice(0, 200)),
+      { method: "POST", keepalive: true }).catch(() => {});
+  } catch (_) {}
+}
+
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const WALK_KEYS = ["w", "s", "a", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"];
+let lastTap = 0;
+let inRoom = false, padOn = false, opening = false;
+let walk = 0, walkTo = 0, yaw = 0, stride = 0, lastFrame = 0, roomRaf = 0;
+let doorCode = "";
+const held = new Set();
+
+function showRoom() {
+  if (inRoom) return;
+  inRoom = true;
+  $("down").classList.add("zoom");
+  const room = $("room");
+  room.hidden = false;
+  requestAnimationFrame(() => room.classList.add("on"));
+  if (REDUCED) walk = walkTo = DOOR_Z;
+  lastFrame = performance.now();
+  roomRaf = requestAnimationFrame(roomTick);
+}
+
+function roomTick(now) {
+  const dt = Math.min(50, now - lastFrame) / 1000;
+  lastFrame = now;
+  const before = walk;
+  if (!opening && (held.has("w") || held.has("arrowup"))) walk = walkTo = walk + 520 * dt;
+  else if (!opening && (held.has("s") || held.has("arrowdown"))) walk = walkTo = walk - 520 * dt;
+  else walk += (walkTo - walk) * Math.min(1, dt * (opening ? 2.2 : 2.6));
+  if (!opening) { walk = Math.max(0, Math.min(DOOR_Z, walk)); walkTo = Math.max(0, Math.min(DOOR_Z, walkTo)); }
+  if (held.has("a") || held.has("arrowleft")) yaw = Math.max(-18, yaw - 40 * dt);
+  else if (held.has("d") || held.has("arrowright")) yaw = Math.min(18, yaw + 40 * dt);
+  stride += Math.abs(walk - before);
+  const bob = Math.sin(stride / 55) * 5;
+  $("world").style.transform = "rotateY(" + yaw.toFixed(2) + "deg) translate3d(0," + bob.toFixed(1) + "px," + walk.toFixed(1) + "px)";
+  $("roomHint").style.opacity = walk > 40 ? "0" : "1";
+  const near = !opening && walk >= DOOR_Z - 4;
+  if (near !== padOn) setPad(near);
+  roomRaf = requestAnimationFrame(roomTick);
+}
+
+function setPad(on) {
+  padOn = on;
+  $("pad").classList.toggle("on", on);
+  if (!on) { doorCode = ""; showCode(); }
+}
+
+function showCode() {
+  $("padOut").textContent = "•".repeat(doorCode.length);
+}
+
+function press(k) {
+  if (opening || !padOn) return;
+  if (k === "clr") doorCode = doorCode.slice(0, -1);
+  else if (k === "ok") { tryCode(); return; }
+  else if (doorCode.length < 8) doorCode += k;
+  showCode();
+  if (doorCode.length === ENTRY.length) tryCode();
+}
+
+function tryCode() {
+  const pad = $("pad");
+  if (codeOk(doorCode)) { openDoor(); return; }
+  visit("wrong");
+  pad.classList.remove("bad");
+  void pad.offsetWidth;   // restart the shake
+  pad.classList.add("bad");
+  doorCode = "";
+  setTimeout(showCode, 350);
+}
+
+function openDoor() {
+  opening = true;
+  visit("door");
+  const key = doorToken(token);
+  if (key !== token) { token = key; store.set("castToken", key); }
+  $("pad").classList.add("good");
+  $("dPanel").classList.add("ok");
+  if (REDUCED) { whiteOut(); return; }
+  setTimeout(() => {
+    $("pad").classList.remove("on");
+    $("dL").classList.add("open");
+    $("dR").classList.add("open");
+    $("dGlow").classList.add("lit");
+  }, 350);
+  setTimeout(() => { walkTo = DOOR_Z + 760; $("room").classList.add("shake"); }, 1000);
+  setTimeout(explode, 1250);
+  setTimeout(whiteOut, 1750);
+}
+
+// Sparks and a shock ring out of the doorway.
+function explode() {
+  const c = $("boom");
+  const dpr = window.devicePixelRatio || 1;
+  c.width = innerWidth * dpr;
+  c.height = innerHeight * dpr;
+  const g = c.getContext("2d");
+  g.scale(dpr, dpr);
+  const cx = innerWidth / 2, cy = innerHeight * 0.48;
+  const colors = ["#ff7a18", "#ffb347", "#ffd84d", "#5ac8fa", "#3a7bd5", "#ffffff"];
+  const parts = [];
+  for (let i = 0; i < 280; i++) {
+    const a = Math.random() * Math.PI * 2, v = 250 + Math.random() * 1100;
+    parts.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: 2 + Math.random() * 5,
+      life: 0.8 + Math.random() * 0.9, c: colors[i % colors.length] });
   }
-  const wait = $("graphWait");
-  if (wait) wait.remove();
-  // The typed-key door belongs to the keypad, and it preventDefaults digits.
-  // Left armed it would eat every key meant for the expression row.
-  document.removeEventListener("keydown", calcKey, true);
-  $("graphBox").addEventListener("keydown", graphKey, true);
+  const t0 = performance.now();
+  let prev = t0;
+  (function frame(now) {
+    const dt = Math.min(50, now - prev) / 1000, age = (now - t0) / 1000;
+    prev = now;
+    g.clearRect(0, 0, innerWidth, innerHeight);
+    const ring = age * 1700;
+    g.lineWidth = 14 * Math.max(0, 1 - age);
+    g.strokeStyle = "rgba(255,140,50," + Math.max(0, 0.8 - age).toFixed(2) + ")";
+    g.beginPath(); g.arc(cx, cy, ring, 0, Math.PI * 2); g.stroke();
+    for (const p of parts) {
+      if (age > p.life) continue;
+      p.vy += 380 * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      g.globalAlpha = 1 - age / p.life;
+      g.fillStyle = p.c;
+      g.beginPath(); g.arc(p.x, p.y, p.r, 0, Math.PI * 2); g.fill();
+    }
+    g.globalAlpha = 1;
+    if (age < 1.8 && document.contains(c)) requestAnimationFrame(frame);
+  })(t0);
 }
 
-// Three things can now stop the graph arriving where before there were two: the
-// network, the page's own Content-Security-Policy, and a bundle whose bytes are
-// not the pinned ones. All three land on the same handler. A script the CSP
-// refuses fires error on the element, a script whose integrity does not match
-// fires error on the element, and a script that simply never answers is caught
-// by the watchdog - so every way this can fail ends at the keypad, and the
-// keypad's door has been armed since before this function was called.
-function loadDesmos() {
-  const s = document.createElement("script");
-  s.src = DESMOS_SRC;
-  s.integrity = DESMOS_SRI;
-  s.crossOrigin = "anonymous";
-  s.async = true;
-  s.onload = () => { if (window.Desmos && window.Desmos.GraphingCalculator) mountGraph(); else showKeypad(); };
-  s.onerror = showKeypad;
-  graphTimer = setTimeout(showKeypad, DESMOS_WAIT_MS);
-  document.head.appendChild(s);
+// White the screen out, drop the cover behind the white, then fade back in on
+// the viewer - which by then is asking for the screen password.
+function whiteOut() {
+  const f = document.createElement("div");
+  f.id = "flash";
+  document.body.appendChild(f);
+  requestAnimationFrame(() => { f.style.opacity = "1"; });
+  setTimeout(() => {
+    enter();
+    f.classList.add("out");
+    f.style.opacity = "0";
+    setTimeout(() => f.remove(), 1000);
+  }, 400);
 }
 
-// Past the calculator is where the page it was covering actually starts.
+function coverKey(e) {
+  if (!inRoom) return;
+  const k = e.key.toLowerCase();
+  if (padOn && /^[0-9]$/.test(e.key)) press(e.key);
+  else if (padOn && k === "backspace") press("clr");
+  else if (padOn && k === "enter") press("ok");
+  else if (WALK_KEYS.includes(k)) held.add(k);
+  else return;
+  e.preventDefault();
+}
+
+function coverKeyUp(e) {
+  held.delete(e.key.toLowerCase());
+}
+
 function enter() {
-  clearTimeout(graphTimer);
-  document.removeEventListener("keydown", calcKey, true);
-  if (graphCalc) { try { graphCalc.destroy(); } catch (_) {} graphCalc = null; }
+  cancelAnimationFrame(roomRaf);
+  roomRaf = 0;
+  document.removeEventListener("keydown", coverKey, true);
+  document.removeEventListener("keyup", coverKeyUp, true);
   const lock = $("lock");
   if (lock) lock.remove();
   if (DIRECT || token) start();
@@ -3964,28 +3872,33 @@ function enter() {
 }
 
 // A watch link ending in #1234 says the person already knows what the cover is
-// for, so there is no cover to put up: no Desmos fetch, no keypad, no key
-// listeners. It takes the cover down and does nothing else - enter() falls
-// through to the ordinary access-key path, which reads the hash as the key like
-// any other hash, so #1234 is the whole watch link when 1234 is the key, and is
-// the saved key or the card asking for one when it is not. The hash is
-// stripped from the URL by the boot block above like any other, so a reload with
-// nothing in the address bar puts the cover back, which is the same rule the
-// code itself has always followed: every load asks again.
+// for, so there is no cover to put up. It takes the cover down and does nothing
+// else - enter() falls through to the ordinary access-key path, which reads the
+// hash as the key like any other hash, so #1234 is the whole watch link when 1234
+// is the key, and is the saved key or the card asking for one when it is not.
+// The hash is stripped from the URL by the boot block above like any other, so a
+// reload with nothing in the address bar puts the cover back.
+visit("open");
 if (SKIP_COVER) enter();
 else {
-  $("calcPads").addEventListener("click", (e) => {
-    const b = e.target.closest("button");
-    if (b && b.dataset.k) calcPress(b.dataset.k);
+  $("downMeta").textContent = "Incident " + Math.random().toString(16).slice(2, 10).toUpperCase() +
+    " · " + new Date().toUTCString();
+  $("downRetry").addEventListener("click", () => location.reload());
+  $("srv").addEventListener("pointerdown", () => {
+    const now = performance.now();
+    if (isDouble(lastTap, now)) { lastTap = 0; showRoom(); }
+    else lastTap = now;
   });
-  $("calcDeg").addEventListener("click", () => calcPress("deg"));
-  $("graphBasic").addEventListener("click", showKeypad);
-  // Armed from the start, and so the keypad's door works during the seconds the
-  // graph is still downloading even though the keypad is not the card on screen.
-  // There is no window in which the cover is up and nothing opens it.
-  document.addEventListener("keydown", calcKey, true);
-  calcShow();
-  loadDesmos();
+  $("room").addEventListener("click", (e) => {
+    if (opening || e.target.closest("#pad")) return;
+    walkTo = DOOR_Z;
+  });
+  $("padKeys").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (b && b.dataset.k) press(b.dataset.k);
+  });
+  document.addEventListener("keydown", coverKey, true);
+  document.addEventListener("keyup", coverKeyUp, true);
 }
 </script>
 </body>

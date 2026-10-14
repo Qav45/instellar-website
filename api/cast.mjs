@@ -3,6 +3,7 @@
 //   POST   /api/cast   {url, name, token, publish} host publishes (also the heartbeat)
 //   GET    /api/cast?t=<token>              viewer asks where the host is
 //   DELETE /api/cast?p=<publish>             host going away
+//   POST   /api/cast?visit=open|door|wrong   the page logging a visit (see VISITS)
 //
 // And the remote start, so the owner can wake the host from the page:
 //
@@ -73,6 +74,11 @@ return redis.call('DEL', KEYS[1])`;
 // somebody you have shut out of the proxy is not somebody you want watching
 // your screen, and two lists would drift the moment you used one of them.
 const IP_HASH = "pxbip";
+// Who opened /cast, newest first, capped. `open` is a page load, `door` the
+// cover's code accepted, `wrong` a code refused.
+const VISITS = "castv";
+const VISITS_CAP = 1000;
+const VISIT_STAGES = ["open", "door", "wrong"];
 
 export default { fetch: handle };
 
@@ -81,6 +87,25 @@ async function handle(request) {
 
   if (!KV_URL || !KV_TOKEN) {
     return json(503, { error: "No KV configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN." });
+  }
+  // The page's visit beacon, ahead of the CAST_TOKEN gate because the browser
+  // never holds the admin token. It writes one line to a capped list and reads
+  // nothing back, so a stranger learns nothing from it; /cool-things/ip reads it
+  // through /api/keys?cast=1.
+  const stage = url.searchParams.get("visit");
+  if (request.method === "POST" && stage) {
+    if (VISIT_STAGES.includes(stage)) {
+      const h = request.headers;
+      const line = JSON.stringify({
+        t: Date.now(), ip: clientIp(request), stage,
+        country: h.get("x-vercel-ip-country") || "",
+        city: decodeURIComponent(h.get("x-vercel-ip-city") || ""),
+        ua: (h.get("user-agent") || "").slice(0, 200),
+        ref: (url.searchParams.get("r") || "").slice(0, 200),
+      });
+      try { await pipe([["LPUSH", VISITS, line], ["LTRIM", VISITS, "0", String(VISITS_CAP - 1)]]); } catch (_) {}
+    }
+    return new Response(null, { status: 204 });
   }
   // Checked before the method dispatch, the way keys.mjs does it, so it covers
   // DELETE too. Sitting inside the POST branch it gated publishing while leaving

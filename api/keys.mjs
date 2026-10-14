@@ -4,6 +4,8 @@
 //   POST   /api/keys?block=<vid>         block a visitor (and their last IP)
 //   POST   /api/keys?unblock=<vid>       unblock a visitor (and free that IP)
 //   DELETE /api/keys?id=<vid>            forget a visitor entirely
+//   GET    /api/keys?cast=1              who opened /cast (api/cast.mjs writes it)
+//   POST   /api/keys?blockip=<ip>        block an IP outright (or ?unblockip=)
 //
 // ADMIN_TOKEN is optional. Set it and every call must carry it as x-admin-token
 // (or ?t=); leave it unset and the page is open to whoever finds the URL.
@@ -17,6 +19,7 @@ const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 const V_HASH = "pxv";
 const IP_HASH = "pxbip";
+const VISITS = "castv";
 
 export default { fetch: handle };
 
@@ -32,8 +35,23 @@ async function handle(request) {
   }
 
   try {
+    if (request.method === "GET" && url.searchParams.get("cast")) {
+      const [visits, ips] = await Promise.all([cmd(["LRANGE", VISITS, "0", "-1"]), cmd(["HKEYS", IP_HASH])]);
+      return json(200, {
+        visits: (visits || []).map((v) => { try { return JSON.parse(v); } catch (_) { return null; } }).filter(Boolean),
+        blockedIps: ips || [],
+      });
+    }
+
     if (request.method === "GET") {
       return json(200, { visitors: await listVisitors() });
+    }
+
+    if (request.method === "POST" && (url.searchParams.get("blockip") || url.searchParams.get("unblockip"))) {
+      const ip = url.searchParams.get("blockip");
+      if (ip) await cmd(["HSET", IP_HASH, ip, "1"]);
+      else await cmd(["HDEL", IP_HASH, url.searchParams.get("unblockip")]);
+      return json(200, { blockedIps: (await cmd(["HKEYS", IP_HASH])) || [] });
     }
 
     if (request.method === "POST") {
