@@ -18,10 +18,10 @@ function slice(from, to) {
   return src.slice(a, b);
 }
 
-const { isDouble, codeOk, doorToken } = vm.runInNewContext(
+const { isDouble, codeOk, doorToken, digitOk } = vm.runInNewContext(
   'const ENTRY = "1234";\n' +
   slice("const DOUBLE_MS = 350;", "// One line in the visit log") +
-  "\n({ isDouble, codeOk, doorToken })",
+  "\n({ isDouble, codeOk, doorToken, digitOk })",
   {}, { filename: "cast/index.html" });
 
 test("isDouble: two taps within 350 ms", () => {
@@ -38,4 +38,10 @@ test("codeOk: only the exact entry code", () => {
 test("doorToken: the entry code stands in for a missing key", () => {
   assert.equal(doorToken(""), "1234");
   assert.equal(doorToken("other"), "other");
+});
+
+test("digitOk: each digit is checked against its place in the code", () => {
+  assert.equal(digitOk("", "1"), true);
+  assert.equal(digitOk("1", "3"), false);
+  assert.equal(digitOk("12", "3"), true);
 });

@@ -234,14 +234,16 @@
   @media (prefers-reduced-motion:reduce) { .pwField.bad { animation:none; } }
 
   /* ---- the way in ---- */
-  /* A server that is down, a white room behind it, and a door with a keypad.
-     Light, because an error page is, and so the room reads as a place rather
-     than as part of the dark viewer behind it. */
+  /* A server that is down, a circuit board it dives into, then a white room with a
+     vault door at the back. Light, because an error page is, and so the room reads as
+     a place rather than as part of the dark viewer behind it. */
   #lock { position:fixed; inset:0; z-index:100; background:#f4f5f7; overflow:hidden;
           font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:#1d2129; }
   #down { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
-          justify-content:center; text-align:center; padding:24px; transition:opacity .5s, transform .7s; }
-  #down.zoom { opacity:0; transform:scale(3.2); pointer-events:none; }
+          justify-content:center; text-align:center; padding:24px; transform-origin:var(--ox,50%) var(--oy,50%);
+          transition:transform .9s cubic-bezier(.6,0,.9,.5), opacity .45s .45s; }
+  #lock.dive #down { transform:scale(5); opacity:0; pointer-events:none; }
+  #down.gone { opacity:0; transition:opacity .5s; }
   #srv { width:118px; height:118px; cursor:default; -webkit-tap-highlight-color:transparent; }
   #srv .led { animation:ledBlink 1.1s steps(2, start) infinite; }
   @keyframes ledBlink { to { visibility:hidden; } }
@@ -254,9 +256,24 @@
   #downRetry:hover { background:#f7f8fa; }
   #downFoot { position:absolute; bottom:16px; color:#b3b8c0; font-size:12px; }
 
+  #pcb { position:absolute; inset:0; width:100%; height:100%; opacity:0; pointer-events:none;
+         transform-origin:var(--ox,50%) var(--oy,50%); transition:opacity .6s, transform 1.3s cubic-bezier(.4,0,.2,1); }
+  #lock.pcb #pcb { opacity:1; transform:scale(2.4); }
+  #lock.white #pcb { opacity:0; transition:opacity .8s .5s; }
+  #pcb rect.bg { fill:#0c2a21; transition:fill .8s; }
+  #pcb .t { fill:none; stroke:#1f7a57; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; transition:stroke .8s; }
+  #pcb .p { fill:none; stroke:#7dffc0; stroke-width:4; stroke-linecap:round; stroke-dasharray:50 450;
+            animation:pulse 1.6s linear infinite; transition:opacity .6s; }
+  @keyframes pulse { to { stroke-dashoffset:-500; } }
+  #pcb .chip { fill:#143d31; stroke:#2f8f63; stroke-width:2; transition:fill .8s, stroke .8s; }
+  #lock.white #pcb rect.bg { fill:#f4f5f7; }
+  #lock.white #pcb .t { stroke:#b8c2cf; }
+  #lock.white #pcb .chip { fill:#e3e6eb; stroke:#c3c8d0; }
+  #lock.white #pcb .p { opacity:0; }
+
   #room { position:absolute; inset:0; perspective:620px; perspective-origin:50% 46%;
-          background:#e9ecf0; opacity:0; transition:opacity .6s; cursor:pointer; }
-  #room.on { opacity:1; }
+          background:#e9ecf0; opacity:0; filter:blur(8px); transition:opacity .8s ease, filter .8s ease; cursor:pointer; }
+  #room.on { opacity:1; filter:none; }
   #room.shake { animation:roomShake .15s linear 6; }
   @keyframes roomShake { 25% { transform:translate(7px,-5px); } 50% { transform:translate(-8px,4px); }
           75% { transform:translate(5px,6px); } }
@@ -274,22 +291,53 @@
   .rRight { transform:translate(-50%,-50%) translate3d(400px,0,-800px) rotateY(-90deg) scaleX(-1); }
   .rBack { width:800px; height:500px; transform:translate(-50%,-50%) translate3d(0,0,-1600px);
           background:radial-gradient(ellipse at 50% 60%, #ffffff, #e6e9ee 75%); }
-  #dGlow { position:absolute; left:320px; top:200px; width:160px; height:300px; background:#fff;
+  #dGlow { position:absolute; left:290px; top:230px; width:220px; height:220px; border-radius:50%; background:#fff;
           transition:box-shadow 1s ease-in; }
   #dGlow.lit { box-shadow:0 0 120px 70px #fff, 0 0 260px 140px #cfe8ff; }
-  .dLeaf { position:absolute; top:200px; width:80px; height:300px; transition:transform .9s cubic-bezier(.7,0,.3,1);
-          background:linear-gradient(90deg, #d7dbe1, #eef0f3 45%, #d3d7de); box-shadow:inset 0 0 0 1px #c3c8d0; }
-  #dL { left:320px; } #dR { left:400px; }
-  #dL.open { transform:translateX(-82px); } #dR.open { transform:translateX(82px); }
-  #dFrame { position:absolute; left:312px; top:192px; width:176px; height:308px; border:8px solid #c9ced6;
-          border-bottom:0; box-sizing:border-box; pointer-events:none; }
-  #dPanel { position:absolute; left:505px; top:320px; width:34px; height:52px; border-radius:4px;
-          background:linear-gradient(#3a3f4a, #23272f); box-shadow:0 2px 6px rgba(0,0,0,.25); }
-  #dPanel::after { content:""; position:absolute; left:13px; top:6px; width:8px; height:8px; border-radius:50%;
-          background:#e5484d; box-shadow:0 0 8px #e5484d; }
-  #dPanel.ok::after { background:#30c26b; box-shadow:0 0 10px #30c26b; }
+  #dShadow { position:absolute; left:270px; top:468px; width:260px; height:50px; border-radius:50%;
+          background:radial-gradient(ellipse at 50% 40%, rgba(20,26,36,.32), transparent 70%); }
+
+  #vault { position:absolute; left:290px; top:230px; width:220px; height:220px; perspective:500px; }
+  #vault.jolt { animation:jolt .2s linear; }
+  @keyframes jolt { 25% { transform:translate(4px,-2px); } 50% { transform:translate(-3px,2px); }
+          75% { transform:translate(2px,1px); } }
+  #vFrame { position:absolute; left:-18px; top:-18px; width:256px; height:256px; border-radius:50%;
+          background:radial-gradient(circle at 40% 35%, #aab0ba, #5d636d 70%, #3d424b); box-shadow:0 10px 24px rgba(0,0,0,.25); }
+  .vHinge { position:absolute; left:-24px; width:14px; height:34px; border-radius:4px;
+          background:linear-gradient(90deg, #3d424b, #8d939e); }
+  #vDoor { position:absolute; left:0; top:0; width:220px; height:220px; border-radius:50%; transform-origin:0 50%;
+          background:radial-gradient(circle at 36% 30%, #f5f7fa, #bfc5ce 40%, #7d848f 80%, #5a606a);
+          box-shadow:inset 0 0 0 8px #6b717c, inset 0 0 0 12px #aeb4bd, 0 0 0 1px #4b5058;
+          transition:transform 1.1s cubic-bezier(.6,0,.3,1); }
+  #vDoor.pop { transform:translateZ(40px); }
+  #vDoor.swing { transform:translateZ(40px) rotateY(72deg); }
+  #vWheel { position:absolute; left:80px; top:80px; width:60px; height:60px; border-radius:50%;
+          background:radial-gradient(circle at 40% 35%, #d9dde3, #5d636d); box-shadow:0 2px 0 #3d424b, inset 0 0 0 4px #7d848f;
+          transition:transform 1.2s cubic-bezier(.2,.7,.2,1); }
+  #vWheel::before, #vWheel::after { content:""; position:absolute; left:50%; top:50%; background:#3d424b; border-radius:3px; }
+  #vWheel::before { width:50px; height:6px; transform:translate(-50%,-50%); }
+  #vWheel::after { width:6px; height:50px; transform:translate(-50%,-50%); }
+  #vWheel.spin { transform:rotate(540deg); }
+  .vBeam { position:absolute; top:14px; width:16px; height:66px; border-radius:3px;
+          background:linear-gradient(90deg, #7a1d20, #ff5a5f 50%, #7a1d20); box-shadow:0 0 10px rgba(229,72,77,.7);
+          transition:transform .5s cubic-bezier(.3,1.5,.5,1), background .3s, box-shadow .3s; }
+  .vBeam.down { transform:translateY(120px); background:linear-gradient(90deg, #1f6b4d, #7dffc0 50%, #1f6b4d);
+          box-shadow:0 0 12px rgba(48,194,107,.8); }
+  .vBeam.slam { animation:slam .4s cubic-bezier(.2,.8,.3,1); }
+  @keyframes slam { 0% { transform:translateY(-12px); } 45% { transform:translateY(5px); } 100% { transform:none; } }
+  #vig { position:absolute; inset:0; pointer-events:none;
+         background:radial-gradient(ellipse at 50% 46%, rgba(0,0,0,0) 52%, rgba(30,36,48,.42) 100%); }
   #roomHint { position:absolute; left:0; right:0; bottom:22px; text-align:center; color:#7a808c; font-size:13px;
           pointer-events:none; transition:opacity .4s; }
+  #ePrompt { position:absolute; left:50%; bottom:64px; transform:translate(-50%,12px); opacity:0; pointer-events:none;
+          display:flex; align-items:center; gap:10px; border:0; border-radius:999px; padding:9px 16px 9px 9px;
+          background:rgba(29,33,41,.86); color:#fff; font:500 14px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+          box-shadow:0 8px 24px rgba(0,0,0,.25); cursor:pointer; transition:opacity .3s, transform .3s; }
+  #ePrompt.on { opacity:1; transform:translate(-50%,0); pointer-events:auto; }
+  #ePrompt kbd { display:inline-block; min-width:28px; padding:4px 0; border-radius:6px; text-align:center;
+          background:linear-gradient(#ffffff, #dfe3e9); color:#1d2129; font:600 14px ui-monospace,Menlo,Consolas,monospace;
+          box-shadow:0 3px 0 #9aa1ab; }
+  #ePrompt:active kbd { transform:translateY(2px); box-shadow:0 1px 0 #9aa1ab; }
 
   #pad { position:absolute; left:50%; top:50%; width:236px; transform:translate(-50%,-50%) scale(.6); opacity:0;
           pointer-events:none; transition:transform .3s, opacity .3s; background:linear-gradient(#3a3f4a, #1f232a);
@@ -299,6 +347,8 @@
   #pad.bad #padOut { color:#ff6b70; border-color:#e5484d; }
   #pad.good #padOut { color:#30c26b; border-color:#30c26b; }
   @keyframes padShake { 20%, 60% { margin-left:-10px; } 40%, 80% { margin-left:10px; } }
+  #padX { position:absolute; top:6px; right:8px; border:0; background:none; color:#9ba3b1; font-size:22px; line-height:1; cursor:pointer; }
+  #padX:hover { color:#fff; }
   #padTitle { color:#9ba3b1; font-size:11px; letter-spacing:.14em; text-transform:uppercase; text-align:center; }
   #padOut { margin:10px 0 14px; height:46px; border:1px solid #4a505c; border-radius:8px; background:#14171c;
           color:#cfe3ff; font:600 26px/44px ui-monospace,Menlo,Consolas,monospace; letter-spacing:.4em;
@@ -314,7 +364,10 @@
           transition:opacity .35s ease-in; }
   #flash.out { transition:opacity .9s ease-out; }
   @media (prefers-reduced-motion: reduce) {
-    #down, #room, .dLeaf, #pad { transition:none; } #room.shake, #pad.bad { animation:none; }
+    #vault, #vDoor, #vWheel, .vBeam, #pcb { transition:none; }
+    #room.shake, #pad.bad, #vault.jolt, .vBeam.slam { animation:none; }
+    #vDoor.pop, #vDoor.swing { transform:none; }
+    #pcb .p { animation:none; }
   }
 </style>
 </head>
@@ -328,7 +381,7 @@
       <rect x="18" y="80" width="84" height="26" rx="4" fill="#d9dde3" stroke="#aeb4bd" stroke-width="2"/>
       <g fill="#9aa1ab"><rect x="28" y="24" width="34" height="5" rx="2"/><rect x="28" y="57" width="34" height="5" rx="2"/><rect x="28" y="90" width="34" height="5" rx="2"/></g>
       <circle cx="90" cy="27" r="4" fill="#9aa1ab"/><circle cx="90" cy="60" r="4" fill="#9aa1ab"/>
-      <circle class="led" cx="90" cy="93" r="4.5" fill="#e5484d"/>
+      <circle class="led" id="srvLed" cx="90" cy="93" r="4.5" fill="#e5484d"/>
     </svg>
     <h1>503</h1>
     <h2>Service Unavailable</h2>
@@ -337,16 +390,40 @@
     <button id="downRetry" type="button">Retry</button>
     <div id="downFoot">nginx</div>
   </div>
+  <svg id="pcb" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <rect class="bg" width="1000" height="600"/>
+    <path class="t" d="M500 300 H620 V180 H760"/><path class="p" d="M500 300 H620 V180 H760" style="animation-delay:0s"/>
+    <path class="t" d="M500 300 H380 V420 H220"/><path class="p" d="M500 300 H380 V420 H220" style="animation-delay:.4s"/>
+    <path class="t" d="M500 300 V120 H300 V60"/><path class="p" d="M500 300 V120 H300 V60" style="animation-delay:.8s"/>
+    <path class="t" d="M500 300 V480 H700 V540"/><path class="p" d="M500 300 V480 H700 V540" style="animation-delay:1.2s"/>
+    <path class="t" d="M620 180 H900 V260"/><path class="p" d="M620 180 H900 V260" style="animation-delay:.6s"/>
+    <path class="t" d="M380 420 H120 V360 H40"/><path class="p" d="M380 420 H120 V360 H40" style="animation-delay:1s"/>
+    <path class="t" d="M300 120 H100 V40"/><path class="p" d="M300 120 H100 V40" style="animation-delay:1.4s"/>
+    <path class="t" d="M700 480 H960 V420"/><path class="p" d="M700 480 H960 V420" style="animation-delay:.2s"/>
+    <rect class="chip" x="470" y="270" width="60" height="60" rx="5"/>
+    <rect class="chip" x="600" y="150" width="50" height="40" rx="4"/>
+    <rect class="chip" x="330" y="400" width="50" height="40" rx="4"/>
+    <rect class="chip" x="730" y="500" width="60" height="30" rx="4"/>
+  </svg>
   <div id="room" hidden>
     <div id="world">
       <div class="rFloor"></div><div class="rCeil"></div><div class="rLeft"></div><div class="rRight"></div>
       <div class="rBack">
-        <div id="dGlow"></div><div class="dLeaf" id="dL"></div><div class="dLeaf" id="dR"></div>
-        <div id="dFrame"></div><div id="dPanel"></div>
+        <div id="dGlow"></div><div id="dShadow"></div>
+        <div id="vault">
+          <div id="vFrame"></div>
+          <div class="vHinge" style="top:58px"></div><div class="vHinge" style="top:128px"></div>
+          <div id="vDoor"><div id="vWheel"></div></div>
+          <div class="vBeam" style="left:52px"></div><div class="vBeam" style="left:86px"></div>
+          <div class="vBeam" style="left:120px"></div><div class="vBeam" style="left:154px"></div>
+        </div>
       </div>
     </div>
-    <div id="roomHint">W / &uarr; to walk &middot; or click the door</div>
+    <div id="vig"></div>
+    <div id="roomHint">W / &uarr; to walk &middot; click to walk to the door &middot; E at the door opens the keypad</div>
+    <button id="ePrompt" type="button"><kbd>E</kbd> Press E to open the keypad</button>
     <div id="pad">
+      <button id="padX" type="button" aria-label="Close keypad">&times;</button>
       <div id="padTitle">Access code</div>
       <div id="padOut"></div>
       <div id="padKeys">
@@ -3671,16 +3748,17 @@ document.addEventListener("keydown", (e) => {
 
 /* ------------------------------------------------------------- the way in -- */
 
-// A server that is down, with a door behind it. None of this is security, and it
+// A server that is down, with a vault behind it. None of this is security, and it
 // should not be mistaken for any: the access key is what stands between a
 // stranger and this machine, and by the time a line of this runs that key has
 // already been read out of the hash. What it buys is that a screen somebody
 // glances over reads as a dead server rather than as a way into a desktop.
 //
-// The way through: double-click (or double-tap) the server icon, walk to the
-// door in the white room, and type the code (ENTRY, declared at the top of this
-// file because the hash is read there) on its keypad. The code is never written
-// down anywhere, so every load asks again.
+// The way through: double-click (or double-tap) the server icon and it dives into
+// the board inside, a white room opens, and you walk to the vault door. Press E
+// (or tap the key) at the door and type the code (ENTRY, declared at the top of
+// this file because the hash is read there) one digit at a time: each right digit
+// drops a beam. The code is never written down anywhere, so every load asks again.
 
 // The door's decisions, kept apart from the DOM so the tests can run them.
 const DOUBLE_MS = 350;   // two presses on the server icon this close are a double-click
@@ -3691,6 +3769,8 @@ function codeOk(code) { return code === ENTRY; }
 // #1234 is, so the door lands on the screen-password prompt. A saved key that is
 // something else is left alone, for the reason the boot block gives.
 function doorToken(key) { return key || ENTRY; }
+// One digit, checked as it is typed: a right digit drops the next beam.
+function digitOk(code, k) { return ENTRY[code.length] === k; }
 
 // One line in the visit log (api/cast.mjs, read on /cool-things/ip). Fire and
 // forget: a dead API must never hold the page up. Under --lan the page is served
@@ -3705,69 +3785,131 @@ function visit(stage) {
 
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const WALK_KEYS = ["w", "s", "a", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"];
+const SPEED = 520;   // top walking speed, px a second
+const BEAMS = [...document.querySelectorAll(".vBeam")];
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 let lastTap = 0;
-let inRoom = false, padOn = false, opening = false;
-let walk = 0, walkTo = 0, yaw = 0, stride = 0, lastFrame = 0, roomRaf = 0;
+let inRoom = false, padOn = false, nearOn = false, opening = false;
+let walk = 0, vel = 0, goal = null, yaw = 0, bobAmp = 0, stride = 0, lastFrame = 0, roomRaf = 0;
+let ptrX = 0, ptrY = 0, mYaw = 0, mPitch = 0;
 let doorCode = "";
 const held = new Set();
 
 function showRoom() {
   if (inRoom) return;
   inRoom = true;
-  $("down").classList.add("zoom");
   const room = $("room");
   room.hidden = false;
-  requestAnimationFrame(() => room.classList.add("on"));
-  if (REDUCED) walk = walkTo = DOOR_Z;
+  if (REDUCED) {
+    walk = DOOR_Z; vel = 0; goal = null;
+    $("down").classList.add("gone");
+    requestAnimationFrame(() => room.classList.add("on"));
+  } else dive();
   lastFrame = performance.now();
   roomRaf = requestAnimationFrame(roomTick);
+}
+
+// The server is a door too: the camera drops into its status LED, the circuit
+// board under it zooms on, and the traces go pale as the white room comes through.
+function dive() {
+  const lock = $("lock"), box = lock.getBoundingClientRect(), led = $("srvLed").getBoundingClientRect();
+  lock.style.setProperty("--ox", (led.left + led.width / 2 - box.left) + "px");
+  lock.style.setProperty("--oy", (led.top + led.height / 2 - box.top) + "px");
+  lock.classList.add("dive");
+  setTimeout(() => lock.classList.add("pcb"), 550);
+  setTimeout(() => lock.classList.add("white"), 1500);
+  setTimeout(() => $("room").classList.add("on"), 2000);
 }
 
 function roomTick(now) {
   const dt = Math.min(50, now - lastFrame) / 1000;
   lastFrame = now;
-  const before = walk;
-  if (!opening && (held.has("w") || held.has("arrowup"))) walk = walkTo = walk + 520 * dt;
-  else if (!opening && (held.has("s") || held.has("arrowdown"))) walk = walkTo = walk - 520 * dt;
-  else walk += (walkTo - walk) * Math.min(1, dt * (opening ? 2.2 : 2.6));
-  if (!opening) { walk = Math.max(0, Math.min(DOOR_Z, walk)); walkTo = Math.max(0, Math.min(DOOR_Z, walkTo)); }
+  const fwd = held.has("w") || held.has("arrowup");
+  const back = held.has("s") || held.has("arrowdown");
+  if (fwd || back) goal = null;          // the keys take over from a click-to-walk
+  // Speed eases toward a target. Keys set it; a click sets it from the distance
+  // left, so the walk slows into the door. Stopping is quicker than starting.
+  let target = 0;
+  if (goal !== null) target = clamp((goal - walk) * 2.4, -SPEED, SPEED);
+  else if (fwd !== back) target = (fwd ? 1 : -1) * SPEED;
+  vel += (target - vel) * Math.min(1, dt * (Math.abs(target) > Math.abs(vel) ? 3.5 : 6));
+  walk += vel * dt;
+  if (!opening) {
+    if (walk > DOOR_Z) { walk = DOOR_Z; vel = 0; }
+    if (walk < 0) { walk = 0; vel = 0; }
+  }
+  if (goal !== null && Math.abs(goal - walk) < 0.5) { walk = goal; vel = 0; }
   if (held.has("a") || held.has("arrowleft")) yaw = Math.max(-18, yaw - 40 * dt);
   else if (held.has("d") || held.has("arrowright")) yaw = Math.min(18, yaw + 40 * dt);
-  stride += Math.abs(walk - before);
-  const bob = Math.sin(stride / 55) * 5;
-  $("world").style.transform = "rotateY(" + yaw.toFixed(2) + "deg) translate3d(0," + bob.toFixed(1) + "px," + walk.toFixed(1) + "px)";
+  // Footsteps: the bob grows with speed and eases back to rest once walking stops.
+  bobAmp += (Math.abs(vel) / SPEED - bobAmp) * Math.min(1, dt * 6);
+  stride += Math.abs(vel) * dt;
+  const step = stride / 60;
+  const bobY = -Math.abs(Math.sin(step)) * 6 * bobAmp;
+  const sway = Math.sin(step) * 4 * bobAmp;
+  const roll = Math.sin(step) * 0.8 * bobAmp;
+  // The view follows the pointer a few degrees, smoothed.
+  mYaw += (ptrX * 4 - mYaw) * Math.min(1, dt * 4);
+  mPitch += (-ptrY * 2.5 - mPitch) * Math.min(1, dt * 4);
+  $("world").style.transform =
+    "rotateX(" + mPitch.toFixed(2) + "deg) rotateY(" + (yaw + mYaw).toFixed(2) + "deg) rotateZ(" + roll.toFixed(2) +
+    "deg) translate3d(" + sway.toFixed(1) + "px," + bobY.toFixed(1) + "px," + walk.toFixed(1) + "px)";
   $("roomHint").style.opacity = walk > 40 ? "0" : "1";
-  const near = !opening && walk >= DOOR_Z - 4;
-  if (near !== padOn) setPad(near);
+  // At the door the E prompt shows. The keypad is opened by E or a tap, not by arriving.
+  const near = walk >= DOOR_Z - 4;
+  if (near !== nearOn) { nearOn = near; if (!near) setPad(false); }
+  $("ePrompt").classList.toggle("on", near && !opening && !padOn);
   roomRaf = requestAnimationFrame(roomTick);
 }
 
 function setPad(on) {
   padOn = on;
   $("pad").classList.toggle("on", on);
-  if (!on) { doorCode = ""; showCode(); }
+  if (!on) { doorCode = ""; showCode(); setBeams(0); }
 }
 
 function showCode() {
   $("padOut").textContent = "•".repeat(doorCode.length);
 }
 
-function press(k) {
-  if (opening || !padOn) return;
-  if (k === "clr") doorCode = doorCode.slice(0, -1);
-  else if (k === "ok") { tryCode(); return; }
-  else if (doorCode.length < 8) doorCode += k;
-  showCode();
-  if (doorCode.length === ENTRY.length) tryCode();
+// The beams mirror the code typed so far: one down for each right digit.
+function setBeams(n) {
+  BEAMS.forEach((b, i) => { b.classList.remove("slam"); b.classList.toggle("down", i < n); });
 }
 
-function tryCode() {
+// Restart a one-shot animation class on the vault.
+function jolt(cls) {
+  const v = $("vault");
+  v.classList.remove(cls);
+  void v.offsetWidth;
+  v.classList.add(cls);
+}
+
+function shakePad() {
   const pad = $("pad");
-  if (codeOk(doorCode)) { openDoor(); return; }
-  visit("wrong");
   pad.classList.remove("bad");
   void pad.offsetWidth;   // restart the shake
   pad.classList.add("bad");
+}
+
+function press(k) {
+  if (opening || !padOn) return;
+  if (k === "clr") { doorCode = doorCode.slice(0, -1); setBeams(doorCode.length); showCode(); return; }
+  if (k === "ok") { shakePad(); return; }
+  if (doorCode.length >= ENTRY.length) return;
+  if (!digitOk(doorCode, k)) { wrong(); return; }
+  doorCode += k;
+  setBeams(doorCode.length);
+  jolt("jolt");
+  showCode();
+  if (doorCode.length === ENTRY.length && codeOk(doorCode)) openDoor();
+}
+
+// A wrong digit slams every beam back up, red, and the code starts again.
+function wrong() {
+  visit("wrong");
+  BEAMS.forEach((b) => { b.classList.remove("down"); b.classList.add("slam"); });
+  shakePad();
   doorCode = "";
   setTimeout(showCode, 350);
 }
@@ -3778,33 +3920,35 @@ function openDoor() {
   const key = doorToken(token);
   if (key !== token) { token = key; store.set("castToken", key); }
   $("pad").classList.add("good");
-  $("dPanel").classList.add("ok");
   if (REDUCED) { whiteOut(); return; }
-  setTimeout(() => {
-    $("pad").classList.remove("on");
-    $("dL").classList.add("open");
-    $("dR").classList.add("open");
-    $("dGlow").classList.add("lit");
-  }, 350);
-  setTimeout(() => { walkTo = DOOR_Z + 760; $("room").classList.add("shake"); }, 1000);
-  setTimeout(explode, 1250);
-  setTimeout(whiteOut, 1750);
+  // The keypad closes, the wheel turns, the door pops out and swings on its hinge,
+  // the light comes through, and the camera pushes on through the gap.
+  setTimeout(() => $("pad").classList.remove("on"), 350);
+  setTimeout(() => $("vWheel").classList.add("spin"), 350);
+  setTimeout(() => $("vDoor").classList.add("pop"), 350);
+  setTimeout(() => { $("vDoor").classList.add("swing"); $("dGlow").classList.add("lit"); }, 800);
+  setTimeout(() => { goal = DOOR_Z + 760; $("room").classList.add("shake"); }, 1300);
+  setTimeout(explode, 1900);
+  setTimeout(whiteOut, 2300);
 }
 
-// Sparks and a shock ring out of the doorway.
+// The door blows open: sparks with trails, a bloom in the doorway, and two shock rings.
 function explode() {
   const c = $("boom");
   const dpr = window.devicePixelRatio || 1;
   c.width = innerWidth * dpr;
   c.height = innerHeight * dpr;
   const g = c.getContext("2d");
-  g.scale(dpr, dpr);
-  const cx = innerWidth / 2, cy = innerHeight * 0.48;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const cx = innerWidth / 2, cy = innerHeight * 0.48, big = Math.max(innerWidth, innerHeight);
   const colors = ["#ff7a18", "#ffb347", "#ffd84d", "#5ac8fa", "#3a7bd5", "#ffffff"];
+  const rings = [[1700, 14, "255,140,50", 0.8], [1050, 3, "90,200,250", 0.6]];
   const parts = [];
-  for (let i = 0; i < 280; i++) {
+  for (let i = 0; i < 260; i++) {
     const a = Math.random() * Math.PI * 2, v = 250 + Math.random() * 1100;
-    parts.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: 2 + Math.random() * 5,
+    // z is depth: a near spark is big and fast, a far one is small and slow.
+    const z = 0.35 + Math.random() * 1.1;
+    parts.push({ x: cx, y: cy, vx: Math.cos(a) * v * z, vy: Math.sin(a) * v * z, z,
       life: 0.8 + Math.random() * 0.9, c: colors[i % colors.length] });
   }
   const t0 = performance.now();
@@ -3812,21 +3956,40 @@ function explode() {
   (function frame(now) {
     const dt = Math.min(50, now - prev) / 1000, age = (now - t0) / 1000;
     prev = now;
-    g.clearRect(0, 0, innerWidth, innerHeight);
-    const ring = age * 1700;
-    g.lineWidth = 14 * Math.max(0, 1 - age);
-    g.strokeStyle = "rgba(255,140,50," + Math.max(0, 0.8 - age).toFixed(2) + ")";
-    g.beginPath(); g.arc(cx, cy, ring, 0, Math.PI * 2); g.stroke();
+    // Fade the last frame instead of clearing it, so the sparks leave trails.
+    g.globalCompositeOperation = "destination-out";
+    g.fillStyle = "rgba(0,0,0,0.2)";
+    g.fillRect(0, 0, innerWidth, innerHeight);
+    g.globalCompositeOperation = "lighter";
+    const bl = Math.max(0, 1 - age / 1.3);
+    if (bl > 0) {
+      const grd = g.createRadialGradient(cx, cy, 0, cx, cy, big * (0.15 + 0.5 * Math.min(1, age * 1.4)));
+      grd.addColorStop(0, "rgba(255,240,200," + (0.5 * bl).toFixed(3) + ")");
+      grd.addColorStop(0.35, "rgba(255,140,60," + (0.2 * bl).toFixed(3) + ")");
+      grd.addColorStop(1, "rgba(255,140,60,0)");
+      g.fillStyle = grd;
+      g.fillRect(0, 0, innerWidth, innerHeight);
+    }
+    for (const [speed, w, rgb, alpha] of rings) {
+      g.lineWidth = w * Math.max(0, 1 - age);
+      g.strokeStyle = "rgba(" + rgb + "," + Math.max(0, alpha - age).toFixed(2) + ")";
+      g.beginPath(); g.arc(cx, cy, age * speed, 0, Math.PI * 2); g.stroke();
+    }
+    g.lineCap = "round";
     for (const p of parts) {
       if (age > p.life) continue;
-      p.vy += 380 * dt;
+      const px = p.x, py = p.y;
+      p.vx *= 1 - 1.2 * dt;
+      p.vy = p.vy * (1 - 1.2 * dt) + 380 * p.z * dt;
       p.x += p.vx * dt; p.y += p.vy * dt;
       g.globalAlpha = 1 - age / p.life;
+      g.strokeStyle = p.c; g.lineWidth = p.z * 2.2;
+      g.beginPath(); g.moveTo(px, py); g.lineTo(p.x, p.y); g.stroke();
       g.fillStyle = p.c;
-      g.beginPath(); g.arc(p.x, p.y, p.r, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(p.x, p.y, p.z * 2.4, 0, Math.PI * 2); g.fill();
     }
     g.globalAlpha = 1;
-    if (age < 1.8 && document.contains(c)) requestAnimationFrame(frame);
+    if (age < 1.9 && document.contains(c)) requestAnimationFrame(frame);
   })(t0);
 }
 
@@ -3851,6 +4014,8 @@ function coverKey(e) {
   if (padOn && /^[0-9]$/.test(e.key)) press(e.key);
   else if (padOn && k === "backspace") press("clr");
   else if (padOn && k === "enter") press("ok");
+  else if (padOn && k === "escape") setPad(false);
+  else if (!padOn && k === "e" && nearOn && !opening) setPad(true);
   else if (WALK_KEYS.includes(k)) held.add(k);
   else return;
   e.preventDefault();
@@ -3890,12 +4055,20 @@ else {
     else lastTap = now;
   });
   $("room").addEventListener("click", (e) => {
-    if (opening || e.target.closest("#pad")) return;
-    walkTo = DOOR_Z;
+    if (opening || e.target.closest("#pad, #ePrompt")) return;
+    goal = DOOR_Z;
   });
+  $("ePrompt").addEventListener("click", () => {
+    if (nearOn && !opening) setPad(true);
+  });
+  $("padX").addEventListener("click", () => setPad(false));
   $("padKeys").addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (b && b.dataset.k) press(b.dataset.k);
+  });
+  document.addEventListener("pointermove", (e) => {
+    ptrX = e.clientX / innerWidth * 2 - 1;
+    ptrY = e.clientY / innerHeight * 2 - 1;
   });
   document.addEventListener("keydown", coverKey, true);
   document.addEventListener("keyup", coverKeyUp, true);
