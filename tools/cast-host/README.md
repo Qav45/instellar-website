@@ -573,6 +573,17 @@ awake, since a tab that only receives frames gives the OS no reason not to dim
 it. What it cannot do is carry sound: RFB has no audio channel, so the video's
 audio stays on the host.
 
+**Fill removes the black bands.** Fit keeps the host screen's shape, so a window of a
+different shape gets bands. Fill (needs Fit) zooms to cover the window and crops the
+overflow, centred; the cropped strips cannot be reached with the mouse. Off until clicked.
+
+**Auto picks between VNC+ and DECODER+ for you.** It watches bytes already arriving: Tight
+update bytes while text is on screen, encoder bytes while video is. Sustained motion (about
+500 KB/s for 4 s) turns DECODER+ on; a settled screen (under about 200 KB/s for 8 s) turns it
+off, with a 20 s dwell between switches because each one starts or stops the host encoder. It
+never changes which way DECODER+ comes back after a reload. The thresholds are starting values,
+not measurements. Off until clicked.
+
 **Mouse lock is the games mode.** RFB has no way to say "the mouse moved three
 pixels left" - it carries positions and nothing else - so mouselook in a game
 has nothing to work with, and the pointer is free to slide off the picture onto

@@ -13822,7 +13822,12 @@ var Display = exports["default"] = /*#__PURE__*/function () {
     if (!this._target.getContext) {
       throw new Error("no getContext method");
     }
-    this._targetCtx = this._target.getContext('2d');
+    // cast.desync=1 asks Chrome to skip compositor sync for this canvas (lower
+    // latency, may tear). Off unless set; the first context a canvas gets is
+    // the only one it keeps, so it has to be requested here.
+    var desync = false;
+    try { desync = localStorage.getItem('cast.desync') === '1'; } catch (e) {}
+    this._targetCtx = this._target.getContext('2d', desync ? { desynchronized: true } : undefined);
 
     // the visible canvas viewport (i.e. what actually gets seen)
     this._viewportLoc = {
@@ -13847,6 +13852,9 @@ var Display = exports["default"] = /*#__PURE__*/function () {
     // ===== PROPERTIES =====
 
     this._scale = 1.0;
+    // LOCAL CHANGE (instellar /cast): true fills the container and crops the
+    // overflow instead of letterboxing. Set through RFB.coverViewport.
+    this.cover = false;
     this._clipViewport = false;
   }
 
@@ -14252,7 +14260,7 @@ var Display = exports["default"] = /*#__PURE__*/function () {
         var vp = this._viewportLoc;
         var targetAspectRatio = containerWidth / containerHeight;
         var fbAspectRatio = vp.w / vp.h;
-        if (fbAspectRatio >= targetAspectRatio) {
+        if ((fbAspectRatio >= targetAspectRatio) !== this.cover) {
           scaleRatio = containerWidth / vp.w;
         } else {
           scaleRatio = containerHeight / vp.h;
@@ -14277,6 +14285,23 @@ var Display = exports["default"] = /*#__PURE__*/function () {
       if (this._target.style.width !== width || this._target.style.height !== height) {
         this._target.style.width = width;
         this._target.style.height = height;
+      }
+      // Cover mode: the canvas is bigger than its container on one axis. Centre
+      // it with explicit margins (flex auto margins pin an overflowing item to
+      // the start) and hide the overflow. getBoundingClientRect follows the
+      // margins, so mouse mapping needs nothing more.
+      var host = this._target.parentElement;
+      if (host) {
+        if (this.cover) {
+          var r = host.getBoundingClientRect();
+          this._target.style.margin = (r.height - factor * vp.h) / 2 + 'px 0 0 ' + (r.width - factor * vp.w) / 2 + 'px';
+          host.style.overflow = 'hidden';
+          this._covered = true;
+        } else if (this._covered) {
+          this._target.style.margin = 'auto';
+          host.style.overflow = 'auto';
+          this._covered = false;
+        }
       }
     }
   }, {
@@ -15598,6 +15623,17 @@ var RFB = exports["default"] = /*#__PURE__*/function (_EventTargetMixin) {
       if (!scale && this._clipViewport) {
         this._updateClip();
       }
+    }
+  }, {
+    // LOCAL CHANGE (instellar /cast): with scaleViewport on, fill the window and
+    // crop the edges rather than letterbox.
+    key: "coverViewport",
+    get: function get() {
+      return this._display.cover;
+    },
+    set: function set(cover) {
+      this._display.cover = !!cover;
+      this._updateScale();
     }
   }, {
     key: "resizeSession",

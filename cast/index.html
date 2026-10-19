@@ -537,6 +537,8 @@
   </span>
   <div class="grp">
     <button id="fit" class="on" title="Scale the remote screen to fit this window">Fit</button>
+    <button id="fill" title="Fill the window and crop the edges instead of leaving black bands. Works with Fit on; the cropped strips are not reachable with the mouse.">Fill</button>
+    <button id="auto" title="Switch between sharp text (VNC+) and hardware video (DECODER+) by itself: video while the screen is moving, text once it settles. Needs DECODER+ to be available. Off until clicked.">Auto</button>
     <button id="stream" title="Hardware video for games and video: the host's GPU encodes the screen (AV1, HEVC or H.264, whichever this browser decodes in hardware) and this browser decodes it, sixty frames a second. Text goes a little soft, which is why it is a toggle and not the default.">DECODER+</button>
     <button id="mic" title="Hear the host's microphone, live, in this tab. Off every time the page loads - the mic on the host only opens while this is on - and nothing is recorded anywhere.">Mic</button>
     <button id="grab" title="Keep the pointer in the remote screen and send movement rather than position - what a game needs. Turn Fullscreen on too and Escape reaches the game; hold it to let go.">Mouse lock</button>
@@ -1849,7 +1851,7 @@ function connect() {
   // session still has events in flight, and counting them would credit the live
   // session with the dead one's frames.
   me.addEventListener("framebufferupdate", (e) => {
-    if (current() && e.detail) onFrame(e.detail);
+    if (current() && e.detail) { onFrame(e.detail); autoTight += e.detail.bytes; }
   });
 
   me.addEventListener("credentialsrequired", () => {
@@ -2227,7 +2229,13 @@ function rungForPreset(value) {
 // a drag to pan is a drag you did not mean to send to the remote machine.
 function applyFit() {
   if (!rfb) return;
-  rfb.scaleViewport = $("fit").classList.contains("on");
+  const fit = $("fit").classList.contains("on");
+  const fill = fit && $("fill").classList.contains("on");
+  // Cover goes off before scaling does, and on after it: a cover scale of 1.0
+  // would centre a 1:1 canvas by margins it cannot use.
+  if (!fill) rfb.coverViewport = false;
+  rfb.scaleViewport = fit;
+  if (fill) rfb.coverViewport = true;
   rfb.clipViewport = false;
   rfb.dragViewport = false;
 }
@@ -2302,6 +2310,17 @@ $("fit").addEventListener("click", () => {
   applyFit();
   refocus();
 });
+
+// Fill is off until clicked and remembered per browser. It needs Fit, so turning
+// it on turns Fit on.
+$("fill").addEventListener("click", () => {
+  const on = $("fill").classList.toggle("on");
+  if (on) $("fit").classList.add("on");
+  try { localStorage.setItem("cast.fill", on ? "1" : "0"); } catch (_) {}
+  applyFit();
+  refocus();
+});
+try { if (localStorage.getItem("cast.fill") === "1") $("fill").classList.add("on"); } catch (_) {}
 
 /* ----------------------------------------------------------------- mic -- */
 
@@ -2503,6 +2522,33 @@ const STRIKE_MS = 30000;       // a codec that ran this long before straining is
 // would work here. One decoded picture is not evidence - isConfigSupported
 // already said yes and was wrong.
 const STREAM_PROVE_MS = 15000;
+
+// --- Auto: Tight while the screen is still, DECODER+ while it moves ---
+//
+// Text is sharpest through Tight and motion is cheapest through the encoder, so
+// Auto picks per moment instead of making the person flip DECODER+ by hand. It
+// only reads bytes already arriving - Tight update bytes while Tight carries the
+// picture, access-unit bytes while the encoder does - and turns the same
+// switches the DECODER+ button turns. A switch costs an encoder start or stop
+// on the host, so it needs sustained evidence and a dwell before the next one.
+// The thresholds are starting values, not measurements: tune them on the real
+// link. Off by default and remembered per browser.
+const AUTO_KEY = "cast.auto";
+const AUTO_UP_BPS = 500000;   // Tight bytes/s this high...
+const AUTO_UP_MS = 4000;      // ...for this long is motion Tight cannot carry
+const AUTO_DOWN_BPS = 200000; // encoder bytes/s this low...
+const AUTO_DOWN_MS = 8000;    // ...for this long is a screen that has settled
+const AUTO_DWELL_MS = 20000;  // no second switch inside this
+function autoNext(mode, hotMs, coldMs, sinceMs) {
+  if (sinceMs < AUTO_DWELL_MS) return "";
+  if (mode === "tight" && hotMs >= AUTO_UP_MS) return "video";
+  if (mode === "video" && coldMs >= AUTO_DOWN_MS) return "tight";
+  return "";
+}
+let autoOn = false;
+let autoTight = 0, autoVid = 0;  // bytes since the last once-a-second look
+let autoHot = 0, autoCold = 0;   // how long each condition has held, ms
+let autoAt = 0;                  // when the picture last changed hands
 
 // --- how many rows to ask the host for ---
 //
@@ -3192,6 +3238,9 @@ function openVideo() {
   // close event to deliver, and it must not tear down its replacement.
   const mine = () => vidSock === sock;
   vidTimer = setTimeout(() => { if (mine()) streamOff("timeout"); }, 12000);
+  // Auto's byte count, kept out of the handler below so that one stays a pure
+  // read of the stream.
+  sock.addEventListener("message", (e) => { if (mine() && e.data.byteLength) autoVid += e.data.byteLength; });
 
   sock.addEventListener("message", (e) => {
     if (!mine()) return;
@@ -3639,6 +3688,7 @@ function streamOff(why, code, reason) {
 
 $("stream").addEventListener("click", () => {
   if ($("stream").disabled) return;
+  autoAt = performance.now(); // a hand on the switch starts Auto's dwell over
   stream = !stream;
   try { localStorage.setItem(STREAM_KEY, stream ? "1" : "0"); } catch (_) {}
   reflectStream();
@@ -3652,6 +3702,35 @@ $("stream").addEventListener("click", () => {
 // broken page.
 try { stream = localStorage.getItem(STREAM_KEY) === "1"; } catch (_) {}
 reflectStream();
+
+// Auto's once-a-second look. It turns the DECODER+ switch without writing
+// STREAM_KEY: what the person chose by hand is what comes back on reload.
+setInterval(() => {
+  const bytes = stream ? autoVid : autoTight;
+  autoTight = autoVid = 0;
+  if (!autoOn || !rfb || document.hidden || !canStream()) { autoHot = autoCold = 0; return; }
+  if (stream) { autoCold = bytes <= AUTO_DOWN_BPS ? autoCold + 1000 : 0; autoHot = 0; }
+  else { autoHot = bytes >= AUTO_UP_BPS ? autoHot + 1000 : 0; autoCold = 0; }
+  const to = autoNext(stream ? "video" : "tight", autoHot, autoCold, performance.now() - autoAt);
+  if (!to) return;
+  autoHot = autoCold = 0;
+  autoAt = performance.now();
+  if (to === "video") {
+    stream = true; reflectStream();
+    vidTried = false; vidStep = vidCeil = 0; vidUp = 0; openVideo();
+  } else {
+    stream = false; reflectStream(); streamOff("");
+  }
+}, 1000);
+
+$("auto").addEventListener("click", () => {
+  autoOn = $("auto").classList.toggle("on");
+  autoHot = autoCold = 0;
+  try { localStorage.setItem(AUTO_KEY, autoOn ? "1" : "0"); } catch (_) {}
+  refocus();
+});
+try { autoOn = localStorage.getItem(AUTO_KEY) === "1"; } catch (_) {}
+$("auto").classList.toggle("on", autoOn);
 
 $("look").addEventListener("click", () => {
   const on = $("look").classList.toggle("on");

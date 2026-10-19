@@ -1437,5 +1437,16 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   ok("a size picked by hand is kept: the pace goes, not the rows", pinned.shorter === 0 && pinned.lean === 0 && pinned.paced === 1);
 }
 
+// Auto: Tight while still, DECODER+ while moving. Sustained evidence and a dwell.
+{
+  const A = vm.runInNewContext(grab("const AUTO_UP_BPS = ", "return \"\";\n}\n") + "({ autoNext, AUTO_UP_MS, AUTO_DOWN_MS, AUTO_DWELL_MS })");
+  const { autoNext, AUTO_UP_MS, AUTO_DOWN_MS, AUTO_DWELL_MS } = A;
+  ok("Auto goes to video after sustained motion", autoNext("tight", AUTO_UP_MS, 0, AUTO_DWELL_MS) === "video");
+  ok("a short burst of motion is not enough", autoNext("tight", AUTO_UP_MS - 1000, 0, AUTO_DWELL_MS) === "");
+  ok("Auto goes back to Tight once the screen has settled", autoNext("video", 0, AUTO_DOWN_MS, AUTO_DWELL_MS) === "tight");
+  ok("no second switch inside the dwell", autoNext("tight", AUTO_UP_MS, 0, AUTO_DWELL_MS - 1) === "" && autoNext("video", 0, AUTO_DOWN_MS, 0) === "");
+  ok("motion evidence does nothing while video is already carrying the picture", autoNext("video", AUTO_UP_MS, 0, AUTO_DWELL_MS) === "");
+}
+
 console.log(failed ? "\n" + failed + " FAILED" : "\nall passed");
 process.exit(failed ? 1 : 0);
