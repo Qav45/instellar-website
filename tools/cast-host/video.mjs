@@ -18,6 +18,7 @@
 // into a picture.
 
 import { spawn } from "node:child_process";
+import { constants as osConstants, setPriority } from "node:os";
 
 /* --------------------------------------------------------------- Annex B -- */
 
@@ -1207,6 +1208,11 @@ export function createVideoSource(opts) {
     const proc = spawn(bin, binArgs.concat(ffmpegArgs(encoder, settings, scaled)),
       { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     child = proc;
+    // The capture readback and the picture-cap scale run on the CPU, and a game
+    // like Fortnite keeps every core busy. At normal priority those steps queue
+    // behind the game and the stream stutters; a notch above keeps them on time
+    // without touching the game. Best effort: a refusal is not worth a failure.
+    try { setPriority(proc.pid, osConstants.priority.PRIORITY_ABOVE_NORMAL); } catch (_) {}
     startedAt = Date.now();
     let lastAuAt = 0;
     proc.stdout.on("data", (chunk) => {

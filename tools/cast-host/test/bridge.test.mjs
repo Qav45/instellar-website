@@ -39,7 +39,7 @@ function boot(extraArgs) {
     fileURLToPath(new URL("../cast-host.mjs", import.meta.url)),
     "--tunnel", "none", "--port", String(PORT),
     "--vnc", "127.0.0.1:" + VNC_PORT, "--share", "nope",   // no TightVNC here
-  ].concat(extraArgs), { cwd: REPO, windowsHide: true });
+  ].concat(extraArgs), { cwd: REPO, windowsHide: true, env: { ...process.env, CAST_GAME_INI: "" } });
 
   return new Promise((resolve, reject) => {
     let out = "";
@@ -285,6 +285,7 @@ const WSH = { Upgrade: "websocket", Connection: "Upgrade",
       ...process.env,
       CAST_TUNNEL_BIN: fileURLToPath(new URL("./fake-tunnel.mjs", import.meta.url)),
       CAST_FAKE_TUNNEL_STATE: state,
+      CAST_GAME_INI: "",
     },
   });
   let out = "";

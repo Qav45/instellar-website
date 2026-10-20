@@ -92,7 +92,7 @@ function controller({ weak = false } = {}) {
     grabPage("const WEAK = (navigator.hardwareConcurrency", ";\n") +
     grabPage("const UP_DWELL = ", "  stepUp(manual);\n}\n") +
     grabPage("function rungForPreset(value) {", "\n}\n") +
-    "let streamWant = 0, hiddenWant = -1, video = false, decoder = null;\n" +
+    "let streamWant = 0, hiddenWant = -1, video = false, decoder = null, vidShown = false;\n" +
     // The visibility handler is a few hundred lines further down and reaches for
     // half the page around it, so take the four lines that decide the rate and
     // leave the video socket, focus and retry half where it is.
@@ -418,6 +418,18 @@ function controller({ weak = false } = {}) {
   ok("and the flag does not survive a second with no frames", sim.want() === 34,
      "stream " + sim.want());
 }
+{
+  // DECODER+ restarting after it has shown a picture: no decoder for the gap,
+  // but the last decoded frame is still up, and VNC must not be asked to paint
+  // over it on the link the new keyframe is coming down.
+  const { sim, second, box } = controller();
+  second({ fps: 30, duty: 0.2 });
+  const was = sim.want();
+  vm.runInContext("vidShown = true", box);
+  second({ fps: 0, bytes: 0 });
+  ok("a decoded picture still up keeps the VNC rate at zero", was > 0 && sim.want() === 0,
+     "stream " + was + " -> " + sim.want());
+}
 
 /* ------------------------------------------ 12. asking across the poll grid -- */
 {
@@ -600,7 +612,7 @@ const host = spawn(process.execPath, [
   HOST_SCRIPT, "--tunnel", "none", "--lan", "--port", String(PORT),
   "--vnc", "127.0.0.1:" + VNC_PORT, "--share", "nope",
 ], { cwd: REPO, windowsHide: true,
-     env: Object.assign({}, process.env, { CAST_SESSION_KEY: KEY }) });
+     env: Object.assign({}, process.env, { CAST_SESSION_KEY: KEY, CAST_GAME_INI: "" }) });
 
 let out = "";
 await new Promise((resolve, reject) => {

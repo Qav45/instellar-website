@@ -563,7 +563,7 @@ ok("shrinking waits for PACE_CALM clean decisions and then gives up one step",
 ok("inside the dead band nothing moves in either direction",
    streamDelay(30, 14, 20, 0, PACE_CALM) === 30 && streamDelay(30, 6, 20, 0, PACE_CALM) === 30);
 ok("growing is one decision and shrinking is many: the asymmetry is the point",
-   streamDelay(20, 60, 20, 0, 0) === PACE_CAP_MS && PACE_SHRINK_MS < PACE_CAP_MS / 4);
+   streamDelay(20, 500, 20, 0, 0) === PACE_CAP_MS && PACE_SHRINK_MS < PACE_CAP_MS / 4);
 {
   let d = PACE_CAP_MS;
   let steps = 0;
@@ -928,7 +928,8 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   ok("a live decoder's frame is painted and closed", painted === 1 && closed === 1);
   const stale = live;
   configure();
-  ok("encoder restart restores VNC while waiting", get("rfb.pixels && !vidReady"));
+  ok("an encoder restart after a picture keeps it up instead of asking VNC for one",
+     get("rfb.pixels === false && !vidReady"));
   closed = painted = 0;
   stale.callbacks.output(frame(0));
   vsync(1000);
@@ -1324,6 +1325,75 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
   ok("a session still handshaking gets no video socket", sockets === 0, sockets);
   vm.runInContext('rfb._rfbConnectionState = "connected"; openVideo()', ctx);
   ok("the connected session gets its one", sockets === 1, sockets);
+}
+
+/* ------------------------------------ Higher Connectivity, restarted -- */
+
+// HC asks for at most HC_MBPS whatever the Bitrate dropdown says. And once a
+// picture has been up, a restart keeps it there instead of asking VNC for a
+// full frame on the same link as the new keyframe.
+{
+  const urls = [];
+  let rates = 0;
+  const ctx = vm.createContext({
+    WebSocket: class { constructor(u) { urls.push(u); } addEventListener() {} },
+    closeVideo() {}, canStream: () => true, streamOff() {}, chooseHeight() {},
+    setTimeout: () => 0, setRate() { rates++; }, ceilHz: () => 30,
+    document: { hidden: false }, $: (id) => ({ value: id === "vidMbps" ? "20" : "0" }), STREAM_STEPS,
+  });
+  vm.runInContext(grab("const HC_MBPS = ", "\n") + `let stream = true, endpoint = "wss://h/ws?t=1", video = false;
+    let vidCodecs = "avc1", vidStep = 1, vidMaxh = 1080, vidSock = null, vidTimer = 0, vidProbe = null, hiConn = true;
+    let vidShown = true, rfb = { pixels: false, _rfbConnectionState: "connected" };`, ctx);
+  vm.runInContext(grab("function openVideo() {", "\n}\n"), ctx);
+  vm.runInContext("openVideo()", ctx);
+  ok("Higher Connectivity caps a picked 20 Mbps at its own top: 4.8 one rung down, at 720p",
+     /&mbps=4\.8&/.test(urls[0]) && /&maxh=720&/.test(urls[0]), urls[0]);
+  ok("a restart after a picture leaves VNC off", vm.runInContext("rfb.pixels", ctx) === false && rates === 0);
+  vm.runInContext("vidShown = false; hiConn = false; vidStep = 0; openVideo()", ctx);
+  ok("before any picture VNC carries the screen, and without HC the pick stands",
+     vm.runInContext("rfb.pixels", ctx) === true && rates === 1 && /&mbps=20&/.test(urls[1]), urls[1]);
+}
+
+/* ----------------------------------------- a ceiling lasts the session -- */
+
+// A step that strained on probation used to be forgotten after two minutes,
+// which is the 9.6 to 16 and back the log showed every couple of minutes.
+{
+  let climbs = 0;
+  const ctx = vm.createContext({ streamRecover() { climbs++; } });
+  vm.runInContext(grab("const STEP_UP_MS = ", "\n") +
+    "let hiConn = false, vidStep = 1, vidCeil = 1, vidCalm = 0, now = 1e9;\nfunction climb() { if (false) {}\n" +
+    grab("    else if (!hiConn && vidStep > vidCeil", "streamRecover();") + "}", ctx);
+  vm.runInContext("climb()", ctx);
+  ok("a step that failed its probation is not climbed to again, however long after", climbs === 0);
+  vm.runInContext("vidStep = 2; climb()", ctx);
+  ok("a step below the ceiling is still asked for back after a calm stretch", climbs === 1);
+  vm.runInContext("hiConn = true; climb()", ctx);
+  ok("Higher Connectivity climbs to none of them", climbs === 1);
+}
+
+/* --------------------------------------------- a tab left hidden lets go -- */
+
+// A hidden tab went on taking the whole stream and decoding it for nobody. A
+// glance at another tab keeps it; HIDDEN_CLOSE_MS hidden closes it.
+{
+  let closed = 0, fire = null, after = 0;
+  const ctx = vm.createContext({
+    document: { hidden: true }, closeVideo() { closed++; },
+    setTimeout(f, ms) { fire = f; after = ms; return 1; }, clearTimeout() {},
+  });
+  vm.runInContext(grab("const HIDDEN_CLOSE_MS = ", "\n") + "let hiddenClose = 0;\nfunction seen() {\n" +
+    grab("    clearTimeout(hiddenClose);", "HIDDEN_CLOSE_MS);") + "}", ctx);
+  vm.runInContext("seen()", ctx);
+  ok("hiding the tab waits three seconds before letting the video go", after === 3000 && closed === 0, after);
+  fire();
+  ok("still hidden then, the video is closed", closed === 1);
+  vm.runInContext("seen(); document.hidden = false", ctx);
+  const stale = fire;
+  fire = null;
+  vm.runInContext("seen()", ctx);
+  stale();
+  ok("a tab shown again first keeps its video, and showing it starts no timer", closed === 1 && fire === null);
 }
 
 /* ------------------------------------------ the replay is not drained -- */

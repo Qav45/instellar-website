@@ -388,6 +388,32 @@ machine whose primary monitor is not the first output, DECODER+ can show a
 different screen from the one Tight was sharing. Pick the display by number if
 that happens; the dropdown's choice is sent to both.
 
+**Games.**
+- **Higher Connectivity** asks for at most 8 Mbps at 720p. After a drop it stays
+  on the lighter rung for the rest of the session: on a game over the tunnel the
+  ladder used to climb 5.6 → 9.6 → 16, strain and fall back again, and every step
+  was an encoder restart. Turning it off and on starts it again from the top.
+- **With Higher Connectivity off, a rung that strains straight after a climb stays
+  out of reach for the session.** It used to be retried after two minutes, which was that same
+  loop. Twice, the viewer's link went silent moments after a climb back to 16.
+  A rough patch on a rung that held still steps back up after 30 calm seconds.
+- **A tab hidden for 3 s lets the video go**, and showing it again reopens it.
+  Before, a background tab kept downloading the whole stream and decoding every
+  frame with nobody watching.
+- **After the first picture, restarts stay on video.** Once a decoded picture has
+  been on screen, an encoder restart keeps that picture up for the gap instead of
+  asking VNC for a full frame on the same link as the new keyframe. If video then
+  fails, `streamOff` hands the screen back to VNC.
+- **Fortnite is capped at 60 fps while anyone is watching** (`game-cap.mjs`). An
+  uncapped game holds the GPU at full load, and the capture queues behind it.
+  - The host writes `FrameRateLimit` in Fortnite's `GameUserSettings.ini` and
+    keeps the original in `~/.instellar-cast/fortnite-fps`.
+  - When the last viewer leaves, it puts the original back, unless the value was
+    changed in game.
+  - Fortnite reads that file at launch and rewrites it on exit, so both changes
+    wait until the game is closed.
+  - Tests switch this off with `CAST_GAME_INI=""`.
+
 Frames never touch disk. ffmpeg writes to a pipe, the host parses the bytes in
 memory and forwards them, and nothing in this path can write an image file.
 

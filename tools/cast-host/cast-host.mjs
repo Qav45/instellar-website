@@ -41,6 +41,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createVideoSource, validateVideoSettings, CODECS } from "./video.mjs";
 import { createAudioSource, DEFAULT_MIC } from "./audio.mjs";
 import { createMouse } from "./mouse.mjs";
+import { createGameCap } from "./game-cap.mjs";
 import { selectServer, shareArgv, pushesUpdates, defaultPort } from "./vnc-server.mjs";
 
 /* ---------------------------------------------------------------- config -- */
@@ -545,7 +546,8 @@ function videoRoute(ws, head, url) {
   if (done) return;
   if (CODEC) settings.codecs = [CODEC];
   log("DECODER+ viewer connected (" + settings.fps + " fps, " + settings.mbps +
-      " mbps, " + settings.display + ", " + settings.codecs.join(",") + ")");
+      " mbps, " + settings.maxh + "p, cq " + settings.cq + ", " + settings.display + ", " +
+      settings.codecs.join(",") + ")");
 
   // video.mjs fans one access unit out to every sink in a single loop, and that
   // loop runs inside the encoder's stdout handler. A throw from this viewer -
@@ -597,6 +599,12 @@ function videoRoute(ws, head, url) {
 
 // Relative mouse for games, shared by every /mouse socket. See mouse.mjs.
 const mouse = createMouse({ log });
+
+// Fortnite held to 60 fps while anyone is watching. See game-cap.mjs. The tests
+// boot this host with CAST_GAME_INI="" so a test run never touches the real game.
+// Called false once at start: a host that died with the cap on gives it back.
+const gameCap = createGameCap({ ini: process.env.CAST_GAME_INI, log });
+gameCap.watching(false);
 
 // A /mouse socket: the page's pointer-lock movement, replayed on this machine as
 // real mouse input. The page waits for the one byte sent here before it uses the
@@ -806,6 +814,7 @@ function bridge(ws, head, viewerId) {
   let streamSeen = false;            // this viewer has itself sent exactly those
 
   live++;
+  gameCap.watching(true);
   const since = Date.now();
   log("viewer connected (" + live + " live)");
 
@@ -942,6 +951,7 @@ function bridge(ws, head, viewerId) {
     if (done) return;
     done = true;
     live--;
+    gameCap.watching(live > 0);
     clearInterval(keepalive);
     // Either socket going means there is nobody to ask for, so stop asking. Left
     // behind, this timer would hold the process open and keep writing into a

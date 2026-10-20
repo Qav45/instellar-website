@@ -27,7 +27,7 @@ function boot(vncPort, port, env) {
     HOST_SCRIPT, "--tunnel", "none", "--lan", "--port", String(port),
     "--vnc", "127.0.0.1:" + vncPort, "--share", "nope",
   ], { cwd: REPO, windowsHide: true,
-       env: Object.assign({}, process.env, { CAST_SESSION_KEY: KEY }, env || {}) });
+       env: Object.assign({}, process.env, { CAST_SESSION_KEY: KEY, CAST_GAME_INI: "" }, env || {}) });
   return new Promise((resolve, reject) => {
     let out = "";
     const t = setTimeout(() => reject(new Error("bridge did not start:\n" + out)), 15000);

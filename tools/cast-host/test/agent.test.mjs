@@ -151,7 +151,7 @@ const host = spawn(process.execPath, [
   path.join(HERE, "..", "cast-host.mjs"), "--tunnel", "none",
   "--port", String(bridgePort), "--vnc", "127.0.0.1:" + vnc.address().port,
   "--share", "nope",
-], { windowsHide: true, env: { ...process.env, CAST_STOP_FILE: bridgeStop } });
+], { windowsHide: true, env: { ...process.env, CAST_STOP_FILE: bridgeStop, CAST_GAME_INI: "" } });
 let hostOut = "";
 host.stdout.on("data", (c) => (hostOut += c));
 host.stderr.on("data", (c) => (hostOut += c));

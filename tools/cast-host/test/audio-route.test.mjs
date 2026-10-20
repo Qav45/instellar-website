@@ -40,7 +40,7 @@ function boot(extra, env) {
     cwd: REPO, windowsHide: true,
     env: Object.assign({}, process.env,
       { CAST_FFMPEG_BIN: FAKE_MIC, CAST_FAKE_MIC_PID: PID_FILE, CAST_FAKE_MIC_ARGS: ARGS_FILE,
-        CAST_SESSION_KEY: KEY }, env || {}),
+        CAST_SESSION_KEY: KEY, CAST_GAME_INI: "" }, env || {}),
   });
   return new Promise((resolve, reject) => {
     let out = "";

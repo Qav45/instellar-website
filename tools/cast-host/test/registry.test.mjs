@@ -313,7 +313,7 @@ okLine("and it is gone", !store.has("cast:want"));
     "--port", String(BRIDGE_PORT), "--vnc", "127.0.0.1:" + VNC_PORT, "--share", "nope",
   ], {
     windowsHide: true,
-    env: { ...process.env, CAST_PUBLISH_MS: "200", CAST_PUBLISH_RETRY_MS: "50" },
+    env: { ...process.env, CAST_PUBLISH_MS: "200", CAST_PUBLISH_RETRY_MS: "50", CAST_GAME_INI: "" },
   });
   let hostOut = "";
   host.stdout.on("data", (c) => (hostOut += c));

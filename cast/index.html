@@ -557,7 +557,7 @@
         </select>
       </label>
       <button id="video" title="For watching a video playing on the host: a quality pair chosen for moving pictures, the rate as the only thing that gives, the toolbar out of the way and the screen kept awake.">Video</button>
-      <button id="hiConn" title="Higher Connectivity: every picture goes up the moment it is decoded, with no smoothing buffer in front of it. Up to 50 ms less delay, for games; also a lighter stream (720p, Normal text) so a far link keeps its frame rate.">Higher Connectivity</button>
+      <button id="hiConn" title="Higher Connectivity: every picture goes up the moment it is decoded, with no smoothing buffer in front of it. Up to 50 ms less delay, for games; also a lighter stream (720p, Normal text, at most 8 Mbps) so a far link keeps its frame rate. After a drop it stays on the lighter setting for the session instead of climbing back mid-game; switch it off and on to try higher again.">Higher Connectivity</button>
       <button id="look" title="Ignore my mouse and keyboard">Watch only</button>
       <button id="cad" title="Send Ctrl+Alt+Delete to the remote machine">Ctrl+Alt+Del</button>
       <hr>
@@ -995,7 +995,13 @@ function tick() {
     else if (why) streamDowngrade(why);
     else if (vidShortSince && now - vidShortSince >= STRAIN_SLOW_MS) streamThin("losing frames on the link");
     else if (vidLagSince && now - vidLagSince >= LAG_QUEUE_HOLD_MS) streamThin("queueing on the link");
-    else if ((vidStep > vidCeil || now - vidCeilAt >= CEIL_FORGET_MS) && vidStep > 0 && now - vidCalm >= STEP_UP_MS) streamRecover();
+    // Higher Connectivity holds the rung it lands on: each climb is an encoder
+    // restart, and on a game the climb strains and drops again - the log had
+    // 5.6 to 9.6 to 16 and back down, over and over, every step a freeze.
+    // Without it a step that failed its probation stays out of reach for the
+    // session: forgetting it after two minutes was that same loop, and twice
+    // the viewer's link went silent within moments of the climb back to 16.
+    else if (!hiConn && vidStep > vidCeil && vidStep > 0 && now - vidCalm >= STEP_UP_MS) streamRecover();
     else if (now - vidCalm >= STREAM_PROVE_MS) {
       // This codec has carried the picture for an unbroken stretch, which is
       // the evidence isConfigSupported could not give. Remember it as the one
@@ -1020,10 +1026,10 @@ function tick() {
         vidMaxhWant = 0;
         try { localStorage.setItem(HEIGHT_KEY, String(vidMaxh)); } catch (_) {}
       }
-      const up = vidUpgraded || vidStep > 0 ? ""
+      const up = hiConn || vidUpgraded || vidStep > 0 ? ""
         : streamBetter(vidSupported || [], Array.from(vidBad), streamFamily(vidCodec));
       if (up) streamUpgrade(up);
-      else if (!vidStep) streamGrow();
+      else if (!vidStep && !hiConn) streamGrow();
     }
   }
   // Until the first decoded picture VNC is still what is on the screen, so it
@@ -1238,8 +1244,9 @@ function govern(dt) {
 
   // The video socket carries the picture and TightVNC carries nothing but
   // input, so there is no VNC rate to govern - and the poll alignment below
-  // would otherwise ask for one the moment the first /ctl answer lands.
-  if (decoder && vidReady) {
+  // would otherwise ask for one the moment the first /ctl answer lands. That
+  // holds through a restart's gap too, while the last picture stays up.
+  if (vidShown || (decoder && vidReady)) {
     if (streamWant !== 0) { streamWant = 0; pushStream(); }
     return;
   }
@@ -2155,6 +2162,8 @@ window.addEventListener("focus", refocus);
 function hurry() {
   if (retry) start();
 }
+const HIDDEN_CLOSE_MS = 3000;
+let hiddenClose = 0;
 document.addEventListener("visibilitychange", () => {
   // A hidden tab keeps the injector and loses the controller: timers here are
   // throttled to roughly one fire a minute, so every down-step and the kill
@@ -2178,11 +2187,14 @@ document.addEventListener("visibilitychange", () => {
       hiddenWant = -1;
     }
     pushStream();
-    // The video socket is left open: a person watching their own machine from
-    // another tab wants a live picture to come back to, not a frozen one. The
-    // decoder is not rAF-driven and the gate drops to the next keyframe when its
-    // queue grows, so a throttled tab costs frames, never the session. Only a
-    // socket that died while hidden is reopened here.
+    // The video socket is left open for a glance at another tab: coming back
+    // within HIDDEN_CLOSE_MS finds a live picture, not a restart. Past that it
+    // goes. The decoder is not rAF-driven, so a hidden tab went on taking the
+    // whole stream off the link and decoding every frame of it for nobody -
+    // the heat and the Wi-Fi load of watching, with nothing watched. Coming
+    // back reopens it below, holding the last picture until the first new one.
+    clearTimeout(hiddenClose);
+    if (document.hidden) hiddenClose = setTimeout(() => { if (document.hidden) closeVideo(); }, HIDDEN_CLOSE_MS);
     // Frames already decoded and waiting for a slot are let go of on the way
     // out: rAF will not run to paint them, and a held VideoFrame is a buffer
     // the decoder cannot have back.
@@ -2278,6 +2290,9 @@ try { hiConn = localStorage.getItem("cast.hiConn") === "1"; } catch (_) {}
 $("hiConn").classList.toggle("on", hiConn);
 $("hiConn").addEventListener("click", () => {
   hiConn = $("hiConn").classList.toggle("on");
+  // On is a fresh start at its top rung: since it never climbs back by itself,
+  // this is how a session that dropped tries higher again.
+  if (hiConn) { vidStep = vidCeil = 0; vidUp = 0; }
   try { localStorage.setItem("cast.hiConn", hiConn ? "1" : "0"); } catch (_) {}
   if (rfb && decoder) openVideo();
   refocus();
@@ -2513,7 +2528,10 @@ const STALL_MS = 5000;
 // halved at the bottom, as the last thing before giving up on the stream.
 const STREAM_STEPS = [{ fps: 60, mbps: 1 }, { fps: 60, mbps: 0.6 }, { fps: 60, mbps: 0.35 }, { fps: 30, mbps: 0.3 }];
 const STEP_UP_MS = 30000;      // this long without strain and the pace is asked for back
-const CEIL_FORGET_MS = 120000; // a step this session could not hold is tried again after this long, not never
+// Higher Connectivity's top rung. On a game over the tunnel 16 never held and
+// 5.6 always did; 8 leaves room above that, and the rungs below are 4.8, 2.8
+// and thirty frames at 2.4.
+const HC_MBPS = 8;
 const PROBATION_MS = 60000;    // strain this soon after a step up puts that step out of reach
 const STRIKE_MS = 30000;       // a codec that ran this long before straining is not the problem
 // How long a codec has to carry the picture cleanly before it is believed:
@@ -2609,7 +2627,7 @@ const HEIGHT_SETTLE_MS = 1500;  // a window being dragged is one size change, no
 // one took a queue out from between the hand and the screen for that exact
 // reason. A buffer that cures judder by adding a fifth of a second of lag has
 // cured nothing.
-const PACE_CAP_MS = 50;      // the most delay the clock will ever hold
+const PACE_CAP_MS = 100;     // the most delay the clock will ever hold
 const PACE_FLOOR_MS = 8;     // and the least, whatever the frame period says
 const PACE_BAND_MS = 6;      // dead band: inside this the buffer does not move
 const PACE_SHRINK_MS = 4;    // how much one step back down gives away
@@ -2624,6 +2642,7 @@ let hostVideo = true;    // false once /ctl said this host has no video route
 let vidSock = null;
 let decoder = null;      // a live VideoDecoder means Stream is carrying the picture
 let vidReady = false;    // switch off VNC only after a decoded picture arrives
+let vidShown = false;    // a decoded picture has been on screen; restarts keep it there
 let vidWaitKey = true;   // deltas are useless without the key they build on
 let vidOver = 0;         // when the decode queue went over LAG_QUEUE, 0 while it is not
 let vidTimer = 0;        // the wait for a config message on a fresh socket
@@ -2644,7 +2663,6 @@ let vidSince = 0;        // when the current decoder was configured
 let vidDrained = false;  // this decoder has emptied its queue at least once
 let vidNote = "";        // what the state line says about the last downgrade
 let vidStep = 0;         // how far down STREAM_STEPS this session has had to go
-let vidCeilAt = 0;       // when that ceiling was set; it is forgotten after CEIL_FORGET_MS
 let vidCeil = 0;         // the most demanding step still worth trying this session
 let vidCalm = 0;         // when the current step last saw strain, or started
 let vidUp = 0;           // when the pace was last asked for back
@@ -3054,8 +3072,8 @@ function vidPaintCtx() {
   if (!c) { vidCtxEl = vidCtx = null; return null; }
   if (c !== vidCtxEl) {
     vidCtxEl = c; vidCtx = c.getContext("2d");
-    // Any resample of the picture (a window smaller than the host) uses the good filter.
-    if (vidCtx) vidCtx.imageSmoothingQuality = "high";
+    // Bilinear: the picture is only stretched to the framebuffer here (window scaling is CSS), so the costlier "high" filter buys little. Untested on the Chromebook.
+    if (vidCtx) vidCtx.imageSmoothingQuality = "low";
   }
   return vidCtx;
 }
@@ -3198,7 +3216,11 @@ function openVideo() {
   // moment later - two sockets, two encoder joins and two GOP replays for one
   // picture, with the first decoder painting a canvas that has no size yet.
   if (rfb._rfbConnectionState !== "connected") return;
-  if (rfb.pixels === false) { rfb.pixels = true; setRate(ceilHz()); }
+  // Once a decoded picture has been up, a restart keeps it on screen for the
+  // gap instead of asking VNC for a full frame: that frame lands on the same
+  // link as the new keyframe, and doubling the burst is how one strain turned
+  // into the next. streamOff hands the screen back to VNC if video fails.
+  if (rfb.pixels === false && !vidShown) { rfb.pixels = true; setRate(ceilHz()); }
   if (!canStream()) { streamOff("VideoDecoder" in window ? "host" : "nodecoder"); return; }
   // The codec probe is still out only in the first moments after load; come
   // back when it has answered, if Stream is still wanted and nothing else got
@@ -3216,7 +3238,8 @@ function openVideo() {
   // The Bitrate and Text dropdowns, when set, replace the ask; the strain
   // ladder still takes its share off a picked bitrate. A host too old for cq
   // ignores it, as with maxh.
-  const picked = Number($("vidMbps").value) || (video ? 20 : 16);
+  const asked = Number($("vidMbps").value) || (video ? 20 : 16);
+  const picked = hiConn ? Math.min(asked, HC_MBPS) : asked;
   // Higher Connectivity: no taller than 720p and no sharper than Normal, which
   // makes a keyframe several times smaller and the clump behind it with it.
   const maxh = hiConn ? Math.min(vidMaxh, 720) : vidMaxh;
@@ -3339,7 +3362,7 @@ function configureVideo(cfg) {
   vidDrops = [];
   vidSlowSince = 0;
   vidDrained = false;
-  if (rfb.pixels === false) { rfb.pixels = true; setRate(ceilHz()); }
+  if (rfb.pixels === false && !vidShown) { rfb.pixels = true; setRate(ceilHz()); }
   // Config alone does not prove a decoder can produce pictures. Bound the
   // wait even when the socket remains open but no usable frames arrive.
   vidTimer = setTimeout(() => streamDowngrade("not producing frames"), 8000);
@@ -3363,6 +3386,7 @@ function configureVideo(cfg) {
       if (!vidReady) {
         clearTimeout(vidTimer);
         vidReady = true;
+        vidShown = true;
         rfb.pixels = false;
         streamWant = 0;
         pushStream();
@@ -3497,7 +3521,7 @@ function stepLabel(step) {
 function streamPace(why) {
   // A step that strained again this soon after being asked for back is one
   // this session cannot hold; stop climbing to it.
-  if (vidUp && performance.now() - vidUp < PROBATION_MS) { vidCeil = vidStep + 1; vidCeilAt = performance.now(); }
+  if (vidUp && performance.now() - vidUp < PROBATION_MS) vidCeil = vidStep + 1;
   vidStep++;
   vidSoft = false;
   vidNote = " at " + stepLabel(STREAM_STEPS[vidStep]) + " after " + why;
@@ -3664,6 +3688,7 @@ function streamOff(why, code, reason) {
   // No session means nothing to fall back to, and whatever card is up owns
   // the state line: a video socket outliving Stop cast must not overwrite
   // "Host offline" with its own goodbye.
+  vidShown = false;
   if (!rfb) return;
   if (rfb.pixels === false) rfb.pixels = true;
   if (!document.hidden) setRate(ceilHz());
