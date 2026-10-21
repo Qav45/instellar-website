@@ -44,7 +44,7 @@
      somewhere a script can reach at all. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
-  script-src 'self' 'unsafe-inline';
+  script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval';
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob:;
   font-src 'self' data:;
@@ -1483,6 +1483,31 @@ function hideVeil() {
   if (el) el.remove();
 }
 
+// The last step after the VNC password: face-guard.mjs scans the viewer's own
+// webcam and, once it passes, keeps watching for another face (which sends the
+// page to Google Classroom). The session is already up behind the veil, so it
+// is held view-only until the scan passes. Once per page load: a reconnect does
+// not scan again, the watch is still running.
+let faceOK = false, faceBusy = false;
+async function faceScan(me) {
+  if (faceBusy) return;
+  faceBusy = true;
+  me.viewOnly = true;
+  const card = (msg, retry) => veil(
+    "<h2>Scan</h2><p>" + esc(msg) + "</p>" + (retry ? '<button id="faceGo">Retry</button>' : ""),
+    (el) => { el.style.background = "#0b0d12"; if (retry) $("faceGo").onclick = () => { faceBusy = false; faceScan(me); }; });
+  card("Starting camera...");
+  try {
+    await (await import("./face-guard.mjs")).scan((m) => card(m));
+  } catch (e) {
+    faceBusy = false;
+    card((e && e.message) || "The camera or face model would not start.", true);
+    return;
+  }
+  faceOK = true;
+  if (rfb === me) { me.viewOnly = $("look").classList.contains("on"); hideVeil(); }
+}
+
 function askToken(message) {
   veil(
     "<h2>Access key</h2>" +
@@ -1831,7 +1856,7 @@ function connect() {
   me.addEventListener("connect", () => {
     if (!current()) return;
     silentRetried = false;
-    hideVeil();
+    if (faceOK) hideVeil(); else faceScan(me);
     state("live", "VNC+");
     backoff = 4000;          // this link works; the next blip starts patient again
     attempts = 0;
