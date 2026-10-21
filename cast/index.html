@@ -559,6 +559,7 @@
       <button id="video" title="For watching a video playing on the host: a quality pair chosen for moving pictures, the rate as the only thing that gives, the toolbar out of the way and the screen kept awake.">Video</button>
       <button id="hiConn" title="Higher Connectivity: every picture goes up the moment it is decoded, with no smoothing buffer in front of it. Up to 50 ms less delay, for games; also a lighter stream (720p, Normal text, at most 8 Mbps) so a far link keeps its frame rate. After a drop it stays on the lighter setting for the session instead of climbing back mid-game; switch it off and on to try higher again.">Higher Connectivity</button>
       <button id="look" title="Ignore my mouse and keyboard">Watch only</button>
+      <button id="faceGuard" title="Scan my face after the password, and cover the screen with a Classroom page while someone else who looks 20 or over is in view of this device's camera. Off: no camera.">Face guard</button>
       <button id="cad" title="Send Ctrl+Alt+Delete to the remote machine">Ctrl+Alt+Del</button>
       <hr>
       <button id="again" title="Reconnect">Reconnect</button>
@@ -1484,12 +1485,27 @@ function hideVeil() {
 }
 
 // The last step after the VNC password: face-guard.mjs scans the viewer's own
-// webcam and, once it passes, keeps watching for another face (which sends the
-// page to Google Classroom). The session is already up behind the veil, so it
-// is held view-only until the scan passes. Once per page load: a reconnect does
-// not scan again, the watch is still running.
-const FACE_SCAN = false;   // true turns the scan and the watch back on
+// webcam and, once it passes, keeps watching. A face that is not the enrolled one
+// and looks 20 or over puts a Classroom lookalike over the page until it has
+// left the frame. The session is already up behind the veil, so it is held
+// view-only until the scan passes. Once per page load: a reconnect does not scan
+// again, the watch is still running. The "Face guard" button in the bar turns
+// all of it on and off (remembered here, on by default).
+const FACE_KEY = "castFaceGuard";
+let faceGuardOn = true;
+try { faceGuardOn = localStorage.getItem(FACE_KEY) !== "0"; } catch (_) {}
 let faceOK = false, faceBusy = false;
+const faceHooks = {
+  show() {
+    if (rfb) rfb.viewOnly = true;
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (mic) mic.ctx.suspend().catch(() => {});
+  },
+  hide() {
+    if (rfb) rfb.viewOnly = $("look").classList.contains("on");
+    if (mic) mic.ctx.resume().catch(() => {});
+  },
+};
 async function faceScan(me) {
   if (faceBusy) return;
   faceBusy = true;
@@ -1499,9 +1515,10 @@ async function faceScan(me) {
     (el) => { el.style.background = "#0b0d12"; if (retry) $("faceGo").onclick = () => { faceBusy = false; faceScan(me); }; });
   card("Starting camera...");
   try {
-    await (await import("./face-guard.mjs")).scan((m) => card(m));
+    await (await import("./face-guard.mjs")).scan((m) => card(m), faceHooks);
   } catch (e) {
     faceBusy = false;
+    if (!faceGuardOn) return;   // switched off mid-scan; stop() ended it
     card((e && e.message) || "The camera or face model would not start.", true);
     return;
   }
@@ -1857,7 +1874,7 @@ function connect() {
   me.addEventListener("connect", () => {
     if (!current()) return;
     silentRetried = false;
-    if (faceOK || !FACE_SCAN) hideVeil(); else faceScan(me);
+    if (faceOK || !faceGuardOn) hideVeil(); else faceScan(me);
     state("live", "VNC+");
     backoff = 4000;          // this link works; the next blip starts patient again
     attempts = 0;
@@ -3782,6 +3799,19 @@ $("auto").addEventListener("click", () => {
 });
 try { autoOn = localStorage.getItem(AUTO_KEY) === "1"; } catch (_) {}
 $("auto").classList.toggle("on", autoOn);
+
+$("faceGuard").classList.toggle("on", faceGuardOn);
+$("faceGuard").addEventListener("click", async () => {
+  faceGuardOn = $("faceGuard").classList.toggle("on");
+  try { localStorage.setItem(FACE_KEY, faceGuardOn ? "1" : "0"); } catch (_) {}
+  if (faceGuardOn) { if (rfb) faceScan(rfb); }
+  else {
+    faceOK = false; faceBusy = false;
+    (await import("./face-guard.mjs")).stop();
+    if (rfb) { rfb.viewOnly = $("look").classList.contains("on"); hideVeil(); }
+  }
+  refocus();
+});
 
 $("look").addEventListener("click", () => {
   const on = $("look").classList.toggle("on");
