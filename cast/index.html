@@ -1488,6 +1488,7 @@ function hideVeil() {
 // page to Google Classroom). The session is already up behind the veil, so it
 // is held view-only until the scan passes. Once per page load: a reconnect does
 // not scan again, the watch is still running.
+const FACE_SCAN = false;   // true turns the scan and the watch back on
 let faceOK = false, faceBusy = false;
 async function faceScan(me) {
   if (faceBusy) return;
@@ -1856,7 +1857,7 @@ function connect() {
   me.addEventListener("connect", () => {
     if (!current()) return;
     silentRetried = false;
-    if (faceOK) hideVeil(); else faceScan(me);
+    if (faceOK || !FACE_SCAN) hideVeil(); else faceScan(me);
     state("live", "VNC+");
     backoff = 4000;          // this link works; the next blip starts patient again
     attempts = 0;
