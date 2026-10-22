@@ -232,7 +232,11 @@ async function start() {
   for (const k in log) log[k] = Array.isArray(log[k]) ? [] : null;
   segs = []; seg = null; probe = null; $("out").hidden = true; $("sum").style.display = "none";
   tStart = Date.now();
-  log.meta = await meta();
+  $("go").textContent = "Starting..."; $("go").disabled = true;
+  // Codec probes can stall on a weak device; the log is worth more than the probe.
+  try { log.meta = await Promise.race([meta(), new Promise((_, no) => setTimeout(() => no(new Error("meta probe timed out")), 4000))]); }
+  catch (e) { log.meta = { error: String(e && e.message || e), startedEpoch: Date.now(), userAgent: navigator.userAgent, videoRecorded: $("vid").checked }; }
+  $("go").disabled = false;
   rec = true;
   attach();
   if (!probe) log.events.push([Date.now(), "recorder", "the page has not loaded yet; will attach when it does"]);
