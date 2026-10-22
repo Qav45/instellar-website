@@ -40,7 +40,10 @@
 // address bar is never written to the log.
 const $ = (id) => document.getElementById(id);
 const f = $("f");
-f.src = "/cast/" + location.hash;
+// /cast bounces instellar.net to go.instellar.net, which would put the frame on
+// another origin and block every read of it. Be on that host first.
+if (/^(www\.)?instellar\.net$/.test(location.hostname)) location.replace("https://go.instellar.net" + location.pathname + location.search + location.hash);
+else f.src = "/cast/" + location.hash;
 
 const log = { meta: null, segments: [], samples: [], events: [], arrivals: [], decodes: [],
               paints: [], raf: [], long: [], env: [] };
