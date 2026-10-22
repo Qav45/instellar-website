@@ -81,7 +81,7 @@ const IP_HASH = "pxbip";
 // tokens are never stored, only whether they matched.
 const VISITS = "castv";
 const VISITS_CAP = 5000;
-const VISIT_STAGES = ["open", "door", "wrong"];
+const VISIT_STAGES = ["open", "door", "wrong", "leave"];
 
 export default { fetch: handle };
 
@@ -103,7 +103,7 @@ async function handle(request) {
       const page = await request.json().catch(() => null);
       await record(request, stage, {
         ref: (url.searchParams.get("r") || "").slice(0, 200),
-        page: page && typeof page === "object" && JSON.stringify(page).length < 800 ? page : undefined,
+        page: page && typeof page === "object" && JSON.stringify(page).length < 1500 ? page : undefined,
       });
     }
     return new Response(null, { status: 204 });
@@ -346,6 +346,12 @@ async function record(request, stage, extra) {
     xff: (h.get("x-forwarded-for") || "").slice(0, 200),
     host: h.get("host") || "",
     site: h.get("sec-fetch-site") || "",
+    // Client hints and routing: what the browser says it is, and which edge served it.
+    ch: [h.get("sec-ch-ua"), h.get("sec-ch-ua-platform"), h.get("sec-ch-ua-model")].filter(Boolean).join(" ").slice(0, 200),
+    mode: h.get("sec-fetch-mode") || "",
+    edge: (h.get("x-vercel-id") || "").slice(0, 60),
+    zip: h.get("x-vercel-ip-postal-code") || "",
+    dnt: h.get("dnt") || "",
     ...extra,
   });
   try { await pipe([["LPUSH", VISITS, line], ["LTRIM", VISITS, "0", String(VISITS_CAP - 1)]]); } catch (_) {}

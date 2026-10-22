@@ -73,7 +73,7 @@
   .tab { padding:16px 0 13px; font-size:13px; color:var(--mut); border-bottom:2px solid transparent; margin-bottom:-1px; }
   .tab.on { color:var(--txt); border-bottom-color:#e6e6a0; }
   .evs { padding:6px 12px 0 12px; }
-  .ev { display:grid; grid-template-columns:62px 62px 150px minmax(0,1fr) 38px 92px; gap:10px; align-items:center; padding:0 14px; height:40px; border-radius:6px; text-align:left; width:100%; font-size:12.5px; position:relative; }
+  .ev { display:grid; grid-template-columns:62px 62px 150px minmax(0,1fr) 44px 38px 92px; gap:10px; align-items:center; padding:0 14px; height:40px; border-radius:6px; text-align:left; width:100%; font-size:12.5px; position:relative; }
   .ev:hover { background:#111114; }
   .ev.sel { background:#16161a; }
   .ev .tm { color:var(--mut); font-size:12px; }
@@ -81,6 +81,15 @@
   .ev .ipn { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ev .ds { color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ev .sc { color:var(--dim); text-align:right; font-variant-numeric:tabular-nums; }
+  .who2 { font-size:9.5px; letter-spacing:.05em; text-align:center; border-radius:3px; padding:1px 0; }
+  .who2.you { background:#0f1f16; color:#7fe3aa; border:1px solid #17301f; }
+  .who2.maybe { background:#2a2312; color:#f5c970; border:1px solid #3d3318; }
+  .whose { border:1px solid #26262c; border-radius:8px; padding:11px 13px; margin-top:14px; background:#0b0b0d; }
+  .whose .h { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.06em; color:var(--mut); }
+  .whose .h b { font-size:13px; letter-spacing:0; font-weight:600; }
+  .whose.you .h b { color:#7fe3aa; } .whose.maybe .h b { color:#f5c970; } .whose.not .h b { color:#ff8d8f; }
+  .whose p { font-size:12.5px; margin:5px 0 9px; color:var(--dim); }
+  .whose .wb { display:flex; gap:8px; flex-wrap:wrap; align-items:center; } .whose small { color:var(--mut); font-size:11px; }
   .ev .sc.warn { color:var(--amber); }
   .st { display:flex; align-items:center; gap:7px; justify-content:flex-end; color:var(--dim); font-size:12px; }
   .st i { width:6px; height:6px; background:#5d5d65; display:inline-block; }
@@ -117,6 +126,18 @@
   .vrow { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:var(--dim); }
   .vrow .sp { flex:1; }
 
+  .rep .story { font-size:13.5px; line-height:1.6; margin:14px 0 12px; color:#d8d8de; }
+  .rep .story b { color:#fff; font-weight:600; }
+  .verdict { border:1px solid #26262c; border-left:3px solid #5d5d65; border-radius:6px; padding:9px 12px; background:#0b0b0d; }
+  .verdict.red { border-left-color:var(--red); } .verdict.blue { border-left-color:var(--blue); }
+  .verdict span { font-size:10px; letter-spacing:.06em; color:var(--mut); }
+  .verdict p { font-size:12.5px; margin-top:2px; }
+  .ctx { padding-left:16px; font-size:12.5px; color:var(--dim); line-height:1.65; }
+  .ctx b { color:var(--txt); font-weight:500; }
+  .kvs { display:grid; gap:5px; }
+  .kv { display:grid; grid-template-columns:118px 1fr; gap:10px; font-size:12px; }
+  .kv span { color:var(--mut); } .kv b { font-weight:400; color:#d8d8de; word-break:break-word; }
+  .raw { font-size:10.5px; color:var(--dim); background:#0b0b0d; border:1px solid var(--line); border-radius:6px; padding:10px; max-height:200px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
   .msg { position:fixed; top:14px; right:14px; z-index:9; padding:10px 14px; border-radius:6px; background:#1c1c22; border:1px solid #2c2c33; font-size:12.5px; }
   .msg.err { background:#2a1114; border-color:#4a1d22; color:#ffb3b5; }
   #gate { display:flex; align-items:center; justify-content:center; height:100vh; gap:10px; }
@@ -127,7 +148,7 @@
     .hero, .low { grid-template-columns:1fr; }
     .card { margin:16px; }
     .ev { grid-template-columns:62px 1fr 80px; }
-    .ev .ty, .ev .ds, .ev .sc { display:none; }
+    .ev .ty, .ev .ds, .ev .sc, .who2 { display:none; }
   }
 </style>
 </head>
@@ -146,6 +167,7 @@
     <span class="crumb">/ <b>Visitor stream</b></span>
     <span class="sp"></span>
     <span class="rate" id="rate"><i class="dotl"></i><b id="rateLbl">Live</b><span id="rateN"></span></span>
+    <button type="button" class="pause" id="meBtn" title="Mark this browser as yours">This device is me</button>
     <button type="button" class="pause" id="pause">Pause</button>
   </div>
 
@@ -184,8 +206,8 @@
   const msg = $("msg");
   let token = decodeURIComponent((location.hash || "").replace(/^#/, "")) ||
               sessionStorage.getItem("pxadmin") || "";
-  let timer = null, paused = false, sel = null, rangeMs = 86400000, filt = "all";
-  let state = { devs: [], blockedIps: new Set(), evs: [] };
+  let timer = null, paused = false, sel = null, selKey = null, rangeMs = 86400000, filt = "all";
+  let state = { devs: [], blockedIps: new Set(), evs: [], mine: new Set() };
 
   function say(t, kind) { msg.hidden = false; msg.className = "msg " + (kind || "ok"); msg.textContent = t; setTimeout(() => { msg.hidden = true; }, 3500); }
   function esc(s) { return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
@@ -196,8 +218,10 @@
     if (s < 86400) return Math.floor(s / 3600) + " h";
     return Math.floor(s / 86400) + " d";
   }
-  const clock = (t) => new Date(t).toLocaleTimeString([], { hour12: false });
-  const stamp = (t) => new Date(t).toLocaleString();
+  // Every time on this page is Leesville, Louisiana time (US Central, daylight saving included).
+  const TZ = "America/Chicago";
+  const clock = (t) => new Date(t).toLocaleTimeString("en-US", { hour12: false, timeZone: TZ });
+  const stamp = (t) => new Date(t).toLocaleString("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" });
   function pretty(u) {
     try {
       const url = new URL(u);
@@ -232,7 +256,7 @@
     };
   }
 
-  const STAGES = { open: "Opened", door: "Opened the door", wrong: "Wrong code", lookup: "Looked up the host",
+  const STAGES = { leave: "Left the page", open: "Opened", door: "Opened the door", wrong: "Wrong code", lookup: "Looked up the host",
     badkey: "Wrong view key", blocked: "Blocked", wish: "Asked to ", badwish: "Wish refused" };
   const BAD = { wrong: 1, badkey: 1, badwish: 1, blocked: 1 }, DOOR = { door: 1, wish: 1 };
   const kind = (s) => BAD[s] ? "red" : DOOR[s] ? "blue" : "";
@@ -303,7 +327,7 @@
       if (!d.coord && ll.length === 2 && isFinite(ll[0]) && isFinite(ll[1])) d.coord = ll;
       const place = [v.city, v.region, v.country].filter(Boolean).join(", ");
       if (place) d.places.add(place);
-      d.ev.push({ t: v.t, s: v.stage, x: (STAGES[v.stage] || v.stage) + (v.want || ""), raw: details(v), d });
+      d.ev.push({ t: v.t, s: v.stage, x: (STAGES[v.stage] || v.stage) + (v.want || ""), raw: details(v), v, d });
       d.first = Math.min(d.first, v.t); d.last = Math.max(d.last, v.t);
     });
     const devs = Object.values(by).map(function (d) {
@@ -378,16 +402,116 @@
 
   function renderEvents(evs) {
     const rows = evs.filter(pass).slice(0, 80);
-    if (!sel && rows[0]) sel = rows[0].d.ip;
+    if (!sel && rows[0]) { sel = rows[0].d.ip; selKey = evKey(rows[0]); }
     $("evs").innerHTML = rows.map(function (e) {
       const k = kind(e.s), d = e.d, txt = e.s === "proxy" ? "Proxy" : "Cast";
       const where = [d.city, d.state].filter(Boolean).join(", ");
       const status = BAD[e.s] ? ["red", "Refused"] : DOOR[e.s] ? ["blue", "Door"] : ["", "Allowed"];
-      return '<button type="button" class="ev' + (d.ip === sel ? " sel" : "") + (BAD[e.s] ? " flag" : "") + '" data-ip="' + esc(d.ip) + '">' +
+      return '<button type="button" class="ev' + (evKey(e) === selKey ? " sel" : "") + (BAD[e.s] ? " flag" : "") + '" data-ip="' + esc(d.ip) + '" data-key="' + esc(evKey(e)) + '">' +
         '<span class="tm mono">' + esc(clock(e.t)) + '</span><span class="ty">' + txt + '</span><span class="ipn">' + esc(d.ip) + "</span>" +
         '<span class="ds">' + esc(e.x) + (where ? " · " + esc(where) : "") + " · " + esc(device(Array.from(d.uas)[0])) + '</span>' +
-        '<span class="sc' + (d.ev.some((x) => BAD[x.s]) ? " warn" : "") + '">' + d.ev.length + '</span><span class="st ' + status[0] + '"><i></i>' + status[1] + "</span></button>";
+        '<span class="who2 ' + whose(e).k + '">' + (whose(e).k === "you" ? "YOU" : whose(e).k === "maybe" ? "MAYBE" : "") + '</span><span class="sc' + (d.ev.some((x) => BAD[x.s]) ? " warn" : "") + '">' + d.ev.length + '</span><span class="st ' + status[0] + '"><i></i>' + status[1] + "</span></button>";
     }).join("") || '<div class="none">Nothing in this window.</div>';
+  }
+
+
+  const evKey = (e) => e.d.ip + "|" + e.t + "|" + e.s;
+  function dur(ms) {
+    const s = Math.round(Math.abs(ms) / 1000);
+    if (s < 60) return s + " s";
+    if (s < 3600) return Math.floor(s / 60) + " min " + (s % 60) + " s";
+    if (s < 86400) return Math.floor(s / 3600) + " h " + Math.floor(s % 3600 / 60) + " min";
+    return Math.floor(s / 86400) + " d " + Math.floor(s % 86400 / 3600) + " h";
+  }
+  // What each logged stage means, in plain words, and what it says about the person.
+  const MEANING = {
+    open: ["Loaded the /cast page", "They opened the cast link. What they saw first is the calculator cover, not the desktop. Nothing was unlocked or asked of the host: a page load alone proves nothing beyond the link being known.", "Neutral. Normal for anyone with the link, including you."],
+    door: ["Got past the calculator cover", "They typed the cover entry code into the calculator, which opens the real viewer. They now see the VNC+ password prompt. That is as far as the cover takes anyone; the desktop itself is still behind its own password.", "Notable. Someone knew the entry code (or came in on the #1234 link)."],
+    wrong: ["Typed a wrong cover code", "They tried a code on the calculator that was not the entry code and the cover stayed shut. Nothing was unlocked.", "Suspicious if repeated: it looks like guessing."],
+    lookup: ["Looked up the cast host", "They asked the registry where the host is, with a view key that was accepted. The reply gave them the tunnel address of the machine, which is what the viewer connects to next.", "Notable. A valid view key was used."],
+    badkey: ["Lookup refused: wrong view key", "They asked the registry for the host but the view key they sent was not the right one. They got nothing back. Only the length of what they typed is kept, never the key.", "Suspicious. Someone has the page but not the key."],
+    blocked: ["Turned away: IP is blocked", "This IP is on the blocked list, so the request was refused before any key was checked.", "Expected. They are still trying despite being blocked."],
+    wish: ["Made a wish", "They submitted a request through the wish form with a valid key. The text they asked for is shown below.", "Neutral to notable. A valid key was used."],
+    badwish: ["Wish refused: wrong key", "They submitted a wish but the key was not accepted, so it was dropped.", "Suspicious."],
+    leave: ["Left the page", "They closed or navigated away from /cast. The time on page is shown in the request details.", "Neutral."],
+    proxy: ["Browsed a page through the proxy", "Their browser asked the Cool Things proxy to fetch this address on their behalf. The proxy fetched it and returned it inside the sandboxed frame.", "Neutral."],
+  };
+  // Was this the owner? Strongest proof first: a device id or IP they marked.
+  function whose(e) {
+    const v = e.v || {}, p = v.page || {}, M = state.mine, ua = Array.from(e.d.uas)[0] || "";
+    if (p.did && M.has("d:" + p.did)) return { k: "you", t: "You", why: "This browser carries a device id you marked as yours." };
+    if (M.has("ip:" + e.d.ip)) return { k: "you", t: "You", why: "This IP is one you marked as yours." };
+    // Not proven either way: compare against everything marked mine.
+    const mineEv = state.evs.filter((q) => q.v && ((q.v.page && q.v.page.did && M.has("d:" + q.v.page.did)) || M.has("ip:" + q.d.ip)));
+    const sameUa = mineEv.some((q) => (Array.from(q.d.uas)[0] || "") === ua && ua);
+    const sameCity = mineEv.some((q) => q.d.city && q.d.city === e.d.city);
+    if (!M.size) return { k: "unk", t: "Unknown", why: "Nothing is marked as yours yet. Press “This device is me” at the top, or mark an event below." };
+    if (sameUa && sameCity) return { k: "maybe", t: "Maybe you", why: "Same browser build and same city as your marked device, but the device id and IP are new." };
+    if (sameUa) return { k: "maybe", t: "Maybe you", why: "Same browser build as your marked device, but a different place and IP." };
+    return { k: "not", t: "Not you", why: "No device id, IP, or browser build matches anything you marked." + (sameCity ? " It is in the same city as you, though." : "") };
+  }
+  function row(k, v) { return v == null || v === "" ? "" : '<div class="kv"><span>' + esc(k) + "</span><b>" + v + "</b></div>"; }
+  function explain(e) {
+    const d = e.d, v = e.v || {}, p = v.page || {}, m = MEANING[e.s] || [e.x, "A " + e.s + " event was logged.", ""];
+    const ua = Array.from(d.uas)[0] || "", x = exact(ua);
+    const mine = d.ev.slice().sort((a, b) => a.t - b.t), i = mine.indexOf(e);
+    const prev = mine[i - 1], next = mine[i + 1];
+    const sess = mine.filter((q) => Math.abs(q.t - e.t) < 1800000);
+    const okw = BAD[e.s] ? "red" : DOOR[e.s] ? "blue" : "g";
+    const story = "At <b>" + esc(stamp(e.t)) + "</b>, <b>" + esc(d.ip) + "</b>" + (d.city ? " (" + esc([d.city, d.state, v.country].filter(Boolean).join(", ")) + ")" : "") +
+      " " + esc(m[0].charAt(0).toLowerCase() + m[0].slice(1)) + ". " + esc(m[1]);
+    const ctx = [];
+    ctx.push("This was event <b>" + (i + 1) + " of " + mine.length + "</b> from this IP" + (i === 0 ? " and the <b>first time it was seen</b>." : "."));
+    if (prev) ctx.push("The previous event was “" + esc(prev.x) + "” " + dur(e.t - prev.t) + " earlier.");
+    if (next) ctx.push("Next it “" + esc(next.x) + "” " + dur(next.t - e.t) + " later.");
+    else ctx.push("Nothing from this IP has been logged since.");
+    ctx.push(sess.length + " event" + (sess.length === 1 ? "" : "s") + " from this IP within 30 minutes of this one.");
+    const refusedBefore = mine.slice(0, i).filter((q) => BAD[q.s]).length;
+    if (BAD[e.s] && refusedBefore) ctx.push("It had already been refused <b>" + refusedBefore + "</b> time" + (refusedBefore === 1 ? "" : "s") + " before this.");
+    const gotIn = mine.slice(i + 1).find((q) => DOOR[q.s]);
+    if (BAD[e.s] && gotIn) ctx.push("It later got through (“" + esc(gotIn.x) + "” at " + esc(clock(gotIn.t)) + ").");
+    const req = [
+      row("Stage", esc(e.s)), row("Time", esc(stamp(e.t)) + " · " + esc(ago(e.t)) + " ago"),
+      row("Host header", esc(v.host)), row("Fetch site", esc(v.site)), row("Fetch mode", esc(v.mode)), row("Referrer", esc(v.ref)),
+      row("Device id", esc(p.did)), row("Tab session", esc(p.sid)), row("Arrived by", p.link != null ? (p.link ? "a link with a #key" : "the plain address") : ""),
+      row("Time on page", v.stage === "leave" && p.ms ? esc(dur(p.ms)) : ""), row("Served from", esc(v.edge)), row("Do Not Track", esc(v.dnt)),
+      row("Asked for", esc(v.want)),
+      row("Key length typed", v.keylen != null ? esc(v.keylen) + " characters (the key itself is never stored)" : ""),
+      row("Refused on", esc(v.on)), row("Page", esc(p.url)),
+      e.s === "proxy" ? row("Address", esc(e.raw)) : "",
+    ].join("");
+    const loc = [
+      row("IP", esc(d.ip)), row("Forwarded chain", v.xff && v.xff !== d.ip ? esc(v.xff) : ""),
+      row("City", esc(v.city || d.city)), row("Postal code", esc(v.zip)), row("Region", esc(v.region || d.state)), row("Country", esc(v.country)),
+      row("Coordinates", v.loc ? esc(v.loc) + " (from the IP, roughly city-level)" : ""),
+      row("IP time zone", esc(v.tz)), row("Browser time zone", esc(p.tz)),
+      row("Zones match", v.tz && p.tz ? (v.tz === p.tz ? "yes" : "<span style='color:var(--amber)'>no: possible VPN or a traveller</span>") : ""),
+    ].join("");
+    const dev = [
+      row("Summary", esc(device(ua))), row("OS string", esc(x.os)), row("Browser", esc(x.br)),
+      row("Platform", esc(p.plat)), row("CPU cores", esc(p.cores)), row("Memory", p.mem ? esc(p.mem) + " GB (rounded by the browser)" : ""),
+      row("Screen", esc(p.scr)), row("Window", esc(p.win)), row("Pixel ratio", esc(p.dpr)),
+      row("Touch points", p.touch != null ? esc(p.touch) : ""),
+      row("Connection", p.net && p.net !== "//" ? esc(p.net.replace(/\//g, " · ")) + " (type · Mbit/s · ms)" : ""),
+      row("Language", esc(p.lang || v.lang)),
+      row("Exact model", esc(p.model)), row("OS version", esc(p.pv)), row("CPU", esc(p.arch)), row("Full browser", esc(p.full)),
+      row("Brands", esc(p.brands)), row("Client hints", esc(v.ch)), row("Mobile", p.mob != null ? (p.mob ? "yes" : "no") : ""),
+      row("Graphics", esc(p.gpu)), row("Dark mode", p.dark != null ? (p.dark ? "on" : "off") : ""),
+      row("Automated", p.wd ? "<span style='color:var(--amber)'>browser says it is driven by automation</span>" : (p.wd === 0 ? "no sign of it" : "")),
+      row("Raw user agent", '<span class="mono" style="font-size:10.5px">' + esc(ua) + "</span>"),
+    ].join("");
+    const sect = (t, b) => b ? '<div class="hdr"><span>' + t + '</span></div><div class="kvs">' + b + "</div>" : "";
+    const w = whose(e), pid = p.did ? "d:" + p.did : "";
+    const who = '<div class="whose ' + w.k + '"><div class="h"><span>WAS THIS YOU?</span><b>' + esc(w.t) + "</b></div><p>" + esc(w.why) + "</p><div class=\"wb\">" +
+      (pid ? (state.mine.has(pid) ? '<button class="btn ghost sm" data-notme="' + esc(pid) + '">Not my device</button>' : '<button class="btn sm" data-me="' + esc(pid) + '">That was my device</button>') : "") +
+      (state.mine.has("ip:" + d.ip) ? '<button class="btn ghost sm" data-notme="ip:' + esc(d.ip) + '">Not my IP</button>' : '<button class="btn ghost sm" data-me="ip:' + esc(d.ip) + '">That was my IP</button>') +
+      (pid ? "" : "<small>No device id on this event (logged before ids existed), so only the IP can be marked.</small>") + "</div></div>";
+    return '<div class="rep"><div class="stp"><span class="tag' + (BAD[e.s] ? "" : " ok") + '">' + esc(m[0]) + "</span><small>" + esc(clock(e.t)) + "</small></div>" +
+      who + '<p class="story">' + story + "</p>" +
+      '<div class="verdict ' + okw + '"><span>ASSESSMENT</span><p>' + esc(m[2]) + "</p></div>" +
+      '<div class="hdr"><span>Where it fits</span></div><ul class="ctx">' + ctx.map((c) => "<li>" + c + "</li>").join("") + "</ul>" +
+      sect("The request", req) + sect("Where from", loc) + sect("Exact device", dev) +
+      '<div class="hdr"><span>Raw record</span></div><pre class="raw mono">' + esc(JSON.stringify(Object.keys(v).length ? v : { t: e.t, stage: e.s, url: e.raw }, null, 1)) + "</pre></div>";
   }
 
   function renderDetail() {
@@ -396,10 +520,12 @@
     const isB = blockedOf(d), bads = d.ev.filter((x) => BAD[x.s]).length;
     const e = exact(Array.from(d.uas)[0]), dev = device(Array.from(d.uas)[0]);
     const initials = dev.split(/[ ·]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
-    const sug = isB ? ["BLOCKED", "This IP is shut out of /cast and the proxy", "Unblock", "unblockip"]
+    const youIp = state.mine.has("ip:" + d.ip);
+    const sug = youIp ? ["THIS IS YOU", "You marked this IP as yours, so refused attempts from it are yours.", "Block anyway", "blockip"] : isB ? ["BLOCKED", "This IP is shut out of /cast and the proxy", "Unblock", "unblockip"]
       : bads ? ["RECOMMENDED", "Block this IP: " + bads + " refused attempt" + (bads === 1 ? "" : "s"), "Block", "blockip"]
       : ["ALL CLEAR", "No refused attempts from this IP", "Block anyway", "blockip"];
-    $("detail").innerHTML = '<div class="card">' +
+    const se = d.ev.find((x) => evKey(x) === selKey) || d.ev[0];
+    $("detail").innerHTML = '<div class="card">' + (se ? explain(se) + '<div class="hdr" style="margin-top:26px"><span>This IP</span></div>' : "") +
       '<div class="stp"><span class="tag' + (isB ? "" : " ok") + '">' + (isB ? "Blocked" : "Not blocked") + "</span><small>last seen " + esc(ago(d.last)) + " ago</small></div>" +
       '<div class="who"><span class="av mono">' + esc(initials) + '</span><div><b>' + esc(d.ip) + "</b><small>" + esc(dev) + " · " + esc([...d.places][0] || "location unknown") + "</small></div></div>" +
       '<div class="sug"><div class="h"><span>' + sug[0] + "</span></div><p>" + esc(sug[1]) + '</p>' +
@@ -427,7 +553,7 @@
     try {
       const vis = (await api("GET")).visitors, cast = await api("GET", "?cast=1");
       const b = build(vis, cast);
-      state = { devs: b.devs, evs: b.evs, blockedIps: new Set(cast.blockedIps || []) };
+      state = { devs: b.devs, evs: b.evs, blockedIps: new Set(cast.blockedIps || []), mine: new Set(cast.mine || []) };
       $("gate").hidden = true; $("panel").hidden = false;
       paint();
       sessionStorage.setItem("pxadmin", token);
@@ -446,6 +572,13 @@
   /* ---------------------------------------------------------- events -- */
   $("unlock").addEventListener("click", function () { token = $("tok").value.trim(); if (token) load(); });
   $("tok").addEventListener("keydown", function (e) { if (e.key === "Enter") $("unlock").click(); });
+  $("meBtn").addEventListener("click", function () {
+    // The cast page keeps its id in this same origin's localStorage; make one if
+    // /cast was never opened here, and /cast will reuse it from now on.
+    let id = localStorage.getItem("castDid");
+    if (!id) { id = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join(""); localStorage.setItem("castDid", id); }
+    act("POST", "?me=" + encodeURIComponent("d:" + id), "This browser is marked as you.");
+  });
   $("pause").addEventListener("click", function () { paused = !paused; tick(); renderRate(); if (!paused) load(); });
   $("range").addEventListener("click", function (e) {
     const b = e.target.closest("button"); if (!b) return;
@@ -473,13 +606,15 @@
   });
   $("map").addEventListener("mouseleave", () => { tip.hidden = true; });
   $("map").addEventListener("click", function (e) {
-    const t = e.target.closest(".dt"); if (t) { sel = t.getAttribute("data-ip"); paint(); }
+    const t = e.target.closest(".dt"); if (t) { sel = t.getAttribute("data-ip"); selKey = null; paint(); }
   });
   $("panel").addEventListener("click", function (e) {
-    const t = e.target.closest(".ev,[data-blockip],[data-unblockip],[data-block],[data-unblock],[data-del]");
+    const t = e.target.closest(".ev,[data-me],[data-notme],[data-blockip],[data-unblockip],[data-block],[data-unblock],[data-del]");
     if (!t) return;
     const g = (k) => t.getAttribute(k);
-    if (t.classList.contains("ev")) { sel = g("data-ip"); renderEvents(state.evs.filter(inRange)); renderDetail(); }
+    if (t.classList.contains("ev")) { sel = g("data-ip"); selKey = g("data-key"); renderEvents(state.evs.filter(inRange)); renderDetail(); }
+    else if (g("data-me")) act("POST", "?me=" + encodeURIComponent(g("data-me")), "Marked as you.");
+    else if (g("data-notme")) act("POST", "?notme=" + encodeURIComponent(g("data-notme")), "Unmarked.");
     else if (g("data-blockip")) act("POST", "?blockip=" + encodeURIComponent(g("data-blockip")), "Blocked.", "Block " + g("data-blockip") + "? It is shut out of /cast and the proxy.");
     else if (g("data-unblockip")) act("POST", "?unblockip=" + encodeURIComponent(g("data-unblockip")), "Unblocked.");
     else if (g("data-block")) act("POST", "?block=" + encodeURIComponent(g("data-block")), "Blocked.", "Block this visitor and their IP?");

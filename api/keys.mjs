@@ -6,6 +6,7 @@
 //   DELETE /api/keys?id=<vid>            forget a visitor entirely
 //   GET    /api/keys?cast=1              who opened /cast (api/cast.mjs writes it)
 //   POST   /api/keys?blockip=<ip>        block an IP outright (or ?unblockip=)
+//   POST   /api/keys?me=<d:id|ip:addr>   mark a device id or IP as the owner's (or ?notme=)
 //
 // ADMIN_TOKEN is optional. Set it and every call must carry it as x-admin-token
 // (or ?t=); leave it unset and the page is open to whoever finds the URL.
@@ -20,6 +21,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 const V_HASH = "pxv";
 const IP_HASH = "pxbip";
 const VISITS = "castv";
+const ME_HASH = "pxme";
 
 export default { fetch: handle };
 
@@ -36,8 +38,9 @@ async function handle(request) {
 
   try {
     if (request.method === "GET" && url.searchParams.get("cast")) {
-      const [visits, ips] = await Promise.all([cmd(["LRANGE", VISITS, "0", "-1"]), cmd(["HKEYS", IP_HASH])]);
+      const [visits, ips, me] = await Promise.all([cmd(["LRANGE", VISITS, "0", "-1"]), cmd(["HKEYS", IP_HASH]), cmd(["HKEYS", ME_HASH])]);
       return json(200, {
+        mine: me || [],
         visits: (visits || []).map((v) => { try { return JSON.parse(v); } catch (_) { return null; } }).filter(Boolean),
         blockedIps: ips || [],
       });
@@ -45,6 +48,14 @@ async function handle(request) {
 
     if (request.method === "GET") {
       return json(200, { visitors: await listVisitors() });
+    }
+
+    if (request.method === "POST" && (url.searchParams.get("me") || url.searchParams.get("notme"))) {
+      const id = (url.searchParams.get("me") || url.searchParams.get("notme")).slice(0, 80);
+      if (!/^(d|ip):/.test(id)) return json(400, { error: "me= takes d:<device id> or ip:<address>" });
+      if (url.searchParams.get("me")) await cmd(["HSET", ME_HASH, id, String(Date.now())]);
+      else await cmd(["HDEL", ME_HASH, id]);
+      return json(200, { mine: (await cmd(["HKEYS", ME_HASH])) || [] });
     }
 
     if (request.method === "POST" && (url.searchParams.get("blockip") || url.searchParams.get("unblockip"))) {

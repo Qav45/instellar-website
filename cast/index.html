@@ -3982,7 +3982,26 @@ function digitOk(code, k) { return ENTRY[code.length] === k; }
 // One line in the visit log (api/cast.mjs, read on /cool-things/ip). Fire and
 // forget: a dead API must never hold the page up. Under --lan the page is served
 // by the bridge, which has no /api.
-function visit(stage) {
+// did is a random id kept in this browser, so the admin page can tell "this is
+// my device" from a stranger without trusting an IP; sid lasts one tab.
+function stableId(store, key) {
+  try {
+    let v = store.getItem(key);
+    if (!v) { v = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join(""); store.setItem(key, v); }
+    return v;
+  } catch (_) { return ""; }
+}
+let gpuName;
+function gpu() {
+  if (gpuName === undefined) {
+    try {
+      const g = document.createElement("canvas").getContext("webgl"), e = g && g.getExtension("WEBGL_debug_renderer_info");
+      gpuName = e ? String(g.getParameter(e.UNMASKED_RENDERER_WEBGL)).slice(0, 100) : "";
+    } catch (_) { gpuName = ""; }
+  }
+  return gpuName;
+}
+async function visit(stage) {
   if (DIRECT) return;
   try {
     fetch("/api/cast?visit=" + stage + "&r=" + encodeURIComponent(document.referrer.slice(0, 200)),
@@ -4006,12 +4025,24 @@ let walk = 0, vel = 0, goal = null, yaw = 0, bobAmp = 0, stride = 0, lastFrame =
 let ptrX = 0, ptrY = 0, mYaw = 0, mPitch = 0;
 let doorCode = "";
 const held = new Set();
+    const n = navigator, c = n.connection || {}, u = n.userAgentData;
+    // Chrome hides the exact model (a Chromebook's name) behind this call.
+    let hi = {};
+    if (u && u.getHighEntropyValues && stage !== "leave") {
+      hi = await Promise.race([u.getHighEntropyValues(["model", "platformVersion", "architecture", "bitness", "uaFullVersion"]),
+        new Promise((r) => setTimeout(r, 400, {}))]).catch(() => ({}));
+    }
 
 function showRoom() {
+        did: stableId(localStorage, "castDid"), sid: stableId(sessionStorage, "castSid"),
   if (inRoom) return;
   inRoom = true;
   const room = $("room");
     const n = navigator, c = n.connection || {};
+        gpu: gpu(), dark: matchMedia("(prefers-color-scheme: dark)").matches ? 1 : 0, wd: n.webdriver ? 1 : 0,
+        mob: u ? (u.mobile ? 1 : 0) : undefined, brands: u ? u.brands.map((b) => b.brand + " " + b.version).join(", ").slice(0, 120) : undefined,
+        model: hi.model, pv: hi.platformVersion, arch: hi.architecture && hi.architecture + (hi.bitness ? "/" + hi.bitness : ""), full: hi.uaFullVersion,
+        link: location.hash ? 1 : 0, ms: stage === "leave" ? Math.round(performance.now()) : undefined,
   room.hidden = false;
   if (REDUCED) {
     walk = DOOR_Z; vel = 0; goal = null;
@@ -4282,6 +4313,7 @@ else {
   $("padX").addEventListener("click", () => setPad(false));
   $("padKeys").addEventListener("click", (e) => {
     const b = e.target.closest("button");
+addEventListener("pagehide", () => visit("leave"));
     if (b && b.dataset.k) press(b.dataset.k);
   });
   document.addEventListener("pointermove", (e) => {
