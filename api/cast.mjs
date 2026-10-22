@@ -74,10 +74,13 @@ return redis.call('DEL', KEYS[1])`;
 // somebody you have shut out of the proxy is not somebody you want watching
 // your screen, and two lists would drift the moment you used one of them.
 const IP_HASH = "pxbip";
-// Who opened /cast, newest first, capped. `open` is a page load, `door` the
-// cover's code accepted, `wrong` a code refused.
+// Everything that touched /cast, newest first, capped. The page's beacon writes
+// `open` (a page load), `door` (the cover's code accepted) and `wrong` (a code
+// refused); this file writes `lookup` (the registry answered a good key),
+// `badkey`, `blocked`, `wish` (a start/stop request) and `badwish`. Keys and
+// tokens are never stored, only whether they matched.
 const VISITS = "castv";
-const VISITS_CAP = 1000;
+const VISITS_CAP = 5000;
 const VISIT_STAGES = ["open", "door", "wrong"];
 
 export default { fetch: handle };
@@ -95,15 +98,13 @@ async function handle(request) {
   const stage = url.searchParams.get("visit");
   if (request.method === "POST" && stage) {
     if (VISIT_STAGES.includes(stage)) {
-      const h = request.headers;
-      const line = JSON.stringify({
-        t: Date.now(), ip: clientIp(request), stage,
-        country: h.get("x-vercel-ip-country") || "",
-        city: decodeURIComponent(h.get("x-vercel-ip-city") || ""),
-        ua: (h.get("user-agent") || "").slice(0, 200),
+      // What the page says about itself: screen, language, zone, hardware. The
+      // browser volunteers it, so it is kept as given, clipped.
+      const page = await request.json().catch(() => null);
+      await record(request, stage, {
         ref: (url.searchParams.get("r") || "").slice(0, 200),
+        page: page && typeof page === "object" && JSON.stringify(page).length < 800 ? page : undefined,
       });
-      try { await pipe([["LPUSH", VISITS, line], ["LTRIM", VISITS, "0", String(VISITS_CAP - 1)]]); } catch (_) {}
     }
     return new Response(null, { status: 204 });
   }
@@ -136,6 +137,7 @@ async function handle(request) {
       // about itself, and blocking the owner's own IP would be a strange way to
       // lock yourself out of your own machine.
       if (blocked(out[3])) {
+        await record(request, "blocked", { on: "lookup" });
         return json(403, { error: "blocked", detail: "The owner has blocked this device." });
       }
       const rec = parse(took(out[0]));
@@ -151,7 +153,11 @@ async function handle(request) {
         }
         return json(404, body);
       }
-      if (!safeEqual(await sha256(given), rec.th)) return json(401, { error: "Bad token" });
+      if (!safeEqual(await sha256(given), rec.th)) {
+        await record(request, "badkey", { keylen: given.length });
+        return json(401, { error: "Bad token" });
+      }
+      await record(request, "lookup", { host: rec.name || "" });
       return json(200, { url: rec.url, name: rec.name || "", at: rec.at });
     }
 
@@ -169,12 +175,17 @@ async function handle(request) {
       // The viewer's side of the remote start. Blocked before the key, as on GET,
       // and for the same reason: a blocked device does not get to probe.
       if (blocked(out[2])) {
+        await record(request, "blocked", { on: "wish" });
         return json(403, { error: "blocked", detail: "The owner has blocked this device." });
       }
       const agent = parse(took(out[0]));
       if (!agent) return json(404, { error: "noagent", detail: "The host is not listening." });
-      if (!safeEqual(await sha256(given), agent.th)) return json(401, { error: "Bad token" });
+      if (!safeEqual(await sha256(given), agent.th)) {
+        await record(request, "badwish", { want, keylen: given.length });
+        return json(401, { error: "Bad token" });
+      }
       if (want !== "start" && want !== "stop") return json(400, { error: "want must be start or stop" });
+      await record(request, "wish", { want });
       await cmd(["SET", WANT, want, "EX", String(WANT_TTL)]);
       return json(200, { ok: true, want, name: agent.name || "", casting: !!parse(took(out[1])) });
     }
@@ -317,6 +328,27 @@ function took(entry) {
 // IP, which is nobody the owner can have blocked.
 function blocked(entry) {
   return !!entry?.result;
+}
+
+// One line in the activity log. Never throws: a dead KV must not break the
+// request being logged.
+async function record(request, stage, extra) {
+  const h = request.headers;
+  const line = JSON.stringify({
+    t: Date.now(), ip: clientIp(request), stage,
+    country: h.get("x-vercel-ip-country") || "",
+    region: h.get("x-vercel-ip-country-region") || "",
+    city: decodeURIComponent(h.get("x-vercel-ip-city") || ""),
+    loc: [h.get("x-vercel-ip-latitude"), h.get("x-vercel-ip-longitude")].filter(Boolean).join(","),
+    tz: h.get("x-vercel-ip-timezone") || "",
+    ua: (h.get("user-agent") || "").slice(0, 300),
+    lang: (h.get("accept-language") || "").slice(0, 80),
+    xff: (h.get("x-forwarded-for") || "").slice(0, 200),
+    host: h.get("host") || "",
+    site: h.get("sec-fetch-site") || "",
+    ...extra,
+  });
+  try { await pipe([["LPUSH", VISITS, line], ["LTRIM", VISITS, "0", String(VISITS_CAP - 1)]]); } catch (_) {}
 }
 
 function clientIp(request) {

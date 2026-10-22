@@ -836,10 +836,10 @@ export function ffmpegArgs(encoder, s, scale = true) {
   //   after the first, a viewer who joins late or drops a frame never recovers.
   //   Handling a recovery point the way a keyframe is handled would be a
   //   different change in a different place.
-  // - A bigger VBV only permits a bigger burst; a smaller one is what the
-  //   two-frame budget above already was, and the comment records what it did
-  //   to keyframe quality. Neither moves without a measurement, and none was
-  //   taken here.
+  // - The VBV is the keyframe's size limit. At a quarter second of the ceiling
+  //   a 1080p keyframe was ~410 KB, ~200 ms on a 15 mbps link, and the
+  //   recorder showed a 180-240 ms arrival gap behind every one. It is now a
+  //   tenth of a second (~160 KB, ~80 ms) at the cost of a coarser keyframe.
   // - A longer GOP is the lever that works, and it is the one already spent:
   //   GOP_SECONDS is held at one second because it is also how long a viewer
   //   that drops a frame waits to see a picture again.
@@ -849,10 +849,10 @@ export function ffmpegArgs(encoder, s, scale = true) {
   // keyframe by the same ratio. That is arithmetic, not a measurement.
   const rate = vbr
     ? ["-b:v", "0", "-cq", String(Math.min(51, Math.max(1, (QUALITY[codecOf(encoder)] || QUALITY.h264) + (s.cq || 0)))),
-       "-maxrate", s.mbps + "M", "-bufsize", Math.round(s.mbps * 250) + "k",
+       "-maxrate", s.mbps + "M", "-bufsize", Math.round(s.mbps * 100) + "k",
        "-g", String(s.fps * GOP_SECONDS), "-bf", "0"]
     : ["-b:v", s.mbps + "M", "-maxrate", s.mbps + "M",
-       "-bufsize", Math.round(s.mbps * 250) + "k",
+       "-bufsize", Math.round(s.mbps * 100) + "k",
        "-g", String(s.fps * GOP_SECONDS), "-bf", "0"];
   // p4 over p1, and low latency over ultra low: p1 is the fastest preset there
   // is and it shows in the bitrate, spending bits where a slightly less hurried

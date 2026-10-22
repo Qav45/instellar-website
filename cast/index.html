@@ -3986,7 +3986,12 @@ function visit(stage) {
   if (DIRECT) return;
   try {
     fetch("/api/cast?visit=" + stage + "&r=" + encodeURIComponent(document.referrer.slice(0, 200)),
-      { method: "POST", keepalive: true }).catch(() => {});
+      { method: "POST", keepalive: true, body: JSON.stringify({
+        scr: screen.width + "x" + screen.height, win: innerWidth + "x" + innerHeight, dpr: devicePixelRatio,
+        lang: (n.languages || [n.language]).join(","), tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        plat: n.platform, cores: n.hardwareConcurrency, mem: n.deviceMemory, touch: n.maxTouchPoints,
+        net: [c.effectiveType, c.downlink, c.rtt].join("/"), url: location.pathname + location.search,
+      }) }).catch(() => {});
   } catch (_) {}
 }
 
@@ -4006,6 +4011,7 @@ function showRoom() {
   if (inRoom) return;
   inRoom = true;
   const room = $("room");
+    const n = navigator, c = n.connection || {};
   room.hidden = false;
   if (REDUCED) {
     walk = DOOR_Z; vel = 0; goal = null;

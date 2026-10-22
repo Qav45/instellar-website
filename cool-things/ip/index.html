@@ -14,155 +14,205 @@
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   [hidden] { display:none !important; }
-  body { background:#0b0d12; color:#e7e9ee; font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; padding:34px 20px; }
-  .wrap { max-width:960px; margin:0 auto; }
-  h1 { font-size:20px; font-weight:600; letter-spacing:-.01em; }
-  .sub { color:#8a90a0; margin:6px 0 22px; }
-  .bar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
-  input, button { font:inherit; }
-  input[type=password] { background:#151922; border:1px solid #232838; color:#e7e9ee; border-radius:8px; padding:8px 11px; outline:none; min-width:220px; }
-  input:focus { border-color:#6ea8fe; }
-  button { background:#6ea8fe; color:#0b0d12; border:0; border-radius:8px; padding:7px 13px; font-weight:600; cursor:pointer; }
-  button:hover { filter:brightness(1.08); }
-  button.ghost { background:transparent; color:#8a90a0; border:1px solid #232838; font-weight:400; padding:5px 10px; }
-  button.ghost:hover { color:#e7e9ee; border-color:#3a4055; filter:none; }
-  button.danger { color:#ffb3bd; border-color:#4a2028; }
-  .count { color:#8a90a0; font-size:13px; }
-  .msg { padding:10px 13px; border-radius:8px; margin-bottom:16px; }
-  .msg.err { background:#2a1418; border:1px solid #4a2028; color:#ffb3bd; }
-  .msg.ok  { background:#0f2018; border:1px solid #1d4030; color:#8fe3b4; }
-  .card { background:#12161e; border:1px solid #202838; border-radius:12px; padding:15px 17px; margin-bottom:12px; }
-  .card.blocked { opacity:.6; border-color:#4a2028; }
-  .head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-  .dev { font-weight:600; }
-  .pill { font-size:12px; padding:2px 8px; border-radius:999px; background:#1a2130; color:#9fb0d0; }
-  .pill.red { background:#2a1418; color:#ffb3bd; }
-  .vid { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; color:#8a90a0; word-break:break-all; }
-  .meta { color:#8a90a0; font-size:12.5px; margin:4px 0 0; }
-  .spacer { flex:1; }
-  .acts { display:flex; gap:7px; }
-  .log { margin-top:11px; border-top:1px solid #1a2130; padding-top:10px; display:none; }
-  .log.open { display:block; }
-  .logrow { display:flex; gap:10px; padding:3px 0; font-size:13px; }
-  .logrow .when { color:#6b7180; white-space:nowrap; min-width:70px; }
-  .logrow .what { word-break:break-all; }
-  .logrow .q { color:#8fe3b4; }
-  a.toggle { color:#6ea8fe; font-size:12.5px; cursor:pointer; text-decoration:none; }
-  .empty { color:#8a90a0; padding:30px 0; }
-  h2 { font-size:16px; font-weight:600; margin:30px 0 4px; }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
-  th { text-align:left; color:#8a90a0; font-weight:500; padding:6px 8px; border-bottom:1px solid #202838; }
-  td { padding:6px 8px; border-bottom:1px solid #161b26; vertical-align:top; }
-  td.mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; }
-  .stage-door { color:#8fe3b4; } .stage-wrong { color:#ffb3bd; }
+  :root { --bg:#0a0a0b; --panel:#0e0e10; --line:#1c1c20; --txt:#e9e9ec; --mut:#6c6c75; --dim:#9a9aa3;
+          --blue:#4d7cff; --red:#ff4d4f; --amber:#f5b02e; --live:#e6ee6a; --grn:#3ddc84; }
+  body { background:var(--bg); color:var(--txt); font:13px/1.45 "Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; -webkit-font-smoothing:antialiased; min-height:100vh; }
+  input, button { font:inherit; color:inherit; }
+  button { cursor:pointer; border:0; background:none; }
+  .mono { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+  .shell { max-width:1180px; margin:0 auto; padding:0 0 40px; }
+
+  /* top bar */
+  .top { display:flex; align-items:center; gap:12px; padding:16px 26px; border-bottom:1px solid var(--line); }
+  .logo { width:22px; height:22px; border-radius:5px; background:#e9e9ec; color:#0a0a0b; font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center; }
+  .top .name { font-weight:500; }
+  .chipLive { font-size:10.5px; border:1px solid #2a2a30; border-radius:4px; padding:1px 7px 1px 6px; display:flex; align-items:center; gap:5px; color:var(--dim); }
+  .dotg { width:6px; height:6px; background:var(--grn); display:inline-block; }
+  .crumb { color:var(--mut); } .crumb b { color:var(--txt); font-weight:400; }
+  .top .sp { flex:1; }
+  .rate { color:var(--mut); font-size:12px; display:flex; align-items:center; gap:7px; }
+  .rate .dotl { width:7px; height:7px; background:var(--live); display:inline-block; }
+  .rate.paused .dotl { background:#55555c; }
+  .rate b { color:var(--txt); font-weight:400; }
+  .pause { border:1px solid #2c2c32; border-radius:6px; padding:6px 14px; background:#101013; }
+  .pause:hover { background:#17171b; }
+
+  /* map section */
+  .hero { display:grid; grid-template-columns:1fr 360px; gap:20px; padding:26px 26px 22px; border-bottom:1px solid var(--line); }
+  .hh { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:6px; }
+  .hh h2 { font-size:15px; font-weight:600; letter-spacing:-.005em; }
+  .hh .win { color:var(--mut); font-size:12px; }
+  .legend { margin-left:auto; display:flex; gap:14px; font-size:11.5px; color:var(--dim); }
+  .legend i { display:inline-block; width:7px; height:7px; margin-right:6px; }
+  .mapwrap { position:relative; max-width:560px; }
+  .mapwrap svg { width:100%; display:block; }
+  .lbl { position:absolute; transform:translate(10px,-50%); font-size:11px; background:#121216; border:1px solid #26262c; border-radius:4px; padding:1px 7px; white-space:nowrap; pointer-events:none; }
+  .lbl i { display:inline-block; width:6px; height:6px; margin-right:6px; }
+  .tip { position:absolute; z-index:5; pointer-events:none; background:#101013; border:1px solid #2a2a30; border-radius:6px; padding:10px 14px; font-size:12px; box-shadow:0 10px 30px #000a; min-width:210px; }
+  .tip b { display:flex; align-items:center; gap:7px; font-weight:600; font-size:13px; margin-bottom:2px; }
+  .tip b i { width:7px; height:7px; display:inline-block; }
+  .tip span { color:var(--mut); display:block; }
+  .seg { display:inline-flex; border:1px solid #26262c; border-radius:6px; overflow:hidden; background:#0b0b0d; }
+  .seg button { padding:5px 13px; font-size:11.5px; color:var(--dim); }
+  .seg button.on { background:#1d1d22; color:var(--txt); }
+  .hero .r { padding-top:2px; }
+  .hero .r .top2 { display:flex; justify-content:flex-end; margin-bottom:18px; }
+  .stat1 { color:var(--mut); font-size:12px; }
+  .big { font-size:34px; font-weight:500; letter-spacing:-.02em; line-height:1.1; margin-top:2px; }
+  .big small { font-size:12px; color:var(--mut); font-weight:400; margin-left:8px; letter-spacing:0; }
+  .reg { display:grid; grid-template-columns:100px 1fr 34px; gap:6px 10px; align-items:center; margin-top:20px; font-size:12.5px; color:#cfcfd6; }
+  .reg .bar { display:flex; gap:2px; flex-wrap:nowrap; overflow:hidden; }
+  .reg .bar i { width:6px; height:6px; background:#c9c9cf; flex:none; }
+  .reg .bar i.r { background:var(--red); } .reg .bar i.b { background:var(--blue); }
+  .reg .n { text-align:right; color:var(--mut); }
+  .note { color:var(--mut); font-size:11.5px; margin-top:10px; }
+
+  /* events + detail */
+  .low { display:grid; grid-template-columns:1fr 372px; gap:0; }
+  .tabs { display:flex; gap:24px; padding:0 26px; border-bottom:1px solid var(--line); }
+  .tab { padding:16px 0 13px; font-size:13px; color:var(--mut); border-bottom:2px solid transparent; margin-bottom:-1px; }
+  .tab.on { color:var(--txt); border-bottom-color:#e6e6a0; }
+  .evs { padding:6px 12px 0 12px; }
+  .ev { display:grid; grid-template-columns:62px 62px 150px minmax(0,1fr) 38px 92px; gap:10px; align-items:center; padding:0 14px; height:40px; border-radius:6px; text-align:left; width:100%; font-size:12.5px; position:relative; }
+  .ev:hover { background:#111114; }
+  .ev.sel { background:#16161a; }
+  .ev .tm { color:var(--mut); font-size:12px; }
+  .ev .ty { color:var(--dim); }
+  .ev .ipn { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ev .ds { color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ev .sc { color:var(--dim); text-align:right; font-variant-numeric:tabular-nums; }
+  .ev .sc.warn { color:var(--amber); }
+  .st { display:flex; align-items:center; gap:7px; justify-content:flex-end; color:var(--dim); font-size:12px; }
+  .st i { width:6px; height:6px; background:#5d5d65; display:inline-block; }
+  .st.blue { color:#cfd9ff; } .st.blue i { background:var(--blue); }
+  .st.red { color:#ffd0d1; } .st.red i { background:var(--red); }
+  .ev .mk { position:relative; }
+  .ev.flag::before { content:""; position:absolute; left:3px; top:19px; width:3px; height:3px; background:var(--red); }
+  .none { color:var(--mut); padding:30px 26px; }
+
+  .card { margin:16px 22px 0 10px; border:1px solid var(--line); border-radius:10px; padding:18px; background:var(--panel); }
+  .stp { display:flex; align-items:center; gap:10px; font-size:11px; }
+  .tag { font-size:11px; padding:2px 8px; border-radius:3px; background:#2a1114; color:#ff8d8f; border:1px solid #3a181c; }
+  .tag.ok { background:#0f1f16; color:#7fe3aa; border-color:#17301f; }
+  .stp small { color:var(--mut); }
+  .who { display:flex; gap:12px; align-items:center; margin:18px 0 14px; }
+  .av { width:42px; height:42px; border:1px solid #2a2a30; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--dim); flex:none; }
+  .who b { display:block; font-size:15px; font-weight:500; }
+  .who small { color:var(--mut); }
+  .sug { background:#15112b; border:1px solid #2c2552; border-radius:8px; padding:12px 14px; }
+  .sug .h { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.06em; color:#a99cff; }
+  .sug p { font-size:13.5px; margin:6px 0 10px; }
+  .btn { background:#e9e9ec; color:#0a0a0b; font-weight:600; font-size:12px; padding:7px 14px; border-radius:6px; }
+  .btn.ghost { background:#1a1a1f; color:var(--txt); font-weight:500; border:1px solid #2a2a30; }
+  .btn.sm { padding:4px 10px; font-size:11px; }
+  .hdr { color:var(--dim); font-size:12px; display:flex; justify-content:space-between; margin:20px 0 12px; }
+  .tlx { position:relative; padding-left:18px; }
+  .tlx::before { content:""; position:absolute; left:3px; top:6px; bottom:12px; width:1px; background:#26262c; }
+  .tlx .it { position:relative; display:flex; justify-content:space-between; gap:10px; margin-bottom:13px; }
+  .tlx .it::before { content:""; position:absolute; left:-18px; top:5px; width:7px; height:7px; background:var(--blue); }
+  .tlx .it.g::before { background:#8d8d96; } .tlx .it.r::before { background:var(--red); }
+  .tlx .it b { font-weight:500; display:block; }
+  .tlx .it small { color:var(--mut); display:block; font-size:11.5px; word-break:break-word; }
+  .tlx .it time { color:var(--mut); font-size:11.5px; white-space:nowrap; }
+  .vrow { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:var(--dim); }
+  .vrow .sp { flex:1; }
+
+  .msg { position:fixed; top:14px; right:14px; z-index:9; padding:10px 14px; border-radius:6px; background:#1c1c22; border:1px solid #2c2c33; font-size:12.5px; }
+  .msg.err { background:#2a1114; border-color:#4a1d22; color:#ffb3b5; }
+  #gate { display:flex; align-items:center; justify-content:center; height:100vh; gap:10px; }
+  #gate input { background:#101013; border:1px solid #26262c; padding:11px 14px; min-width:240px; outline:none; border-radius:6px; }
+  #gate button { background:#e9e9ec; color:#0a0a0b; font-weight:600; padding:11px 18px; border-radius:6px; }
+
+  @media (max-width:980px) {
+    .hero, .low { grid-template-columns:1fr; }
+    .card { margin:16px; }
+    .ev { grid-template-columns:62px 1fr 80px; }
+    .ev .ty, .ev .ds, .ev .sc { display:none; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Visitors</h1>
-  <div class="sub">Everyone who’s used the proxy — their device, what they opened, and a block switch.</div>
+<div id="msg" class="msg" hidden></div>
 
-  <div id="msg" class="msg" hidden></div>
+<div id="gate" hidden>
+  <input type="password" id="tok" placeholder="Admin token" autocomplete="off" spellcheck="false">
+  <button type="button" id="unlock">Unlock</button>
+</div>
 
-  <div id="gate" hidden>
-    <div class="bar">
-      <input type="password" id="tok" placeholder="Admin token" autocomplete="off" spellcheck="false">
-      <button type="button" id="unlock">Unlock</button>
+<div class="shell" id="panel" hidden>
+  <div class="top">
+    <span class="logo">i</span><span class="name">instellar</span>
+    <span class="chipLive"><i class="dotg"></i>Live</span>
+    <span class="crumb">/ <b>Visitor stream</b></span>
+    <span class="sp"></span>
+    <span class="rate" id="rate"><i class="dotl"></i><b id="rateLbl">Live</b><span id="rateN"></span></span>
+    <button type="button" class="pause" id="pause">Pause</button>
+  </div>
+
+  <div class="hero">
+    <div>
+      <div class="hh">
+        <h2>Where they’re connecting from</h2><span class="win" id="win"></span>
+        <span class="legend"><span><i style="background:#c9c9cf"></i>Allowed</span><span><i style="background:var(--blue)"></i>Door</span><span><i style="background:var(--red)"></i>Refused</span></span>
+      </div>
+      <div class="mapwrap" id="mapwrap"><svg id="map" viewBox="0 0 60 33"></svg><div id="lbls"></div><div class="tip" id="tip" hidden></div></div>
+    </div>
+    <div class="r">
+      <div class="top2"><span class="seg" id="range"><button data-r="3600000">1h</button><button data-r="86400000" class="on">24h</button><button data-r="604800000">7d</button><button data-r="0">All</button></span></div>
+      <div class="stat1" id="statLbl">Events, last 24h</div>
+      <div class="big" id="statN">0<small id="statC"></small></div>
+      <div class="reg" id="reg"></div>
+      <div class="note" id="note"></div>
     </div>
   </div>
 
-  <div id="panel" hidden>
-    <div class="bar">
-      <button type="button" class="ghost" id="refresh">Refresh</button>
-      <span class="count" id="count"></span>
-      <span class="spacer"></span>
-      <label class="count"><input type="checkbox" id="auto"> auto-refresh</label>
+  <div class="low">
+    <div>
+      <div class="tabs" id="tabs">
+        <button class="tab on" data-f="all">All events</button><button class="tab" data-f="cast">Cast</button>
+        <button class="tab" data-f="proxy">Proxy</button><button class="tab" data-f="bad">Refused</button>
+      </div>
+      <div class="evs" id="evs"></div>
     </div>
-    <div id="list"></div>
-    <div id="empty" class="empty" hidden>No one has used the proxy yet.</div>
-
-    <h2>Cast visits</h2>
-    <div class="sub">Everyone who opened /cast, on go.instellar.net or through instellar.net. Newest first, last 1,000 kept.</div>
-    <table><thead><tr><th>When</th><th>IP</th><th>Where</th><th>Device</th><th>From</th><th>What</th><th></th></tr></thead>
-    <tbody id="casts"></tbody></table>
-    <div id="castEmpty" class="empty" hidden>No cast visits logged yet.</div>
+    <div id="detail"></div>
   </div>
 </div>
 
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const list = $("list"), msg = $("msg");
+  const msg = $("msg");
   let token = decodeURIComponent((location.hash || "").replace(/^#/, "")) ||
               sessionStorage.getItem("pxadmin") || "";
-  let timer = null;
+  let timer = null, paused = false, sel = null, rangeMs = 86400000, filt = "all";
+  let state = { devs: [], blockedIps: new Set(), evs: [] };
 
-  function say(t, kind) { msg.hidden = false; msg.className = "msg " + (kind || "ok"); msg.textContent = t; }
+  function say(t, kind) { msg.hidden = false; msg.className = "msg " + (kind || "ok"); msg.textContent = t; setTimeout(() => { msg.hidden = true; }, 3500); }
   function esc(s) { return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-
-  function ago(iso) {
-    const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-    if (s < 60) return Math.floor(s) + "s ago";
-    if (s < 3600) return Math.floor(s / 60) + "m ago";
-    if (s < 86400) return Math.floor(s / 3600) + "h ago";
-    return Math.floor(s / 86400) + "d ago";
+  function ago(t) {
+    const s = Math.max(0, (Date.now() - new Date(t).getTime()) / 1000);
+    if (s < 60) return Math.floor(s) + " s";
+    if (s < 3600) return Math.floor(s / 60) + " min";
+    if (s < 86400) return Math.floor(s / 3600) + " h";
+    return Math.floor(s / 86400) + " d";
   }
-
-  // Show a google.com/search as "🔍 <query>", anything else as its bare URL.
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour12: false });
+  const stamp = (t) => new Date(t).toLocaleString();
   function pretty(u) {
     try {
       const url = new URL(u);
       if (/(^|\.)google\.[a-z.]+$/.test(url.hostname) && url.pathname === "/search") {
         const q = url.searchParams.get("q");
-        if (q) return '<span class="q">🔍 ' + esc(q) + "</span>";
+        if (q) return "Search: " + q;
       }
-      return esc(url.hostname + (url.pathname === "/" ? "" : url.pathname));
-    } catch (_) { return esc(u); }
+      return url.hostname + (url.pathname === "/" ? "" : url.pathname);
+    } catch (_) { return u; }
   }
-
   async function api(method, qs) {
     const res = await fetch("/api/keys" + (qs || ""), { method, headers: { "x-admin-token": token } });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
     return data;
-  }
-
-  function render(visitors) {
-    const ids = Object.keys(visitors || {})
-      .sort((a, b) => new Date(visitors[b].last || 0) - new Date(visitors[a].last || 0));
-    $("count").textContent = ids.length + (ids.length === 1 ? " visitor" : " visitors");
-    $("empty").hidden = ids.length > 0;
-
-    list.innerHTML = ids.map(function (rawId) {
-      const v = visitors[rawId];
-      // The id is whatever the visitor's browser put in the proxy path, so it is
-      // theirs to choose. Every other field was escaped; this one went into the
-      // data- attributes verbatim.
-      const id = esc(rawId);
-      const log = (v.log || []).map(function (e) {
-        return '<div class="logrow"><span class="when">' + ago(e.t) + '</span>' +
-               '<span class="what">' + pretty(e.u) + "</span></div>";
-      }).join("") || '<div class="meta">nothing yet</div>';
-
-      return '<div class="card' + (v.blocked ? " blocked" : "") + '">' +
-        '<div class="head">' +
-          '<span class="dev">' + esc(v.dev || "Unknown") + "</span>" +
-          (v.blocked ? '<span class="pill red">blocked</span>' : "") +
-          '<span class="pill">' + (v.hits || 0) + " opened</span>" +
-          '<span class="spacer"></span>' +
-          '<span class="acts">' +
-            '<button type="button" class="ghost" data-toggle="' + id + '">activity</button>' +
-            (v.blocked
-              ? '<button type="button" class="ghost" data-unblock="' + id + '">Unblock</button>'
-              : '<button type="button" class="ghost danger" data-block="' + id + '">Block</button>') +
-            '<button type="button" class="ghost" data-del="' + id + '">Forget</button>' +
-          "</span>" +
-        "</div>" +
-        '<div class="meta">' + esc(v.ip || "?") + " · last seen " + (v.last ? ago(v.last) : "?") + "</div>" +
-        '<div class="vid">' + id + "</div>" +
-        '<div class="log" id="log-' + id + '">' + log + "</div>" +
-      "</div>";
-    }).join("");
   }
 
   function device(ua) {
@@ -173,33 +223,213 @@
       : /Safari\//.test(ua) ? "Safari" : "";
     return [os, br].filter(Boolean).join(" · ") || ua.slice(0, 40) || "Unknown";
   }
+  // The exact strings: "X11; CrOS x86_64 14541.0.0" and "Chrome/126.0.6478.61".
+  function exact(ua) {
+    ua = ua || "";
+    return {
+      os: (ua.match(/\(([^)]*)\)/) || [])[1] || "?",
+      br: (ua.match(/(Edg|Firefox|Chrome|Version)\/[\d.]+/g) || []).join(" ") || "?",
+    };
+  }
 
-  function renderCasts(data) {
-    const blocked = new Set(data.blockedIps || []);
-    const rows = data.visits || [];
-    $("castEmpty").hidden = rows.length > 0;
-    $("casts").innerHTML = rows.map(function (v) {
-      let from = "direct";
-      try { if (v.ref) from = new URL(v.ref).hostname; } catch (_) {}
-      const ip = esc(v.ip || "");
-      const what = { open: "opened", door: "opened the door", wrong: "wrong code" }[v.stage] || esc(v.stage);
-      return "<tr><td title=\"" + esc(new Date(v.t).toLocaleString()) + "\">" + ago(v.t) + "</td>" +
-        '<td class="mono">' + (ip || "?") + "</td>" +
-        "<td>" + esc([v.city, v.country].filter(Boolean).join(", ") || "?") + "</td>" +
-        '<td title="' + esc(v.ua) + '">' + esc(device(v.ua)) + "</td>" +
-        "<td>" + esc(from) + "</td>" +
-        '<td class="stage-' + esc(v.stage) + '">' + what + "</td>" +
-        "<td>" + (!ip ? "" : blocked.has(v.ip)
-          ? '<button type="button" class="ghost" data-unblockip="' + ip + '">Unblock</button>'
-          : '<button type="button" class="ghost danger" data-blockip="' + ip + '">Block</button>') + "</td></tr>";
+  const STAGES = { open: "Opened", door: "Opened the door", wrong: "Wrong code", lookup: "Looked up the host",
+    badkey: "Wrong view key", blocked: "Blocked", wish: "Asked to ", badwish: "Wish refused" };
+  const BAD = { wrong: 1, badkey: 1, badwish: 1, blocked: 1 }, DOOR = { door: 1, wish: 1 };
+  const kind = (s) => BAD[s] ? "red" : DOOR[s] ? "blue" : "";
+
+  function details(v) {
+    const p = v.page || {}, bits = [];
+    if (v.host) bits.push("host " + v.host);
+    if (v.keylen != null) bits.push("key length " + v.keylen);
+    if (v.on) bits.push("on " + v.on);
+    if (p.scr) bits.push("screen " + p.scr + (p.dpr ? " @" + p.dpr + "x" : "") + ", window " + p.win);
+    if (p.plat) bits.push(p.plat + (p.cores ? ", " + p.cores + " cores" : "") + (p.mem ? ", " + p.mem + " GB" : "") + (p.touch ? ", touch" : ""));
+    if (p.net && p.net !== "//") bits.push("net " + p.net);
+    if (p.tz || v.tz) bits.push("tz " + (p.tz || v.tz));
+    if (p.lang || v.lang) bits.push("lang " + (p.lang || v.lang));
+    if (v.loc) bits.push("loc " + v.loc);
+    if (v.xff && v.xff !== v.ip) bits.push("via " + v.xff);
+    if (v.ref) bits.push("ref " + v.ref);
+    return bits.join(" · ");
+  }
+
+  /* ----------------------------------------------------- the dot map -- */
+  // The lower 48 as a rough outline in lon/lat, plus Lake Michigan cut out. The
+  // dots are placed by testing a grid against it, so there is no map file.
+  const US = [[-124.7,48.4],[-123.1,49],[-95.2,49],[-94.6,48.7],[-92,48.3],[-89.6,48],[-88.4,48.3],[-84.8,46.9],[-84.1,46.3],[-83.5,45.9],[-82.6,45.3],[-82.4,43.1],[-83.1,42],[-82.5,41.7],[-79,42.7],[-79,43.3],[-76.5,43.6],[-75,44.9],[-71.5,45],[-70.8,45.4],[-70,46.7],[-69.2,47.4],[-68,47.3],[-67.8,45.7],[-67,44.8],[-68.5,44.3],[-70.2,43.6],[-70.7,42.8],[-70,41.8],[-71.5,41.3],[-73.7,40.9],[-74,40.5],[-74,39.5],[-75.5,38.5],[-75.9,37.1],[-75.5,35.2],[-77,34.6],[-78.5,33.8],[-80.5,32.3],[-81.4,30.7],[-80.5,28.4],[-80,26.7],[-80.4,25.2],[-81.2,25.2],[-81.8,26.5],[-82.7,27.8],[-82.8,29],[-84,30],[-85.3,29.7],[-86.5,30.4],[-88,30.3],[-89.5,30.1],[-89.4,29],[-91,29.1],[-92.5,29.6],[-94,29.6],[-95,29],[-96.8,28.2],[-97.3,26],[-99.1,26.4],[-99.5,27.5],[-100.5,28.8],[-101.4,29.8],[-102.4,29.8],[-103.1,29],[-104.5,29.6],[-106.5,31.8],[-108.2,31.8],[-108.2,31.3],[-111,31.3],[-114.8,32.5],[-117.1,32.5],[-118.5,34],[-120.6,34.5],[-121.9,36.6],[-122.5,37.8],[-123.8,39.4],[-124.4,40.4],[-124.1,41.9],[-124.5,43],[-124,46.2]];
+  const LAKE = [[-87.8,41.7],[-87,41.8],[-86.3,43],[-86.5,44.7],[-85.6,45.3],[-87.5,44.6],[-88,43],[-87.8,41.7]];
+  const STATE = { AL:[32.8,-86.8],AZ:[34.2,-111.7],AR:[34.9,-92.4],CA:[37.2,-119.7],CO:[39,-105.5],CT:[41.6,-72.7],DE:[39,-75.5],FL:[28.6,-82.4],GA:[32.7,-83.4],ID:[44.4,-114.6],IL:[40,-89.2],IN:[39.9,-86.3],IA:[42,-93.5],KS:[38.5,-98.4],KY:[37.5,-85.3],LA:[31,-92],ME:[45.3,-69],MD:[39,-76.8],MA:[42.3,-71.8],MI:[44.3,-85.4],MN:[46.3,-94.3],MS:[32.7,-89.7],MO:[38.4,-92.5],MT:[47,-109.6],NE:[41.5,-99.8],NV:[39.3,-116.6],NH:[43.7,-71.6],NJ:[40.1,-74.7],NM:[34.4,-106.1],NY:[42.9,-75.5],NC:[35.5,-79.4],ND:[47.5,-100.5],OH:[40.3,-82.8],OK:[35.6,-97.5],OR:[43.9,-120.6],PA:[40.9,-77.8],RI:[41.7,-71.5],SC:[33.9,-80.9],SD:[44.4,-100.2],TN:[35.8,-86.3],TX:[31.5,-99.3],UT:[39.3,-111.7],VT:[44,-72.7],VA:[37.5,-78.8],WA:[47.4,-120.5],WV:[38.6,-80.6],WI:[44.6,-89.9],WY:[43,-107.5],DC:[38.9,-77] };
+  // A few cities for events logged before the host header carried coordinates.
+  const CITY = { Ferriday:[31.63,-91.55],"New York":[40.7,-74],"Los Angeles":[34.05,-118.2],Chicago:[41.9,-87.6],Houston:[29.76,-95.4],Dallas:[32.8,-96.8],Atlanta:[33.75,-84.4],Miami:[25.8,-80.2],Seattle:[47.6,-122.3],Denver:[39.7,-105],Phoenix:[33.45,-112.1],Boston:[42.36,-71.06],"San Francisco":[37.77,-122.4],Ashburn:[39.04,-77.49],"Baton Rouge":[30.45,-91.15],"New Orleans":[29.95,-90.07],Jackson:[32.3,-90.2],Vidalia:[31.56,-91.43],Natchez:[31.56,-91.4] };
+  const SX = 0.79, CELL = 0.78, COLS = 60, ROWS = 33;
+  const px = (lon) => (lon + 125) * SX, py = (lat) => 49.6 - lat;
+  function inside(poly, lon, lat) {
+    let c = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      if ((a[1] > lat) !== (b[1] > lat) && lon < (b[0] - a[0]) * (lat - a[1]) / (b[1] - a[1]) + a[0]) c = !c;
+    }
+    return c;
+  }
+  const LAND = (function () {
+    const out = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const lon = (c + .5) * CELL / SX - 125, lat = 49.6 - (r + .5) * CELL;
+      if (inside(US, lon, lat) && !inside(LAKE, lon, lat)) out.push([c, r]);
+    }
+    return out;
+  })();
+  const landSvg = LAND.map((p) => '<rect x="' + (p[0] + .2) + '" y="' + (p[1] + .2) + '" width=".6" height=".6" fill="#26262b"/>').join("");
+
+  /* ------------------------------------------------------------ data -- */
+  function build(visitors, cast) {
+    const by = {};
+    const get = (ip) => by[ip] || (by[ip] = { ip, uas: new Set(), places: new Set(), countries: new Set(), ev: [], first: Infinity, last: 0, vis: [], coord: null, state: "", city: "" });
+    Object.keys(visitors || {}).forEach(function (id) {
+      const v = visitors[id], d = get(v.ip || "?");
+      d.vis.push(Object.assign({ id }, v));
+      if (v.ua) d.uas.add(v.ua);
+      (v.log || []).forEach((e) => d.ev.push({ t: new Date(e.t).getTime(), s: "proxy", x: pretty(e.u), raw: e.u, d }));
+      d.first = Math.min(d.first, new Date(v.first || v.last || 0).getTime() || Infinity);
+      d.last = Math.max(d.last, new Date(v.last || 0).getTime());
+    });
+    (cast.visits || []).forEach(function (v) {
+      const d = get(v.ip || "?");
+      if (v.ua) d.uas.add(v.ua);
+      if (v.country) d.countries.add(v.country);
+      if (v.region && !d.state) d.state = v.region;
+      if (v.city && !d.city) d.city = v.city;
+      const ll = (v.loc || "").split(",").map(Number);
+      if (!d.coord && ll.length === 2 && isFinite(ll[0]) && isFinite(ll[1])) d.coord = ll;
+      const place = [v.city, v.region, v.country].filter(Boolean).join(", ");
+      if (place) d.places.add(place);
+      d.ev.push({ t: v.t, s: v.stage, x: (STAGES[v.stage] || v.stage) + (v.want || ""), raw: details(v), d });
+      d.first = Math.min(d.first, v.t); d.last = Math.max(d.last, v.t);
+    });
+    const devs = Object.values(by).map(function (d) {
+      d.ev.sort((a, b) => b.t - a.t);
+      // Unknown country (a proxy-only IP) stays with the US list rather than
+      // being hidden: it cannot be told apart, and hiding it would hide a visitor.
+      d.us = d.countries.size === 0 || d.countries.has("US");
+      if (!d.coord && CITY[d.city]) d.coord = CITY[d.city];
+      if (!d.coord && STATE[d.state]) d.coord = STATE[d.state];
+      return d;
+    }).sort((a, b) => b.last - a.last);
+    const evs = [].concat(...devs.filter((d) => d.us).map((d) => d.ev)).sort((a, b) => b.t - a.t);
+    return { devs, evs };
+  }
+  const blockedOf = (d) => state.blockedIps.has(d.ip) || d.vis.some((v) => v.blocked);
+  const inRange = (e) => !rangeMs || Date.now() - e.t < rangeMs;
+  const pass = (e) => filt === "all" ? true : filt === "cast" ? e.s !== "proxy" : filt === "proxy" ? e.s === "proxy" : !!BAD[e.s];
+
+  /* ---------------------------------------------------------- render -- */
+  function renderMap(evs) {
+    // One dot per cell; the worst thing that happened there sets its colour.
+    const cells = {}, rank = { "": 1, blue: 2, red: 3 }, placed = new Set();
+    let unplaced = 0;
+    evs.forEach(function (e) {
+      const c = e.d.coord;
+      if (!c) { unplaced++; return; }
+      const col = Math.min(COLS - 1, Math.max(0, Math.floor(px(c[1]) / CELL))), row = Math.min(ROWS - 1, Math.max(0, Math.floor(py(c[0]) / CELL)));
+      const k = col + "," + row, cell = cells[k] || (cells[k] = { col, row, k: "", n: 0, last: 0, ips: new Set(), e: null });
+      cell.n++; cell.ips.add(e.d.ip);
+      if (rank[kind(e.s)] > rank[cell.k]) cell.k = kind(e.s);
+      if (e.t > cell.last) { cell.last = e.t; cell.e = e; }
+      placed.add(e.d.ip);
+    });
+    const col = { "": "#f2f2f4", blue: "#4d7cff", red: "#ff4d4f" };
+    const list = Object.values(cells);
+    $("map").innerHTML = landSvg + list.map((c) =>
+      '<rect class="dt" data-ip="' + esc(c.e.d.ip) + '" data-k="' + esc(c.col + "," + c.row) + '" x="' + (c.col + .05) + '" y="' + (c.row + .05) + '" width=".9" height=".9" fill="' + col[c.k] + '" style="cursor:pointer"/>').join("");
+    $("map").__cells = cells;
+    const top = list.sort((a, b) => b.last - a.last).slice(0, 3);
+    $("lbls").innerHTML = top.map((c) => '<div class="lbl" style="left:' + ((c.col + .5) / COLS * 100) + '%;top:' + ((c.row + .5) / ROWS * 100) + '%"><i style="background:' + col[c.k] + '"></i>' +
+      esc((c.e.d.city || c.e.d.state || c.e.d.ip) + " · " + (c.e.x.length > 18 ? c.e.s : c.e.x.toLowerCase())) + "</div>").join("");
+    return { unplaced, cities: list.length };
+  }
+
+  function renderStats(evs, m) {
+    const label = rangeMs === 3600000 ? "1h" : rangeMs === 86400000 ? "24h" : rangeMs === 604800000 ? "7d" : "all time";
+    $("win").textContent = rangeMs ? "Last " + label : "All time";
+    $("statLbl").textContent = "Events, " + (rangeMs ? "last " + label : "all time");
+    $("statN").firstChild.nodeValue = evs.length;
+    $("statC").textContent = "from " + new Set(evs.map((e) => e.d.ip)).size + " IPs";
+    const by = {};
+    evs.forEach(function (e) {
+      const k = e.d.state || (e.d.coord ? "—" : ""); if (!k) return;
+      const s = by[k] || (by[k] = { n: 0, bad: 0, door: 0 });
+      s.n++; if (BAD[e.s]) s.bad++; else if (DOOR[e.s]) s.door++;
+    });
+    const rows = Object.entries(by).sort((a, b) => b[1].n - a[1].n).slice(0, 5), max = Math.max(1, ...rows.map((r) => r[1].n));
+    $("reg").innerHTML = rows.map(function (r) {
+      const sq = Math.max(1, Math.round(r[1].n / max * 16)), sp = r[1].bad ? "r" : r[1].door ? "b" : "";
+      return "<span>" + esc(r[0]) + '</span><span class="bar">' + Array.from({ length: sq }, (_, i) => "<i" + (i === sq - 1 && sp ? ' class="' + sp + '"' : "") + "></i>").join("") + '</span><span class="n">' + r[1].n + "</span>";
     }).join("");
+    $("note").textContent = m.unplaced ? m.unplaced + " event" + (m.unplaced === 1 ? "" : "s") + " have no known US location, so they are in the list but not on the map." : "";
+  }
+
+  function renderRate() {
+    const n = state.evs.filter((e) => Date.now() - e.t < 3600000).length;
+    $("rateN").textContent = " · " + n + (n === 1 ? " event" : " events") + " an hour";
+    $("rateLbl").textContent = paused ? "Paused" : "Live";
+    $("rate").classList.toggle("paused", paused);
+    $("pause").textContent = paused ? "Resume" : "Pause";
+  }
+
+  function renderEvents(evs) {
+    const rows = evs.filter(pass).slice(0, 80);
+    if (!sel && rows[0]) sel = rows[0].d.ip;
+    $("evs").innerHTML = rows.map(function (e) {
+      const k = kind(e.s), d = e.d, txt = e.s === "proxy" ? "Proxy" : "Cast";
+      const where = [d.city, d.state].filter(Boolean).join(", ");
+      const status = BAD[e.s] ? ["red", "Refused"] : DOOR[e.s] ? ["blue", "Door"] : ["", "Allowed"];
+      return '<button type="button" class="ev' + (d.ip === sel ? " sel" : "") + (BAD[e.s] ? " flag" : "") + '" data-ip="' + esc(d.ip) + '">' +
+        '<span class="tm mono">' + esc(clock(e.t)) + '</span><span class="ty">' + txt + '</span><span class="ipn">' + esc(d.ip) + "</span>" +
+        '<span class="ds">' + esc(e.x) + (where ? " · " + esc(where) : "") + " · " + esc(device(Array.from(d.uas)[0])) + '</span>' +
+        '<span class="sc' + (d.ev.some((x) => BAD[x.s]) ? " warn" : "") + '">' + d.ev.length + '</span><span class="st ' + status[0] + '"><i></i>' + status[1] + "</span></button>";
+    }).join("") || '<div class="none">Nothing in this window.</div>';
+  }
+
+  function renderDetail() {
+    const d = state.devs.find((x) => x.ip === sel);
+    if (!d) { $("detail").innerHTML = ""; return; }
+    const isB = blockedOf(d), bads = d.ev.filter((x) => BAD[x.s]).length;
+    const e = exact(Array.from(d.uas)[0]), dev = device(Array.from(d.uas)[0]);
+    const initials = dev.split(/[ ·]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+    const sug = isB ? ["BLOCKED", "This IP is shut out of /cast and the proxy", "Unblock", "unblockip"]
+      : bads ? ["RECOMMENDED", "Block this IP: " + bads + " refused attempt" + (bads === 1 ? "" : "s"), "Block", "blockip"]
+      : ["ALL CLEAR", "No refused attempts from this IP", "Block anyway", "blockip"];
+    $("detail").innerHTML = '<div class="card">' +
+      '<div class="stp"><span class="tag' + (isB ? "" : " ok") + '">' + (isB ? "Blocked" : "Not blocked") + "</span><small>last seen " + esc(ago(d.last)) + " ago</small></div>" +
+      '<div class="who"><span class="av mono">' + esc(initials) + '</span><div><b>' + esc(d.ip) + "</b><small>" + esc(dev) + " · " + esc([...d.places][0] || "location unknown") + "</small></div></div>" +
+      '<div class="sug"><div class="h"><span>' + sug[0] + "</span></div><p>" + esc(sug[1]) + '</p>' +
+        (d.ip === "?" ? "" : '<button type="button" class="btn" data-' + sug[3] + '="' + esc(d.ip) + '">' + sug[2] + "</button>") + "</div>" +
+      '<div class="hdr"><span>Exact device</span></div>' +
+      '<div class="mono" style="font-size:11.5px;color:var(--dim);line-height:1.7">' + esc(e.os) + "<br>" + esc(e.br) + "<br>first seen " + (isFinite(d.first) ? esc(stamp(d.first)) : "?") + "</div>" +
+      '<div class="hdr"><span>How it unfolded</span><span>' + d.ev.length + " events</span></div>" +
+      '<div class="tlx">' + d.ev.slice(0, 10).map((x) =>
+        '<div class="it ' + (BAD[x.s] ? "r" : DOOR[x.s] ? "" : "g") + '"><div><b>' + esc(x.x) + "</b>" + (x.raw ? "<small>" + esc(x.raw) + "</small>" : "") +
+        '</div><time class="mono">' + esc(clock(x.t)) + "</time></div>").join("") + "</div>" +
+      (d.vis.length ? '<div class="hdr"><span>Proxy visitors</span></div>' + d.vis.map((v) =>
+        '<div class="vrow"><span>' + esc(device(v.ua)) + " · " + (v.hits || 0) + ' opened</span><span class="sp"></span>' +
+        (v.blocked ? '<button class="btn ghost sm" data-unblock="' + esc(v.id) + '">Unblock</button>' : '<button class="btn ghost sm" data-block="' + esc(v.id) + '">Block</button>') +
+        '<button class="btn ghost sm" data-del="' + esc(v.id) + '">Forget</button></div>').join("") : "") +
+      "</div>";
+  }
+
+  function paint() {
+    const evs = state.evs.filter(inRange);
+    renderStats(evs, renderMap(evs));
+    renderRate(); renderEvents(evs); renderDetail();
   }
 
   async function load() {
     try {
-      render((await api("GET")).visitors);
-      renderCasts(await api("GET", "?cast=1"));
+      const vis = (await api("GET")).visitors, cast = await api("GET", "?cast=1");
+      const b = build(vis, cast);
+      state = { devs: b.devs, evs: b.evs, blockedIps: new Set(cast.blockedIps || []) };
       $("gate").hidden = true; $("panel").hidden = false;
+      paint();
       sessionStorage.setItem("pxadmin", token);
       if (location.hash) history.replaceState(null, "", location.pathname);
     } catch (e) {
@@ -207,46 +437,57 @@
       if (token) say(e.message, "err");
     }
   }
+  async function act(method, qs, ok, confirmText) {
+    if (confirmText && !confirm(confirmText)) return;
+    try { await api(method, qs); await load(); say(ok, "ok"); } catch (err) { say(err.message, "err"); }
+  }
+  function tick() { clearInterval(timer); timer = paused ? null : setInterval(load, 10000); }
 
+  /* ---------------------------------------------------------- events -- */
   $("unlock").addEventListener("click", function () { token = $("tok").value.trim(); if (token) load(); });
   $("tok").addEventListener("keydown", function (e) { if (e.key === "Enter") $("unlock").click(); });
-  $("refresh").addEventListener("click", load);
-  $("auto").addEventListener("change", function (e) {
-    clearInterval(timer);
-    if (e.target.checked) timer = setInterval(load, 5000);
+  $("pause").addEventListener("click", function () { paused = !paused; tick(); renderRate(); if (!paused) load(); });
+  $("range").addEventListener("click", function (e) {
+    const b = e.target.closest("button"); if (!b) return;
+    rangeMs = Number(b.getAttribute("data-r"));
+    document.querySelectorAll("#range button").forEach((x) => x.classList.toggle("on", x === b));
+    paint();
+  });
+  $("tabs").addEventListener("click", function (e) {
+    const b = e.target.closest("button"); if (!b) return;
+    filt = b.getAttribute("data-f");
+    document.querySelectorAll("#tabs .tab").forEach((x) => x.classList.toggle("on", x === b));
+    renderEvents(state.evs.filter(inRange));
+  });
+  const tip = $("tip");
+  $("map").addEventListener("mouseover", function (e) {
+    const t = e.target.closest(".dt"); if (!t) { tip.hidden = true; return; }
+    const cell = $("map").__cells[t.getAttribute("data-k")], d = cell.e.d, r = $("mapwrap").getBoundingClientRect(), tr = t.getBoundingClientRect();
+    const k = kind(cell.e.s);
+    tip.innerHTML = '<b><i style="background:' + (k === "red" ? "var(--red)" : k === "blue" ? "var(--blue)" : "#f2f2f4") + '"></i>' +
+      esc([d.city, d.state].filter(Boolean).join(", ") || d.ip) + "</b>" + esc(d.ip) + " · " + cell.n + " event" + (cell.n === 1 ? "" : "s") +
+      "<span>" + esc(device(Array.from(d.uas)[0])) + " · " + esc(ago(cell.last)) + " ago</span>";
+    tip.hidden = false;
+    tip.style.left = Math.min(r.width - 230, Math.max(0, tr.left - r.left + 14)) + "px";
+    tip.style.top = Math.max(0, tr.top - r.top + 16) + "px";
+  });
+  $("map").addEventListener("mouseleave", () => { tip.hidden = true; });
+  $("map").addEventListener("click", function (e) {
+    const t = e.target.closest(".dt"); if (t) { sel = t.getAttribute("data-ip"); paint(); }
+  });
+  $("panel").addEventListener("click", function (e) {
+    const t = e.target.closest(".ev,[data-blockip],[data-unblockip],[data-block],[data-unblock],[data-del]");
+    if (!t) return;
+    const g = (k) => t.getAttribute(k);
+    if (t.classList.contains("ev")) { sel = g("data-ip"); renderEvents(state.evs.filter(inRange)); renderDetail(); }
+    else if (g("data-blockip")) act("POST", "?blockip=" + encodeURIComponent(g("data-blockip")), "Blocked.", "Block " + g("data-blockip") + "? It is shut out of /cast and the proxy.");
+    else if (g("data-unblockip")) act("POST", "?unblockip=" + encodeURIComponent(g("data-unblockip")), "Unblocked.");
+    else if (g("data-block")) act("POST", "?block=" + encodeURIComponent(g("data-block")), "Blocked.", "Block this visitor and their IP?");
+    else if (g("data-unblock")) act("POST", "?unblock=" + encodeURIComponent(g("data-unblock")), "Unblocked.");
+    else if (g("data-del")) act("DELETE", "?id=" + encodeURIComponent(g("data-del")), "Forgotten.", "Forget this visitor? Their record and history are deleted.");
   });
 
-  $("casts").addEventListener("click", async function (e) {
-    const b = e.target.getAttribute("data-blockip"), u = e.target.getAttribute("data-unblockip");
-    if (!b && !u) return;
-    try {
-      if (b && !confirm("Block " + b + "? It is shut out of /cast and the proxy.")) return;
-      await api("POST", b ? "?blockip=" + encodeURIComponent(b) : "?unblockip=" + encodeURIComponent(u));
-      renderCasts(await api("GET", "?cast=1"));
-      say(b ? "Blocked." : "Unblocked.", "ok");
-    } catch (err) { say(err.message, "err"); }
-  });
-
-  list.addEventListener("click", async function (e) {
-    const t = e.target;
-    const toggle = t.getAttribute("data-toggle");
-    if (toggle) { $("log-" + toggle).classList.toggle("open"); return; }
-    try {
-      if (t.getAttribute("data-block")) {
-        if (!confirm("Block this visitor and their IP?")) return;
-        render((await api("POST", "?block=" + encodeURIComponent(t.getAttribute("data-block")))).visitors);
-        say("Blocked.", "ok");
-      } else if (t.getAttribute("data-unblock")) {
-        render((await api("POST", "?unblock=" + encodeURIComponent(t.getAttribute("data-unblock")))).visitors);
-        say("Unblocked.", "ok");
-      } else if (t.getAttribute("data-del")) {
-        if (!confirm("Forget this visitor? Their record and history are deleted.")) return;
-        render((await api("DELETE", "?id=" + encodeURIComponent(t.getAttribute("data-del")))).visitors);
-        say("Forgotten.", "ok");
-      }
-    } catch (err) { say(err.message, "err"); }
-  });
-
+  tick();
   load();
 })();
 </script>
