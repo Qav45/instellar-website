@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Cast recording</title>
+<style>
+  html, body { height:100%; margin:0; background:#000; color:#d7dbe2; font:13px/1.4 system-ui, sans-serif; }
+  body { display:flex; flex-direction:column; }
+  #bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:6px 10px; background:#14161b; border-bottom:1px solid #262a33; }
+  #bar button { font:inherit; color:inherit; background:#232733; border:1px solid #343a48; border-radius:6px; padding:4px 12px; cursor:pointer; }
+  #bar button:hover { background:#2c3140; }
+  #go.on { background:#7a1f28; border-color:#a22d39; }
+  #bar label { display:flex; align-items:center; gap:5px; cursor:pointer; }
+  #stat { color:#9ba3b1; font-variant-numeric:tabular-nums; }
+  #out { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  #sum { display:none; margin:0; padding:8px 10px; background:#101217; border-bottom:1px solid #262a33; font:12px/1.5 ui-monospace, Consolas, monospace; white-space:pre-wrap; max-height:34vh; overflow:auto; }
+  #f { flex:1; border:0; width:100%; background:#000; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="go">Start recording</button>
+  <label title="Also record the picture itself to a video file. Encoding it costs the viewer CPU, which shows up in the log as load it would not otherwise have; leave it off to measure the stream as it normally runs."><input type="checkbox" id="vid" checked> video</label>
+  <span id="stat">idle: the log and the video stay in this tab until you download them</span>
+  <span id="out" hidden></span>
+</div>
+<pre id="sum"></pre>
+<iframe id="f" allow="fullscreen; autoplay; clipboard-read; clipboard-write"></iframe>
+
+<script>
+"use strict";
+// Embeds /cast and records everything it can see while a session runs: the once
+// a second numbers, every frame's arrival, decode and paint time, the display's
+// own refresh gaps, long tasks, the device and the link - and, optionally, the
+// picture. The page is same-origin, so it reads window.castProbe off the frame;
+// /cast does no work for it until it is switched on. Nothing leaves the browser:
+// the log and the video are Blobs offered as downloads. The access key in the
+// address bar is never written to the log.
+const $ = (id) => document.getElementById(id);
+const f = $("f");
+f.src = "/cast/" + location.hash;
+
+const log = { meta: null, segments: [], samples: [], events: [], arrivals: [], decodes: [],
+              paints: [], raf: [], long: [], env: [] };
+let rec = false, timer = 0, probe = null, origin = 0, tStart = 0;
+let seg = null, segs = [], observers = [], inputs = { move: 0, down: 0, key: 0, wheel: 0 };
+let rafWin = null;
+
+// Rows from the page are stamped on the frame's own clock; shifting by its
+// timeOrigin makes every table in the log epoch milliseconds, which is also what
+// lines the video up (each segment carries its own start).
+function harvest() {
+  if (!probe) return;
+  for (const s of probe.samples.splice(0)) { s.t += origin; log.samples.push(s); }
+  for (const k of ["events", "arrivals", "decodes", "paints"]) {
+    for (const r of probe[k].splice(0)) { r[0] += origin; log[k].push(r); }
+  }
+}
+
+function attach() {
+  const w = f.contentWindow;
+  let p = null;
+  try { p = w.castProbe; } catch (_) {}
+  if (!p) return;
+  harvest();
+  probe = p; origin = w.performance.timeOrigin;
+  p.samples.length = p.events.length = p.arrivals.length = p.decodes.length = p.paints.length = 0;
+  p.on = true;
+  log.events.push([Date.now(), "recorder", "attached to a page load"]);
+  observers.forEach((o) => o.disconnect()); observers = [];
+  for (const [type, extra] of [["longtask", {}], ["long-animation-frame", {}], ["event", { durationThreshold: 16 }]]) {
+    try {
+      const o = new w.PerformanceObserver((l) => {
+        for (const e of l.getEntries()) log.long.push([w.performance.timeOrigin + e.startTime, e.duration, e.entryType, e.name]);
+      });
+      o.observe(Object.assign({ type }, extra));
+      observers.push(o);
+    } catch (_) {}
+  }
+  const d = w.document;
+  d.addEventListener("pointermove", () => inputs.move++, true);
+  d.addEventListener("pointerdown", () => inputs.down++, true);
+  d.addEventListener("keydown", () => inputs.key++, true);
+  d.addEventListener("wheel", () => inputs.wheel++, true);
+  d.addEventListener("visibilitychange", () => rec && log.events.push([Date.now(), "visibility", d.visibilityState]));
+  // The display's own rhythm, on the frame's rAF: a gap of two refreshes is a
+  // frame the screen could not have shown whatever the stream did.
+  rafWin = w;
+  let last = 0;
+  const step = (t) => {
+    if (!rec || rafWin !== w) return;
+    if (last) log.raf.push([w.performance.timeOrigin + t, t - last]);
+    last = t;
+    w.requestAnimationFrame(step);
+  };
+  w.requestAnimationFrame(step);
+}
+f.addEventListener("load", () => { if (rec) attach(); });
+
+function startVideo() {
+  const c = probe && probe.canvas();
+  if (!c || !c.captureStream || typeof MediaRecorder === "undefined") return;
+  const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m));
+  if (!mime) return;
+  const chunks = [];
+  const mr = new MediaRecorder(c.captureStream(60), { mimeType: mime, videoBitsPerSecond: 8e6 });
+  mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  seg = { canvas: c, mr, chunks, mime, startedEpoch: Date.now(), w: c.width, h: c.height, done: null };
+  seg.done = new Promise((res) => { mr.onstop = () => { seg.stoppedEpoch = Date.now(); seg.blob = new Blob(chunks, { type: mime }); res(); }; });
+  mr.start(1000);
+  segs.push(seg);
+}
+function stopVideo() {
+  const s = seg; seg = null;
+  if (s && s.mr.state !== "inactive") s.mr.stop();
+}
+
+async function meta() {
+  const nav = navigator, c = nav.connection || {};
+  const codecs = {};
+  if (window.VideoDecoder) {
+    for (const [name, codec] of [["h264", "avc1.640028"], ["hevc", "hev1.1.6.L120.B0"], ["av1", "av01.0.08M.08"], ["vp9", "vp09.00.40.08"]]) {
+      codecs[name] = {};
+      for (const hw of ["prefer-hardware", "no-preference"]) {
+        try { codecs[name][hw] = (await VideoDecoder.isConfigSupported({ codec, codedWidth: 1280, codedHeight: 720, hardwareAcceleration: hw })).supported; }
+        catch (e) { codecs[name][hw] = "error: " + e.message; }
+      }
+    }
+  }
+  let battery = null;
+  try { const b = await nav.getBattery(); battery = { level: b.level, charging: b.charging }; } catch (_) {}
+  return {
+    recorder: "cast/recording v1", started: new Date().toISOString(), startedEpoch: Date.now(),
+    userAgent: nav.userAgent, platform: nav.platform, cores: nav.hardwareConcurrency, deviceMemory: nav.deviceMemory,
+    screen: [screen.width, screen.height, devicePixelRatio], window: [innerWidth, innerHeight],
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, language: nav.language,
+    connection: { effectiveType: c.effectiveType, downlink: c.downlink, rtt: c.rtt, saveData: c.saveData },
+    battery, videoDecoder: !!window.VideoDecoder, codecs,
+    mediaRecorder: typeof MediaRecorder !== "undefined", videoRecorded: $("vid").checked,
+    note: "times in tables are epoch ms; samples are per second; arrivals [t, hostTs, bytes, key, decodeQueue]; decodes [t, frameTs]; paints [t, hostMs, paintQueue, delay]; raf [t, gapMs]; long [t, ms, type, name]",
+  };
+}
+
+function second() {
+  harvest();
+  const w = f.contentWindow;
+  const c = navigator.connection || {};
+  let heap = 0; try { heap = w.performance.memory ? w.performance.memory.usedJSHeapSize : 0; } catch (_) {}
+  log.env.push({ t: Date.now(), heap, vis: w.document.visibilityState, focus: w.document.hasFocus() ? 1 : 0,
+                 effectiveType: c.effectiveType, downlink: c.downlink, netRtt: c.rtt, ...inputs });
+  inputs = { move: 0, down: 0, key: 0, wheel: 0 };
+  if ($("vid").checked && probe) {
+    const c2 = probe.canvas();
+    if (c2 && (!seg || seg.canvas !== c2)) { stopVideo(); startVideo(); }
+  }
+  const s = log.samples[log.samples.length - 1];
+  const secs = Math.round((Date.now() - tStart) / 1000);
+  $("stat").textContent = "recording " + Math.floor(secs / 60) + ":" + String(secs % 60).padStart(2, "0") +
+    " · " + log.paints.length + " frames" + (s ? " · in " + s.in.toFixed(0) + " dec " + s.dec.toFixed(0) + " out " + s.out.toFixed(0) +
+    " · rtt " + Math.round(s.rtt) + " ms" : " · waiting for a stream") + (seg ? " · video on" : "");
+}
+
+const pct = (a, p) => a.length ? a[Math.min(a.length - 1, Math.floor(p * a.length))] : null;
+function gaps(rows, i) {
+  const g = [];
+  for (let k = 1; k < rows.length; k++) g.push(rows[k][i] - rows[k - 1][i]);
+  return g;
+}
+function dist(g) {
+  if (!g.length) return null;
+  const s = g.slice().sort((a, b) => a - b), m = pct(s, 0.5);
+  const r = (x) => Math.round(x * 10) / 10;
+  return { n: g.length, p50: r(m), p95: r(pct(s, 0.95)), p99: r(pct(s, 0.99)), max: r(s[s.length - 1]), over1_5x: g.filter((x) => x > m * 1.5).length };
+}
+function summarize() {
+  const S = log.samples, avg = (k) => S.length ? Math.round(S.reduce((a, s) => a + s[k], 0) / S.length * 10) / 10 : null;
+  return {
+    seconds: S.length,
+    meanPerSecond: { delivered: avg("in"), decoded: avg("dec"), painted: avg("out"), vsync: avg("vsync"), missed: avg("miss"), rtt: avg("rtt"), mbps: avg("mbps") },
+    peaks: { decodeQueue: Math.max(0, ...S.map((s) => s.queue)), paintQueue: Math.max(0, ...S.map((s) => s.paintQ)), backlogBytes: Math.max(0, ...S.map((s) => s.backlog)), rtt: Math.max(0, ...S.map((s) => s.rtt)) },
+    ladderStepChanges: S.filter((s, i) => i && s.step !== S[i - 1].step).length,
+    hiddenSeconds: S.filter((s) => s.hidden).length,
+    intervalsMs: { arrival: dist(gaps(log.arrivals, 0)), decode: dist(gaps(log.decodes, 0)), paint: dist(gaps(log.paints, 0)), refresh: dist(log.raf.map((r) => r[1])) },
+    longTasks: log.long.filter((l) => l[2] === "longtask").length,
+    eventsLogged: log.events.length,
+  };
+}
+
+function csv() {
+  const S = log.samples; if (!S.length) return "";
+  const keys = Object.keys(S[0]);
+  return ["iso," + keys.join(",")].concat(S.map((s) => new Date(s.t).toISOString() + "," + keys.map((k) => JSON.stringify(s[k] ?? "")).join(","))).join("\n");
+}
+function save(name, data, type) {
+  const url = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.textContent = name;
+  return a;
+}
+function btn(text, fn) { const b = document.createElement("button"); b.textContent = text; b.onclick = fn; return b; }
+
+async function stop() {
+  rec = false; clearInterval(timer);
+  second();
+  if (probe) probe.on = false;
+  observers.forEach((o) => o.disconnect()); observers = [];
+  stopVideo();
+  await Promise.all(segs.map((s) => s.done));
+  log.segments = segs.map((s, i) => ({ index: i, startedEpoch: s.startedEpoch, stoppedEpoch: s.stoppedEpoch, mime: s.mime, width: s.w, height: s.h, bytes: s.blob ? s.blob.size : 0 }));
+  const sum = summarize();
+  const stamp = new Date(tStart).toISOString().replace(/[:.]/g, "-");
+  const out = $("out"); out.hidden = false; out.textContent = "";
+  const json = save("cast-log-" + stamp + ".json", JSON.stringify({ summary: sum, ...log }), "application/json");
+  out.append(btn("Log .json", () => json.click()), btn("Per-second .csv", () => save("cast-seconds-" + stamp + ".csv", csv(), "text/csv").click()));
+  segs.forEach((s, i) => { if (s.blob) out.append(btn("Video " + (i + 1) + " (" + (s.blob.size / 1048576).toFixed(1) + " MB)", () => save("cast-video-" + stamp + "-" + (i + 1) + ".webm", s.blob).click())); });
+  $("sum").style.display = "block";
+  $("sum").textContent = "Summary\n" + JSON.stringify(sum, null, 1);
+  $("stat").textContent = "stopped: " + log.paints.length + " frames, " + sum.seconds + " s. Nothing is saved until you download it.";
+  $("go").textContent = "Start recording"; $("go").classList.remove("on");
+  window.onbeforeunload = null;
+}
+
+async function start() {
+  for (const k in log) log[k] = Array.isArray(log[k]) ? [] : null;
+  segs = []; seg = null; probe = null; $("out").hidden = true; $("sum").style.display = "none";
+  tStart = Date.now();
+  log.meta = await meta();
+  rec = true;
+  attach();
+  if (!probe) log.events.push([Date.now(), "recorder", "the page has not loaded yet; will attach when it does"]);
+  timer = setInterval(second, 1000);
+  second();
+  $("go").textContent = "Stop and save"; $("go").classList.add("on");
+  window.onbeforeunload = () => "A recording is running; leaving loses it.";
+}
+$("go").onclick = () => (rec ? stop() : start());
+</script>
+</body>
+</html>

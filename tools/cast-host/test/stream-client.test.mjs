@@ -607,7 +607,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
       const i = rafs.findIndex((r) => r[0] === id);
       if (i >= 0) rafs.splice(i, 1);
     },
-    performance: { now: () => clock },
+    performance: { now: () => clock }, castProbe: { on: false },
     document: { hidden: false },
     localStorage: { setItem(k, v) { saved = v; }, getItem: () => saved, removeItem() { saved = null; } },
     VideoDecoder: class {
@@ -1410,7 +1410,7 @@ ok("the queue ceiling is low enough to be a few frames, not a second of them",
     closeVideo() {}, canStream: () => true, streamOff() {}, chooseHeight() {},
     setTimeout: () => 0, setRate() {}, ceilHz: () => 30,
     document: { hidden: false }, $: () => ({ value: "0" }), STREAM_STEPS,
-    performance: { now: () => 5000 }, stats: { window: 0 },
+    performance: { now: () => 5000 }, stats: { window: 0 }, castProbe: { on: false },
     EncodedVideoChunk: class { constructor(o) { Object.assign(this, o); } },
     LAG_QUEUE, LAG_MS, STRAIN_DROP_MS, STRAIN_DROPS, STRAIN_SLOW_MS,
     streamStrain, streamDowngrade() {},

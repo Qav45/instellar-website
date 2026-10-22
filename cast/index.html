@@ -762,6 +762,15 @@ const stats = { rtt: 0, floor: 0, window: 0, mbps: 0 };
 // the readout stays honest about knowing nothing while they are all zero.
 const metrics = { fps: 0, duty: 0, streamHz: 0, backlogBytes: 0,
                   pollMs: 0, rung: 0, ceiling: 0 };
+// The hook /cast/recording reads: that page embeds this one and flips `on`.
+// Nothing is kept unless it is on, so a normal session pays one boolean check.
+// Rows are arrays, not objects, to stay cheap at 60 a second: arrivals
+// [t, hostTs, bytes, key, decodeQueue], decodes [t, frameTs], paints
+// [t, hostMs, paintQueue, delay]. `canvas()` is whichever picture is showing.
+const castProbe = window.castProbe = {
+  on: false, samples: [], events: [], arrivals: [], decodes: [], paints: [],
+  canvas: () => (decoder && vidReady && vidCtxEl) || screenEl.querySelector("canvas"),
+};
 const hud = {
   rtt: $("hRtt").querySelector("b"),
   rate: $("hRate").querySelector("b"),
@@ -977,6 +986,20 @@ function tick() {
     // round trip over its own floor is that queue.
     if (!document.hidden && stats.rtt && stats.floor && stats.rtt - stats.floor > LAG_QUEUE_MS &&
         now - vidSince > LAG_GRACE_MS) { if (!vidLagSince) vidLagSince = now; }
+  if (castProbe.on) {
+    const pic = decoder && vidCtxEl ? vidCtxEl : canvas;
+    castProbe.samples.push({
+      t: now, dt, rtt: stats.rtt, floor: stats.floor, mbps: stats.mbps,
+      in: vidIn, dec: vidFps, out: vidOut, miss: vidMiss, vsync: vidVsync,
+      fps: metrics.fps, duty: metrics.duty, streamHz: metrics.streamHz,
+      backlog: metrics.backlogBytes, pollMs: metrics.pollMs, rung: metrics.rung,
+      ceiling: metrics.ceiling, step: vidStep, hz: vidHz, codec: vidCodec,
+      encoder: vidEncoder, delay: vidDelay, jitter: vidJitter, late: vidLate,
+      queue: decoder ? decoder.decodeQueueSize : 0, paintQ: vidPaint.length,
+      stream: decoder ? 1 : 0, ready: vidReady ? 1 : 0, hiConn: hiConn ? 1 : 0,
+      hidden: document.hidden ? 1 : 0, w: pic ? pic.width : 0, h: pic ? pic.height : 0,
+    });
+  }
     else vidLagSince = 0;
     // Aged out here as well as where they are recorded: with the drops stopped
     // nothing else touches the list, and a stale entry would read as a rough
@@ -1478,6 +1501,7 @@ function veil(html, onReady) {
   if (onReady) onReady(el);
 }
 
+  if (castProbe.on) castProbe.events.push([performance.now(), kind, text]);
 function hideVeil() {
   const el = $("veil");
   if (el) el.remove();
@@ -2526,7 +2550,10 @@ const STALL_MS = 5000;
 // Video toggle would have asked for. Sixty frames are held while there are
 // bytes left to give: two steps take bitrate alone, and the frame rate is only
 // halved at the bottom, as the last thing before giving up on the stream.
-const STREAM_STEPS = [{ fps: 60, mbps: 1 }, { fps: 60, mbps: 0.6 }, { fps: 60, mbps: 0.35 }, { fps: 30, mbps: 0.3 }];
+// `h`, where set, also caps the picture height: the last two rungs have so few
+// bytes per pixel that a tall picture is mush at any frame rate, so they trade
+// rows for sharpness and keep the frames.
+const STREAM_STEPS = [{ fps: 60, mbps: 1 }, { fps: 60, mbps: 0.6 }, { fps: 60, mbps: 0.35, h: 720 }, { fps: 30, mbps: 0.3, h: 720 }];
 const STEP_UP_MS = 30000;      // this long without strain and the pace is asked for back
 // Higher Connectivity's top rung. On a game over the tunnel 16 never held and
 // 5.6 always did; 8 leaves room above that, and the rungs below are 4.8, 2.8
@@ -3188,6 +3215,7 @@ function streamPaint() {
   vidRaf = requestAnimationFrame(streamPaint);
 }
 
+        if (castProbe.on) castProbe.paints.push([now, show.ms, vidPaint.length, vidDelay]);
 // A window that changed size wants a different picture - but not on every
 // event a drag emits, and not for a change too small to see. The cap is part
 // of what the host joins two viewers on, so every change to it restarts the
@@ -3242,7 +3270,7 @@ function openVideo() {
   const picked = hiConn ? Math.min(asked, HC_MBPS) : asked;
   // Higher Connectivity: no taller than 720p and no sharper than Normal, which
   // makes a keyframe several times smaller and the clump behind it with it.
-  const maxh = hiConn ? Math.min(vidMaxh, 720) : vidMaxh;
+  const maxh = hiConn ? Math.min(vidMaxh, 720) : Math.min(vidMaxh, step.h || vidMaxh);
   const cq = hiConn ? Math.max(0, Number($("vidCq").value)) : $("vidCq").value;
   const url = endpoint.replace("/ws?", "/video?") + "&fps=" + step.fps +
               "&mbps=" + Math.round(picked * step.mbps * 10) / 10 +
@@ -3303,6 +3331,7 @@ function openVideo() {
     // empty queue, so asked then this was true before the burst began and
     // shielded nothing - every lag drop after the one-second grace counted.
     if (!vidDrained && vidReady && decoder.decodeQueueSize <= 1) vidDrained = true;
+    if (castProbe.on) castProbe.arrivals.push([vidLastAu, f.timestamp, e.data.byteLength, f.key ? 1 : 0, decoder.decodeQueueSize]);
     if (g.waitKey && !vidWaitKey && vidReady && !document.hidden && vidDrained &&
         performance.now() - vidSince > STRAIN_GRACE_MS) {
       const now = performance.now();
@@ -3399,6 +3428,7 @@ function configureVideo(cfg) {
       // stays in another tab, and a tab coming back would paint a lump of
       // history all at once.
       if (document.hidden) { streamDrop(frame); streamFlush(); return; }
+      if (castProbe.on) castProbe.decodes.push([performance.now(), frame.timestamp]);
       // Into the queue rather than straight onto the canvas: the clock says
       // when, and the loop it starts is what says it.
       streamHold(frame, performance.now());
