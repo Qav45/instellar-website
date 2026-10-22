@@ -238,12 +238,14 @@ async function start() {
   catch (e) { log.meta = { error: String(e && e.message || e), startedEpoch: Date.now(), userAgent: navigator.userAgent, videoRecorded: $("vid").checked }; }
   $("go").disabled = false;
   rec = true;
-  attach();
-  if (!probe) log.events.push([Date.now(), "recorder", "the page has not loaded yet; will attach when it does"]);
-  timer = setInterval(second, 1000);
-  second();
   $("go").textContent = "Stop and save"; $("go").classList.add("on");
   window.onbeforeunload = () => "A recording is running; leaving loses it.";
+  // A throw here used to leave the button stuck with no clue why; show it instead.
+  const guard = (fn) => () => { try { fn(); } catch (e) { $("stat").textContent = "recorder error: " + (e && e.message || e); log.events.push([Date.now(), "recorder-error", String(e && e.stack || e)]); } };
+  guard(attach)();
+  if (!probe) log.events.push([Date.now(), "recorder", "the page has not loaded yet; will attach when it does"]);
+  timer = setInterval(guard(second), 1000);
+  guard(second)();
 }
 $("go").onclick = () => (rec ? stop() : start());
 </script>
