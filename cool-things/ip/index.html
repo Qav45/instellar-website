@@ -126,15 +126,9 @@
   .vrow { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:var(--dim); }
   .vrow .sp { flex:1; }
 
-  .rep .story { font-size:13.5px; line-height:1.6; margin:14px 0 12px; color:#d8d8de; }
-  .rep .story b { color:#fff; font-weight:600; }
-  .verdict { border:1px solid #26262c; border-left:3px solid #5d5d65; border-radius:6px; padding:9px 12px; background:#0b0b0d; }
-  .verdict.red { border-left-color:var(--red); } .verdict.blue { border-left-color:var(--blue); }
-  .verdict span { font-size:10px; letter-spacing:.06em; color:var(--mut); }
-  .verdict p { font-size:12.5px; margin-top:2px; }
-  .ctx { padding-left:16px; font-size:12.5px; color:var(--dim); line-height:1.65; }
-  .ctx b { color:var(--txt); font-weight:500; }
   .kvs { display:grid; gap:5px; }
+  .sumry { margin:16px 0 4px; padding:12px 14px; border:1px solid var(--line); border-radius:8px; background:#0b0b0d; }
+  .sumry .kv { grid-template-columns:70px 1fr; font-size:12.5px; } .sumry .kv b { color:var(--txt); }
   .kv { display:grid; grid-template-columns:118px 1fr; gap:10px; font-size:12px; }
   .kv span { color:var(--mut); } .kv b { font-weight:400; color:#d8d8de; word-break:break-word; }
   .raw { font-size:10.5px; color:var(--dim); background:#0b0b0d; border:1px solid var(--line); border-radius:6px; padding:10px; max-height:200px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
@@ -327,11 +321,15 @@
       if (!d.coord && ll.length === 2 && isFinite(ll[0]) && isFinite(ll[1])) d.coord = ll;
       const place = [v.city, v.region, v.country].filter(Boolean).join(", ");
       if (place) d.places.add(place);
-      d.ev.push({ t: v.t, s: v.stage, x: (STAGES[v.stage] || v.stage) + (v.want || ""), raw: details(v), v, d });
+      const evc = ll.length === 2 && isFinite(ll[0]) && isFinite(ll[1]) ? ll : (CITY[v.city] || STATE[v.region] || null);
+      d.ev.push({ t: v.t, s: v.stage, x: (STAGES[v.stage] || v.stage) + (v.want || ""), raw: details(v), v, d, city: v.city || "", state: v.region || "", coord: evc });
       d.first = Math.min(d.first, v.t); d.last = Math.max(d.last, v.t);
     });
     const devs = Object.values(by).map(function (d) {
       d.ev.sort((a, b) => b.t - a.t);
+      // Proxy events carry no location of their own; borrow the IP's newest cast one.
+      const nw = d.ev.find((q) => q.s !== "proxy" && (q.city || q.state || q.coord));
+      d.ev.forEach((q) => { if (q.s === "proxy" && nw) { q.city = nw.city; q.state = nw.state; q.coord = nw.coord; } });
       // Unknown country (a proxy-only IP) stays with the US list rather than
       // being hidden: it cannot be told apart, and hiding it would hide a visitor.
       d.us = d.countries.size === 0 || d.countries.has("US");
@@ -352,7 +350,7 @@
     const cells = {}, rank = { "": 1, blue: 2, red: 3 }, placed = new Set();
     let unplaced = 0;
     evs.forEach(function (e) {
-      const c = e.d.coord;
+      const c = e.coord;
       if (!c) { unplaced++; return; }
       const col = Math.min(COLS - 1, Math.max(0, Math.floor(px(c[1]) / CELL))), row = Math.min(ROWS - 1, Math.max(0, Math.floor(py(c[0]) / CELL)));
       const k = col + "," + row, cell = cells[k] || (cells[k] = { col, row, k: "", n: 0, last: 0, ips: new Set(), e: null });
@@ -368,7 +366,7 @@
     $("map").__cells = cells;
     const top = list.sort((a, b) => b.last - a.last).slice(0, 3);
     $("lbls").innerHTML = top.map((c) => '<div class="lbl" style="left:' + ((c.col + .5) / COLS * 100) + '%;top:' + ((c.row + .5) / ROWS * 100) + '%"><i style="background:' + col[c.k] + '"></i>' +
-      esc((c.e.d.city || c.e.d.state || c.e.d.ip) + " · " + (c.e.x.length > 18 ? c.e.s : c.e.x.toLowerCase())) + "</div>").join("");
+      esc((c.e.city || c.e.state || c.e.d.ip) + " · " + (c.e.x.length > 18 ? c.e.s : c.e.x.toLowerCase())) + "</div>").join("");
     return { unplaced, cities: list.length };
   }
 
@@ -380,7 +378,7 @@
     $("statC").textContent = "from " + new Set(evs.map((e) => e.d.ip)).size + " IPs";
     const by = {};
     evs.forEach(function (e) {
-      const k = e.d.state || (e.d.coord ? "—" : ""); if (!k) return;
+      const k = e.state || (e.coord ? "—" : ""); if (!k) return;
       const s = by[k] || (by[k] = { n: 0, bad: 0, door: 0 });
       s.n++; if (BAD[e.s]) s.bad++; else if (DOOR[e.s]) s.door++;
     });
@@ -405,7 +403,7 @@
     if (!sel && rows[0]) { sel = rows[0].d.ip; selKey = evKey(rows[0]); }
     $("evs").innerHTML = rows.map(function (e) {
       const k = kind(e.s), d = e.d, txt = e.s === "proxy" ? "Proxy" : "Cast";
-      const where = [d.city, d.state].filter(Boolean).join(", ");
+      const where = [e.city, e.state].filter(Boolean).join(", ");
       const status = BAD[e.s] ? ["red", "Refused"] : DOOR[e.s] ? ["blue", "Door"] : ["", "Allowed"];
       return '<button type="button" class="ev' + (evKey(e) === selKey ? " sel" : "") + (BAD[e.s] ? " flag" : "") + '" data-ip="' + esc(d.ip) + '" data-key="' + esc(evKey(e)) + '">' +
         '<span class="tm mono">' + esc(clock(e.t)) + '</span><span class="ty">' + txt + '</span><span class="ipn">' + esc(d.ip) + "</span>" +
@@ -444,7 +442,7 @@
     // Not proven either way: compare against everything marked mine.
     const mineEv = state.evs.filter((q) => q.v && ((q.v.page && q.v.page.did && M.has("d:" + q.v.page.did)) || M.has("ip:" + q.d.ip)));
     const sameUa = mineEv.some((q) => (Array.from(q.d.uas)[0] || "") === ua && ua);
-    const sameCity = mineEv.some((q) => q.d.city && q.d.city === e.d.city);
+    const sameCity = mineEv.some((q) => q.city && q.city === e.city);
     if (!M.size) return { k: "unk", t: "Unknown", why: "Nothing is marked as yours yet. Press “This device is me” at the top, or mark an event below." };
     if (sameUa && sameCity) return { k: "maybe", t: "Maybe you", why: "Same browser build and same city as your marked device, but the device id and IP are new." };
     if (sameUa) return { k: "maybe", t: "Maybe you", why: "Same browser build as your marked device, but a different place and IP." };
@@ -454,22 +452,6 @@
   function explain(e) {
     const d = e.d, v = e.v || {}, p = v.page || {}, m = MEANING[e.s] || [e.x, "A " + e.s + " event was logged.", ""];
     const ua = Array.from(d.uas)[0] || "", x = exact(ua);
-    const mine = d.ev.slice().sort((a, b) => a.t - b.t), i = mine.indexOf(e);
-    const prev = mine[i - 1], next = mine[i + 1];
-    const sess = mine.filter((q) => Math.abs(q.t - e.t) < 1800000);
-    const okw = BAD[e.s] ? "red" : DOOR[e.s] ? "blue" : "g";
-    const story = "At <b>" + esc(stamp(e.t)) + "</b>, <b>" + esc(d.ip) + "</b>" + (d.city ? " (" + esc([d.city, d.state, v.country].filter(Boolean).join(", ")) + ")" : "") +
-      " " + esc(m[0].charAt(0).toLowerCase() + m[0].slice(1)) + ". " + esc(m[1]);
-    const ctx = [];
-    ctx.push("This was event <b>" + (i + 1) + " of " + mine.length + "</b> from this IP" + (i === 0 ? " and the <b>first time it was seen</b>." : "."));
-    if (prev) ctx.push("The previous event was “" + esc(prev.x) + "” " + dur(e.t - prev.t) + " earlier.");
-    if (next) ctx.push("Next it “" + esc(next.x) + "” " + dur(next.t - e.t) + " later.");
-    else ctx.push("Nothing from this IP has been logged since.");
-    ctx.push(sess.length + " event" + (sess.length === 1 ? "" : "s") + " from this IP within 30 minutes of this one.");
-    const refusedBefore = mine.slice(0, i).filter((q) => BAD[q.s]).length;
-    if (BAD[e.s] && refusedBefore) ctx.push("It had already been refused <b>" + refusedBefore + "</b> time" + (refusedBefore === 1 ? "" : "s") + " before this.");
-    const gotIn = mine.slice(i + 1).find((q) => DOOR[q.s]);
-    if (BAD[e.s] && gotIn) ctx.push("It later got through (“" + esc(gotIn.x) + "” at " + esc(clock(gotIn.t)) + ").");
     const req = [
       row("Stage", esc(e.s)), row("Time", esc(stamp(e.t)) + " · " + esc(ago(e.t)) + " ago"),
       row("Host header", esc(v.host)), row("Fetch site", esc(v.site)), row("Fetch mode", esc(v.mode)), row("Referrer", esc(v.ref)),
@@ -482,8 +464,8 @@
     ].join("");
     const loc = [
       row("IP", esc(d.ip)), row("Forwarded chain", v.xff && v.xff !== d.ip ? esc(v.xff) : ""),
-      row("City", esc(v.city || d.city)), row("Postal code", esc(v.zip)), row("Region", esc(v.region || d.state)), row("Country", esc(v.country)),
-      row("Coordinates", v.loc ? esc(v.loc) + " (from the IP, roughly city-level)" : ""),
+      row("City", esc(e.city)), row("Postal code", esc(v.zip)), row("Region", esc(e.state)), row("Country", esc(v.country)),
+      row("Coordinates", v.loc ? esc(v.loc) + " (the IP provider's hub, often a town or two off, not the street)" : ""),
       row("IP time zone", esc(v.tz)), row("Browser time zone", esc(p.tz)),
       row("Zones match", v.tz && p.tz ? (v.tz === p.tz ? "yes" : "<span style='color:var(--amber)'>no: possible VPN or a traveller</span>") : ""),
     ].join("");
@@ -506,10 +488,18 @@
       (pid ? (state.mine.has(pid) ? '<button class="btn ghost sm" data-notme="' + esc(pid) + '">Not my device</button>' : '<button class="btn sm" data-me="' + esc(pid) + '">That was my device</button>') : "") +
       (state.mine.has("ip:" + d.ip) ? '<button class="btn ghost sm" data-notme="ip:' + esc(d.ip) + '">Not my IP</button>' : '<button class="btn ghost sm" data-me="ip:' + esc(d.ip) + '">That was my IP</button>') +
       (pid ? "" : "<small>No device id on this event (logged before ids existed), so only the IP can be marked.</small>") + "</div></div>";
-    return '<div class="rep"><div class="stp"><span class="tag' + (BAD[e.s] ? "" : " ok") + '">' + esc(m[0]) + "</span><small>" + esc(clock(e.t)) + "</small></div>" +
-      who + '<p class="story">' + story + "</p>" +
-      '<div class="verdict ' + okw + '"><span>ASSESSMENT</span><p>' + esc(m[2]) + "</p></div>" +
-      '<div class="hdr"><span>Where it fits</span></div><ul class="ctx">' + ctx.map((c) => "<li>" + c + "</li>").join("") + "</ul>" +
+    const when = new Date(e.t);
+    const sum = [
+      ["Event", m[0]],
+      ["Time", when.toLocaleTimeString("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" })],
+      ["Date", when.toLocaleDateString("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric", year: "numeric" })],
+      ["IP", d.ip],
+      ["From", ([e.city, e.state, v.country].filter(Boolean).join(", ") || "unknown") + (v.loc || e.city ? " (from the IP, approximate)" : "")],
+      ["Browser", x.br],
+      ["Device", device(ua) + (p.model ? " · " + p.model : "")],
+      ["OS", x.os],
+    ].map((r) => '<div class="kv"><span>' + esc(r[0]) + ":</span><b>" + esc(r[1]) + "</b></div>").join("");
+    return '<div class="rep">' + who + '<div class="kvs sumry">' + sum + "</div>" +
       sect("The request", req) + sect("Where from", loc) + sect("Exact device", dev) +
       '<div class="hdr"><span>Raw record</span></div><pre class="raw mono">' + esc(JSON.stringify(Object.keys(v).length ? v : { t: e.t, stage: e.s, url: e.raw }, null, 1)) + "</pre></div>";
   }
@@ -598,7 +588,7 @@
     const cell = $("map").__cells[t.getAttribute("data-k")], d = cell.e.d, r = $("mapwrap").getBoundingClientRect(), tr = t.getBoundingClientRect();
     const k = kind(cell.e.s);
     tip.innerHTML = '<b><i style="background:' + (k === "red" ? "var(--red)" : k === "blue" ? "var(--blue)" : "#f2f2f4") + '"></i>' +
-      esc([d.city, d.state].filter(Boolean).join(", ") || d.ip) + "</b>" + esc(d.ip) + " · " + cell.n + " event" + (cell.n === 1 ? "" : "s") +
+      esc([cell.e.city, cell.e.state].filter(Boolean).join(", ") || d.ip) + "</b>" + esc(d.ip) + " · " + cell.n + " event" + (cell.n === 1 ? "" : "s") +
       "<span>" + esc(device(Array.from(d.uas)[0])) + " · " + esc(ago(cell.last)) + " ago</span>";
     tip.hidden = false;
     tip.style.left = Math.min(r.width - 230, Math.max(0, tr.left - r.left + 14)) + "px";
