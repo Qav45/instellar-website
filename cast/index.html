@@ -4004,12 +4004,24 @@ function gpu() {
 async function visit(stage) {
   if (DIRECT) return;
   try {
+    const n = navigator, c = n.connection || {}, u = n.userAgentData;
+    // Chrome hides the exact model (a Chromebook's name) behind this call.
+    let hi = {};
+    if (u && u.getHighEntropyValues && stage !== "leave") {
+      hi = await Promise.race([u.getHighEntropyValues(["model", "platformVersion", "architecture", "bitness", "uaFullVersion"]),
+        new Promise((r) => setTimeout(r, 400, {}))]).catch(() => ({}));
+    }
     fetch("/api/cast?visit=" + stage + "&r=" + encodeURIComponent(document.referrer.slice(0, 200)),
       { method: "POST", keepalive: true, body: JSON.stringify({
+        did: stableId(localStorage, "castDid"), sid: stableId(sessionStorage, "castSid"),
         scr: screen.width + "x" + screen.height, win: innerWidth + "x" + innerHeight, dpr: devicePixelRatio,
         lang: (n.languages || [n.language]).join(","), tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
         plat: n.platform, cores: n.hardwareConcurrency, mem: n.deviceMemory, touch: n.maxTouchPoints,
         net: [c.effectiveType, c.downlink, c.rtt].join("/"), url: location.pathname + location.search,
+        gpu: gpu(), dark: matchMedia("(prefers-color-scheme: dark)").matches ? 1 : 0, wd: n.webdriver ? 1 : 0,
+        mob: u ? (u.mobile ? 1 : 0) : undefined, brands: u ? u.brands.map((b) => b.brand + " " + b.version).join(", ").slice(0, 120) : undefined,
+        model: hi.model, pv: hi.platformVersion, arch: hi.architecture && hi.architecture + (hi.bitness ? "/" + hi.bitness : ""), full: hi.uaFullVersion,
+        link: location.hash ? 1 : 0, ms: stage === "leave" ? Math.round(performance.now()) : undefined,
       }) }).catch(() => {});
   } catch (_) {}
 }
@@ -4025,24 +4037,11 @@ let walk = 0, vel = 0, goal = null, yaw = 0, bobAmp = 0, stride = 0, lastFrame =
 let ptrX = 0, ptrY = 0, mYaw = 0, mPitch = 0;
 let doorCode = "";
 const held = new Set();
-    const n = navigator, c = n.connection || {}, u = n.userAgentData;
-    // Chrome hides the exact model (a Chromebook's name) behind this call.
-    let hi = {};
-    if (u && u.getHighEntropyValues && stage !== "leave") {
-      hi = await Promise.race([u.getHighEntropyValues(["model", "platformVersion", "architecture", "bitness", "uaFullVersion"]),
-        new Promise((r) => setTimeout(r, 400, {}))]).catch(() => ({}));
-    }
 
 function showRoom() {
-        did: stableId(localStorage, "castDid"), sid: stableId(sessionStorage, "castSid"),
   if (inRoom) return;
   inRoom = true;
   const room = $("room");
-    const n = navigator, c = n.connection || {};
-        gpu: gpu(), dark: matchMedia("(prefers-color-scheme: dark)").matches ? 1 : 0, wd: n.webdriver ? 1 : 0,
-        mob: u ? (u.mobile ? 1 : 0) : undefined, brands: u ? u.brands.map((b) => b.brand + " " + b.version).join(", ").slice(0, 120) : undefined,
-        model: hi.model, pv: hi.platformVersion, arch: hi.architecture && hi.architecture + (hi.bitness ? "/" + hi.bitness : ""), full: hi.uaFullVersion,
-        link: location.hash ? 1 : 0, ms: stage === "leave" ? Math.round(performance.now()) : undefined,
   room.hidden = false;
   if (REDUCED) {
     walk = DOOR_Z; vel = 0; goal = null;
@@ -4293,6 +4292,7 @@ function enter() {
 // The hash is stripped from the URL by the boot block above like any other, so a
 // reload with nothing in the address bar puts the cover back.
 visit("open");
+addEventListener("pagehide", () => visit("leave"));
 if (SKIP_COVER) enter();
 else {
   $("downMeta").textContent = "Incident " + Math.random().toString(16).slice(2, 10).toUpperCase() +
@@ -4313,7 +4313,6 @@ else {
   $("padX").addEventListener("click", () => setPad(false));
   $("padKeys").addEventListener("click", (e) => {
     const b = e.target.closest("button");
-addEventListener("pagehide", () => visit("leave"));
     if (b && b.dataset.k) press(b.dataset.k);
   });
   document.addEventListener("pointermove", (e) => {
