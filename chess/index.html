@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chess camera · Instellar</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.5 system-ui, sans-serif; background: #101418; color: #edf2f5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1150px; margin: auto; padding: 24px; }
+    h1 { margin: 0 0 6px; font-size: clamp(1.7rem, 4vw, 2.5rem); }
+    h2 { margin: 0 0 12px; font-size: 1.15rem; }
+    p { margin: 0 0 14px; color: #b8c5cc; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr); gap: 18px; }
+    .card { background: #1a2228; border: 1px solid #33414a; border-radius: 15px; padding: 18px; }
+    .camera { position: relative; width: 100%; background: #090c0f; border-radius: 10px; overflow: hidden; }
+    video, #overlay { width: 100%; height: auto; display: block; }
+    #overlay { position: absolute; inset: 0; cursor: crosshair; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+    button { color: #091a17; background: #72e0b6; border: 0; border-radius: 8px; padding: 10px 13px; font: inherit; font-weight: 700; cursor: pointer; }
+    button.secondary { background: #36464f; color: #edf2f5; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    label { display: block; margin: 10px 0; }
+    input[type=text] { width: 100%; background: #10171b; border: 1px solid #53656e; color: #fff; border-radius: 7px; padding: 10px; font: inherit; }
+    input[type=checkbox] { accent-color: #72e0b6; }
+    #status { min-height: 3em; color: #d7e7e0; }
+    #board { display: grid; grid-template-columns: repeat(8, 1fr); width: min(100%, 400px); aspect-ratio: 1; margin: 10px auto 16px; border: 3px solid #6c7d77; }
+    .square { display: grid; place-items: center; font-size: clamp(21px, 4vw, 39px); line-height: 1; color: #151d20; text-shadow: 0 1px 2px #fff8; }
+    .light { background: #d8dfd3; } .dark { background: #749088; }
+    .square.mark { box-shadow: inset 0 0 0 5px #f9cb5a; }
+    #answer { font-size: 1.4rem; color: #92ebc5; font-weight: 700; min-height: 2em; }
+    small { color: #a7b6be; }
+    .fine { font-size: .85rem; }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } main { padding: 14px; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Chess camera</h1>
+  <p>Track moves on a physical board and ask Stockfish for Black’s best move. Keep the camera fixed above the board.</p>
+  <div class="layout">
+    <section class="card">
+      <h2>1. Aim and align</h2>
+      <p>Place the whole board in view. Start the camera, then tap its four <strong>outer board corners</strong> in order: top left, top right, bottom right, bottom left. Keep hands out of view when reading a move.</p>
+      <div class="camera"><video id="video" autoplay playsinline muted></video><canvas id="overlay"></canvas></div>
+      <div class="actions">
+        <button id="start">Start camera</button>
+        <button id="stop" class="secondary">Stop camera</button>
+        <button id="resetCorners" class="secondary">Align corners again</button>
+        <button id="baseline" class="secondary">Set baseline</button>
+      </div>
+      <label><input id="blackBottom" type="checkbox"> Black pieces are nearest the bottom of the camera view</label>
+      <p class="fine">Camera images stay in your browser memory. No frame is uploaded or saved. The chess engine runs in your browser too.</p>
+      <h2>2. Read each move</h2>
+      <p>Begin with the standard setup or enter a FEN below for a game already in progress. After each physical move, press Read move and confirm the suggestion.</p>
+      <div class="actions">
+        <button id="read">Read move</button>
+        <button id="confirm" class="secondary" disabled>Confirm detected move</button>
+      </div>
+      <label>Correct a missed move (e.g. e2e4 or e7e8q)<input id="manual" type="text" autocomplete="off" spellcheck="false" placeholder="Enter a move"></label>
+      <button id="applyManual" class="secondary">Apply move</button>
+      <p id="status" role="status">Start the camera to begin.</p>
+    </section>
+    <section class="card">
+      <h2>Position</h2>
+      <div id="board" aria-label="Current chess position"></div>
+      <label>FEN position<input id="fen" type="text" spellcheck="false" aria-label="FEN position"></label>
+      <div class="actions"><button id="loadFen" class="secondary">Load FEN</button><button id="newGame" class="secondary">New game</button></div>
+      <h2>3. Best move for Black</h2>
+      <p>After White’s move is confirmed, analyze the current position.</p>
+      <button id="analyze">Find Black’s move</button>
+      <div id="answer" aria-live="polite"></div>
+      <small>Suggestions are for analysis and practice. You remain responsible for checking the detected board position.</small>
+      <p class="fine" style="margin-top:16px">Chess rules: <a href="https://github.com/jhlywa/chess.js">chess.js</a> (BSD). Engine: <a href="https://github.com/nmrugg/stockfish.js">Stockfish.js</a> (GPLv3; <a href="vendor/stockfish-COPYING.txt">license</a>).</p>
+    </section>
+  </div>
+</main>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

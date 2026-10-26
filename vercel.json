@@ -1,6 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
+    { "source": "/chess", "destination": "/chess/index.html" },
+    { "source": "/chess/", "destination": "/chess/index.html" },
     { "source": "/api/p/:__pxp(.*)", "destination": "/api/px" },
     { "source": "/:__pxesc((?!api/).*)", "destination": "/api/px" }
   ]
