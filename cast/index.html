@@ -170,6 +170,9 @@
 
   /* ---- screen ---- */
   #screen { flex:1 1 auto; min-height:0; background:#000; position:relative; }
+  /* The capture has no cursor in it, so noVNC gets a blank one from the host and
+     paints a dot over the pointer. Keep the browser's own arrow. */
+  #screen canvas { cursor:default !important; }
 
   /* ---- video mode ---- */
   /* The toolbar floats over the picture and fades once the mouse rests, so a
@@ -1837,7 +1840,7 @@ function connect() {
   rfb = me;
   me.background = "#000";
   me.focusOnClick = true;
-  me.showDotCursor = true;
+  me.showDotCursor = false;
   applyQuality();
   applyFit();
   me.viewOnly = $("look").classList.contains("on");
