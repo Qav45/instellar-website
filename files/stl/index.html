@@ -3,23 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>STL Files | Instellar</title>
-  <meta name="description" content="Download the Leesville Wampus Cat 3D relief STL model.">
+  <title>3D Print Files | Instellar</title>
+  <meta name="description" content="Download the Leesville Wampus Cat 3D print model in color 3MF or single-color STL format.">
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b0b12; color: #f4f4f7; }
-    main { width: min(36rem, calc(100% - 2rem)); padding: 2rem; border: 1px solid #393948; border-radius: 1rem; background: #171720; }
-    h1 { margin-top: 0; }
-    a { color: #ffe0a3; }
-    .download { display: inline-block; margin-top: 1rem; padding: .8rem 1.1rem; border-radius: .5rem; background: #c89a41; color: #111; font-weight: 700; text-decoration: none; }
+    main { width: min(48rem, calc(100% - 2rem)); margin: 2rem auto; padding: 2rem; border: 1px solid #393948; border-radius: 1rem; background: #171720; }
+    h1 { margin: 0 0 .5rem; }
+    p { line-height: 1.5; }
+    img { display: block; width: min(100%, 28rem); margin: 1.5rem auto; border-radius: .5rem; }
+    .downloads { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.5rem; }
+    .download { display: inline-block; padding: .8rem 1.1rem; border-radius: .5rem; background: #c89a41; color: #111; font-weight: 700; text-decoration: none; }
     .download:hover, .download:focus-visible { background: #e3b75e; }
+    .secondary { background: #303044; color: #fff; }
+    .secondary:hover, .secondary:focus-visible { background: #45455f; }
+    small { display: block; margin-top: 1rem; color: #c9c9d2; line-height: 1.5; }
   </style>
 </head>
 <body>
   <main>
-    <h1>STL files</h1>
-    <p>Leesville Wampus Cat logo — raised 3D relief, approximately 95 mm across.</p>
-    <a class="download" href="/files/stl/leesville-wampus-cat.stl" download>Download STL model</a>
+    <h1>Leesville Wampus Cat 3D model</h1>
+    <p>A 97 mm medallion with a smooth, 2.4 mm base and 0.6 mm raised artwork.</p>
+    <img src="/files/stl/leesville-wampus-cat-preview.png" width="640" height="640" alt="Black Wampus Cat medallion with gold lettering, a white tiger face, and pink details">
+    <div class="downloads">
+      <a class="download" href="/files/stl/leesville-wampus-cat-color.3mf" download>Download color 3MF</a>
+      <a class="download secondary" href="/files/stl/leesville-wampus-cat.stl" download>Download single-color STL</a>
+    </div>
+    <small>The 3MF has separate black, gold, white, and pink parts. Assign each part to a matching filament in your slicer. The STL is one watertight solid and prints in one color.</small>
   </main>
 </body>
 </html>
